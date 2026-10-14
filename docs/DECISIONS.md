@@ -1,0 +1,173 @@
+# Clubwire 설계 결정 기록
+
+원 요구사항 문서(이하 "원문")와 2026-10-14 Q&A 결과를 코드에 반영하면서 정한 내용이다.
+형식: **무엇이 → 어떻게 바뀌었나 → 이유**.
+
+---
+
+## 1. Q&A 확정 사항
+
+| # | 항목 | 결정 | 코드 위치 |
+|---|---|---|---|
+| 2.1 | 테이블/컬럼 명명 | 대문자 SNAKE_CASE (`MEMBER_ID`) | `app/models/*` |
+| 2.2 | PK | `BIGINT AUTO_INCREMENT` | `app/models/base.py` |
+| 2.3 | YN 컬럼 | BOOLEAN(TINYINT(1)). 컬럼명은 원문대로 `…_YN` 유지 | 전 모델 |
+| 2.4 | 상태값 | VARCHAR + 앱 Enum(가장 대중적인 방식) | `app/models/enums.py` |
+| 2.5 | FK | 물리 FK 전부 적용 | `docs/schema.sql` |
+| 2.6 | DB | MySQL 8.0 (JSON, 튜플 비교 사용) | |
+| 3.1 | 대진 | ~~밀어내기 규칙~~ → **매 경기 관리자가 두 팀을 지정**(10-14 스토리보드 메모로 변경). 시스템은 '가장 오래 쉰 두 팀'을 미리 채워 줄 뿐 | `strategies/match_order.py`, `NextMatchSheet` |
+| 3.2 | 경기 수 | 미리 정하지 않음. 다음 경기를 1건씩 생성, GAME_NO + 시작 시각만 기록 | `match_service.create_next_match` |
+| 3.3 | 종료 | 자동 종료(`MATCH_AUTO_END_YN`) + 관리자 END 둘 다. 조기 종료(`MATCH_EARLY_END_GOALS`) 설정 | `jobs/timer.py`, `match_service` |
+| 3.4 | MVP | MVP를 포함한 **타이틀** 체계(TITLE_TYPE + MEMBER_TITLE), 주 단위 | `title_service.py` |
+| 3.5 | 게스트/자책골 | 게스트 = 인원 +1(Rating/통계 없음), 자책골 기록 | `SESSION_GUEST`, `OWN_GOAL_YN` |
+| 3.6 | 확정 후 변경 | 지각 추가/이동/제외 허용 + 이력 | `TEAM_ASSIGNMENT_LOG` |
+| 3.7 | A/B 평가 | 이번 개발 범위에서 **전부 제외** | (테이블 없음) |
+| 3.8 | 신규 가입자 | Rating 1000 + Confidence 0(낮음)에서 시작 | `member_service.create_member` |
+| 3.9 | Rating 반영 순서 | 경기별 Finalize 즉시 반영, GAME_NO 순서 강제, 시작 시점 전력 Snapshot | `finalize_match`, `start_match` |
+| 3.10 | 확정 기록 수정 | **[일정마감]** 이후 수정 불가, 마감 시 마감 기사 | `lifecycle_service.close_session` |
+| 3.11 | 기사 시점 | **[일정확정]** 때 1건, 이후 [일정마감]까지 없음. 게시 자동/수동 설정 | `ARTICLE_PUBLISH_MODE` |
+| 3.12 | 공개 범위 | URL(slug)로 접근, 기사·통계 비로그인 공개. 카카오 로그인은 추후 | `/api/clubs/{slug}` |
+| 3.13 | 실시간 | 처음부터 WebSocket. 관리자 모드(PIN) 진입한 사람만 경기 조작 | `api/ws.py`, `admin_dep` |
+
+---
+
+## 2. 원문 대비 변경점과 이유
+
+### 2-1. 일정(SESSION) 상태
+- **원문**: `DRAFT / OPEN / TEAM_ASSIGNED / IN_PROGRESS / COMPLETED / CANCELLED`
+- **변경**: `OPEN → CONFIRMED → IN_PROGRESS → CLOSED` (+ `CANCELLED`)
+- **이유**: Q&A의 [일정확정]/[일정마감]이 상태 전이의 핵심 이벤트가 됨. `TEAM_ASSIGNED`=[일정확정], `COMPLETED`=[일정마감](잠금 의미 포함)으로 이름을 맞춤. DRAFT는 쓰임이 없어 제거.
+
+### 2-2. 확정 경기 수정 (원문 §55~56, Open Issue)
+- **원문**: UNFINALIZE → Rollback/Rebuild → 수정 → FINALIZE, 전체 Rebuild vs 증분 미정
+- **변경**:
+  - [일정마감] 전: 경기 확정 해제(`/unfinalize`) → 수정 → 재확정 가능
+  - [일정마감] 후: 해당 일정의 팀/경기/골 변경 전부 409 (`SESSION_CLOSED`)
+  - 마감은 **날짜 순서대로만** 가능 (앞 일정이 열려 있으면 `PREVIOUS_SESSION_OPEN`)
+  - Rating은 "바뀐 경기부터" 재생(replay). 기존 이력은 지우지 않고 `VOIDED_YN=true` 후 새로 쌓음
+  - 마감된 일정보다 **앞선 날짜**의 일정 생성/날짜 변경/경기 확정은 거부 (`BEFORE_CLOSED_SESSION`). 같은 날짜는 허용
+- **이유**: 마감 순서를 강제하고 마감 이전 날짜에 새 기록이 끼어들지 못하게 하면, 마감된 구간의 Rating은 다시 바뀌지 않는다. 그래서 "증분 재계산"이 "전체 재계산"과 같은 결과가 되고(테스트로 검증), 이력은 감사용으로 남는다.
+- **주의**: 설정(K, scale 등)을 바꾸면 이미 쌓인 이력은 당시 설정 그대로 두고 이후 경기부터 새 설정을 쓴다. 과거까지 새 설정으로 다시 계산하려면 관리자 `POST /admin/rebuild`(전 구간 재생, `ADMIN_RECALC`).
+
+### 2-3. 경기 일정 생성 · 대진 (원문 §43 Match Order)
+- **원문**: 팀 생성 후 Match Schedule 일괄 생성(LEAGUE/ROTATION Strategy)
+- **1차 변경(Q&A 3.1/3.2)**: `matches/next`로 1건씩 생성 + 밀어내기(남을 팀 선택/승자 잔류) 자동 규칙
+- **2차 변경(스토리보드 S03 메모 → "항상 관리자가 설정")**:
+  - 밀어내기 자동 규칙 제거. `POST /sessions/{id}/matches/next`에 `teamAId`, `teamBId` **필수**
+  - `GET .../next-suggestion`은 팀별 오늘 경기 수·연속 경기 수와 **추천 대진(가장 오래 쉰 두 팀)**만 돌려줌 → 화면에서 미리 선택된 상태로 보여 주고 관리자가 바꿀 수 있음
+  - 3팀이면 추천만 따라가도 A-B → C-A → B-C → A-B 순서로 돈다
+  - DB: `MATCH_GAME.STAY_TEAM_ID / STAY_DECIDED_YN` 삭제, 설정 `ROTATION_*` 삭제 (마이그레이션 0002)
+- **이유**: 현장 상황(체력, 인원, 시간)에 따라 대진이 매번 달라서 규칙으로 고정하기보다 관리자가 정하는 편이 맞다는 판단.
+
+### 2-4. 기사 종류 (원문 §76)
+- **원문**: PRE_MATCH / POST_MATCH / SESSION_RECAP
+- **변경**: PRE_MATCH([일정확정]) + SESSION_RECAP([일정마감])만 생성. POST_MATCH는 Enum만 예약
+- **이유**: 3.11 답변. 경기별 Insight(결승골/역전/이변/해트트릭)는 마감 기사의 재료로 사용.
+
+### 2-5. MVP → 타이틀 (원문 §57)
+- **원문**: MVP 통계만 있고 저장 구조 없음
+- **추가**: `TITLE_TYPE`(클럽별 정의) + `MEMBER_TITLE`(수여 이력)
+  - 기본 3종: 이주의 MVP(수동), 이주의 득점왕/도움왕(마감 시 자동, 동점 공동 수여)
+  - `MVP_COUNT` = `COUNTS_AS_MVP_YN` 타이틀 수
+- **이유**: 3.4 답변(주간 타이틀 관리). 자동 타이틀은 같은 주에 일정이 여러 번이면 마감 때마다 다시 계산.
+
+### 2-6. 게스트 / 자책골 (신규)
+- `SESSION_GUEST`: 팀 인원 분배에는 포함(13명 → 7:6), 팀 편성 시 팀마다 고르게 분산. Team Strength 평균에는 제외, 인원수 인자(headcount)에는 포함
+- 게스트 득점: `GUEST_GOAL_YN=true`, 득점자 NULL → 팀 점수만 오르고 개인 기록 없음
+- 자책골: `OWN_GOAL_YN=true`, `TEAM_ID`=점수를 얻은 팀, `SCORER_MEMBER_ID`=자책한 선수 → 통계 `OWN_GOALS`
+
+### 2-7. 팀 편성 Snapshot (원문 §42)
+- **원문**: Snapshot 항목은 있으나 저장 위치 없음(SESSION_TEAM에 일부만)
+- **추가**: `TEAM_GENERATION` — 알고리즘 버전, 설정 버전 + 설정 전체 JSON, 난수 시드, 후보 수, 허용범위 만족 후보 수, Spread, Pair Penalty, 입력값 전체
+- **이유**: 같은 시드 + 같은 입력이면 같은 결과가 나와 "왜 그날 이런 팀이 나왔는가"를 재현 가능. 미리보기를 여러 번 돌릴 수 있고(PREVIEW), 확정본만 CONFIRMED.
+- 편성 이후 참석자가 바뀌면 확정을 거부(`ATTENDEES_CHANGED`) → 재생성 유도.
+
+### 2-8. Pair 집계 (원문 §33~36)
+- **추가 컬럼**: `SAME_TEAM_MATCH_COUNT`, `SAME_TEAM_DRAW_COUNT`, `CO_ATTENDANCE_SINCE_SAME_TEAM`, `OPPONENT_LOW/HIGH_WIN_COUNT`
+- **이유**:
+  - `SAME_TEAM_COUNT`(일정 단위)만으로는 "같이 뛸 때 승률"(경기 단위)의 분모가 없음
+  - RARE_PAIR의 "마지막 같은 팀 = 8 Session 전"을 계산하려면 그 뒤로 함께 출전한 일정 수가 필요
+  - 원문 `OPPONENT_WIN_COUNT`는 누구 승인지 모호 → LOW/HIGH로 분리
+- 집계 기준은 **실제 출전(MATCH_MEMBER) + 확정 경기**. 3팀일 때 대기 팀은 상대가 아님(원문 §34 그대로).
+
+### 2-9. Insight 다인 대상 (원문 §62)
+- **원문**: `INSIGHT.MEMBER_ID` 단일 컬럼
+- **추가**: `INSIGHT_MEMBER(INSIGHT_ID, MEMBER_ID, ROLE)`
+- **이유**: RARE_PAIR(2명), 역전승 득점자들 등 여러 명이 나오는 Insight와 "특정 선수 관련 기사" 조회(원문 §96)를 위해.
+- Insight 재생성 시 기존 행은 `ACTIVE_YN=false`(삭제 안 함) → 이미 나간 기사의 근거가 끊기지 않음.
+
+### 2-10. Confidence 저장 (원문 §17~19)
+- `PLAYER_RATING`에 Confidence 컬럼을 두지 않음. `MATCH_SAMPLE_COUNT`, `LAST_PLAYED_DATE`로 매번 계산
+- A/B 제외로 `AB_SAMPLE_COUNT` 제거
+- `LAST_PLAYED_AT`(DATETIME) → `LAST_PLAYED_DATE`(DATE): 미출전 일수는 일정 날짜 기준이 자연스러움
+
+### 2-11. 설정 (원문 §87~88)
+- `SYSTEM_CONFIG`를 **클럽별**(PK: CLUB_ID + CONFIG_KEY)로. 키 정의(타입/기본값/허용값)는 코드(`core/club_config.py`), 값은 DB
+- `CLUB.CONFIG_VERSION`을 변경마다 +1, 이력에 버전 기록. Rating 이력/팀 편성에는 사용한 버전 저장
+- `INSIGHT_TYPE_CONFIG / PARAM`은 전역(클럽별 튜닝이 필요해지면 CLUB_ID 추가)
+- AI 모델명은 클럽 설정이 아니라 서버 환경변수(`AI_ARTICLE_MODEL`, `AI_RECAP_MODEL`) — 비용/키와 같은 배포 단위라서
+
+### 2-12. 동시성 (원문 §94)
+- DB 격리수준 `READ COMMITTED` + 경기 행 `SELECT … FOR UPDATE` + 골 멱등키 UNIQUE(MATCH_ID, IDEMPOTENCY_KEY)
+- 같은 멱등키 재요청은 에러가 아니라 기존 이벤트를 그대로 반환(`duplicate: true`)
+- 파생 데이터 재계산은 CLUB 행 잠금으로 클럽 단위 직렬화
+- 잠금 조회(`FOR UPDATE`)는 항상 DB 최신값으로 객체를 덮어씀(`populate_existing`) — 같은 요청에서 먼저 읽어 둔 옛 값으로 이중 종료/버전 역행이 생기지 않게
+- 골/도움 기록이 있는 선수는 출전 명단에서 빼거나 상대 팀으로 옮길 수 없음(통계 오염 방지)
+
+### 2-13. AI 안전장치 (원문 §79~80)
+- JSON Schema Structured Output(strict) + Pydantic 재검증
+- 본문에 내부 점수 용어(Rating/Confidence/중요도 점수/기대승률)가 있으면 재시도 후 실패 처리
+- `usedInsightIds`는 실제로 넘긴 Insight ID만 인정
+- Insight FACTS에는 Rating·기대승률 숫자를 아예 넣지 않음(이변은 `underdogWin: true`만)
+- AI 입력 DTO 전체를 `AI_ARTICLE.REQUEST_JSON`에 저장 → 재생성 시 같은 사실로 새 버전 생성
+
+---
+
+## 3. 기본 설정값 (관리자 `PATCH /admin/config`로 변경)
+
+| 키 | 기본 | 비고 |
+|---|---|---|
+| INITIAL_RATING | 1000 | |
+| MATCH_RATING_K | 20 | 팀 단위 변화량 |
+| RATING_EXPECTATION_SCALE | 400 | Elo |
+| HEADCOUNT_ADVANTAGE_FACTOR | 0 | 데이터 쌓인 뒤 보정 |
+| CONFIDENCE_MATCH_SCALE | 10 | 10경기 ≈ 0.63, 30경기 ≈ 0.95 |
+| CONFIDENCE_DECAY_GRACE_DAYS / DECAY_DAYS | 30 / 90 | 30일까지 감소 없음 |
+| CONFIDENCE_MULT_MAX / MIN | 2.0 / 0.5 | 신규 2배, 안정 0.5배 |
+| TEAM_RATING_TOLERANCE_PERCENT | 1.0 | (최고−최저)/평균 |
+| TEAM_CANDIDATE_COUNT | 3000 | 18명 기준 수십 ms |
+| PAIR_ALPHA / PAIR_PENALTY_EPSILON | 2.0 / 0.01 | |
+| MATCH_DURATION_SEC | 600 | |
+| MATCH_AUTO_END_YN | true | |
+| MATCH_EARLY_END_GOALS | 0 | 0=미사용 |
+| ARTICLE_PUBLISH_MODE | MANUAL | AUTO면 생성 즉시 게시 |
+| WIRE_MAX_INSIGHTS | 15 | AI에 넘기는 최대 개수 |
+
+---
+
+## 3-1. 스토리보드 메모 반영 (2026-10-14)
+
+| 메모 위치 | 메모 | 반영 |
+|---|---|---|
+| S03 일정 상세 | 경기는 자동세팅(순차)과 관리자 설정 게임 → **항상 관리자가 설정** | 2-3 참고. 프론트 `NextMatchSheet`(팀 1/팀 2 선택, 추천 미리 선택) |
+| S06 기록실 | 기록에 수상내역도 추가 | 기록실에 **[수상 내역] 탭**(주차별 전체 이력 + 타이틀 많이 받은 선수), 선수 화면에 **수상 이력** 섹션 |
+| S05 선수 기록 | 도움은 표시 안됨 | 확인 결과 **현행 유지**(도움 표시 그대로) |
+
+## 3-2. 프론트엔드(React + TypeScript)
+
+- Vite + React 18 + TypeScript + react-router. UI 라이브러리 없이 스토리보드 토큰을 CSS 변수로 옮김(`frontend/src/styles/global.css`)
+- URL: `/c/{클럽주소}` 아래 공개 화면, `/c/{클럽주소}/admin/...` 관리자 화면. 관리자 토큰은 클럽별로 브라우저에 저장, 만료/거부 시 자동 해제
+- 실시간: 클럽 단위 WebSocket 1개를 앱 전체가 공유(끊기면 재접속). 타이머는 서버 시각 기준으로 화면에서 계산
+- 골 등록은 시트를 열 때마다 멱등키를 새로 만들어 연타해도 1번만 기록
+- 배포: `npm run build` 결과(`frontend/dist`)를 FastAPI가 같이 서빙(설정 `FRONTEND_DIST`). 개발 중에는 Vite 서버가 `/api`, `/ws`를 백엔드로 프록시
+- 화면 ↔ 스토리보드: S01 `HomePage`, S02 `ArticlePage`, S03 `SessionPage`, S04/A04/A05/A06 `MatchPage`, S05 `PlayerPage`, S06 `RecordsPage`, A01 `PinSheet`, A02 `SessionFormPage`, A03 `TeamsPage`, A07 `ClosePage`, A08 `ArticlesAdminPage` (+ 일정 목록, 멤버 목록, 관리자 메뉴, 멤버 관리, 운영 설정)
+
+## 4. 남은 이슈 / 다음 단계
+
+1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
+2. **다중 서버 배포**: WebSocket 허브와 PIN 실패 제한이 프로세스 메모리 기반 → 서버 2대 이상이면 Redis Pub/Sub로 교체
+3. **조기 종료 후 골 취소**: N골 조기 종료 뒤 골을 취소해도 경기를 자동으로 다시 열지 않음(관리자 판단)
+4. **Insight 파라미터 튜닝**: 임계값(복귀 30일, 연승 3 등)은 실제 데이터로 조정 필요(`INSIGHT_CONFIG_PARAM`)
+5. **A/B 평가(밸런스 게임)**: 제외. 다시 넣을 경우 Rating 초기값 보정용 별도 Strategy로 붙이면 됨(DB 영향은 AB_* 테이블 추가뿐)
+6. **프론트 폰트**: Google Fonts(Black Han Sans, IBM Plex Sans KR/Mono)를 외부에서 불러온다. 사내망 등에서 막히면 시스템 글꼴로 대체되므로 필요 시 폰트 파일을 `frontend/public`에 넣어 직접 서빙
+7. **스토리보드 캔버스**: 코드에는 메모를 반영했지만 디자인 캔버스(A06 남을 팀 선택, S06 탭)는 아직 초안 그대로
