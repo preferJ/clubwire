@@ -65,3 +65,29 @@ def test_no_session_before_closed_and_scorer_team_lock(make_club):
     r = api.post("/sessions", {"sessionDate": "2026-11-20"})
     assert r.status_code == 409 and r.json()["error"]["code"] == "BEFORE_CLOSED_SESSION"
     api.ok(api.post("/sessions", {"sessionDate": "2026-11-21"}), 201)
+
+
+def test_member_initial_rating_is_start_point_for_incremental_and_rebuild(make_club):
+    """시작 Rating 지정 멤버: 등록 직후 그 값, 경기 후 증분 = 전체 재계산, 재계산해도 1000으로 돌아가지 않음."""
+    api = make_club("reg-init")
+    assert api.post("/members", {"name": "음수", "initialRating": -1}).status_code == 422
+    hi = api.ok(api.post("/members", {"name": "고수", "initialRating": 1081}), 201)["memberId"]
+    lo = api.ok(api.post("/members", {"name": "신입", "initialRating": 910}), 201)["memberId"]
+    plain = [api.ok(api.post("/members", {"name": f"기본{i}"}), 201)["memberId"] for i in range(2)]
+    start = {r["memberId"]: (r["rating"], r["initialRating"]) for r in api.ok(api.get("/admin/ratings"))}
+    assert start[hi] == (1081, 1081) and start[lo] == (910, 910) and start[plain[0]] == (1000, 1000)
+
+    sid = api.ok(api.post("/sessions", {"sessionDate": "2026-11-21"}), 201)["sessionId"]
+    api.ok(api.post(f"/sessions/{sid}/members", {"memberIds": [hi, lo, *plain]}))
+    gen = api.ok(api.post(f"/sessions/{sid}/teams/generate", {"teamCount": 2, "seed": 3}))
+    api.ok(api.post(f"/sessions/{sid}/teams/confirm", {"generationId": gen["generationId"]}))
+    for _ in range(2):
+        mid, _, _ = _match(api, sid)
+        api.ok(api.post(f"/matches/{mid}/end"))
+        api.ok(api.post(f"/matches/{mid}/finalize"))
+    inc = {r["memberId"]: r["rating"] for r in api.ok(api.get("/admin/ratings"))}
+    api.ok(api.post("/admin/rebuild"))
+    full = {r["memberId"]: r["rating"] for r in api.ok(api.get("/admin/ratings"))}
+    assert inc == full
+    hist = api.ok(api.get(f"/admin/ratings/{hi}/history"))
+    assert hist[0]["before"] == 1081  # 재계산 이력도 시작값에서 출발

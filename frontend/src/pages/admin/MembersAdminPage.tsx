@@ -6,6 +6,17 @@ import { ErrorBox, Loading, Switch, TopBar } from '../../components/ui'
 import { useClub } from '../../lib/club'
 import { useAction, useAsync } from '../../lib/hooks'
 
+/** "손원일 1081", "1\t손원일\t1081", "김응철" 형태를 이름 + 시작 Rating으로 */
+export function parseMembers(text: string): { name: string; rating?: number }[] {
+  return text.split(/[\n,]/).map((line) => line.trim()).filter(Boolean).map((line) => {
+    const tokens = line.split(/\s+/)
+    const isNum = (t: string) => /^\d+(\.\d+)?$/.test(t)
+    if (tokens.length > 2 && isNum(tokens[0])) tokens.shift() // 앞 순위 번호
+    const rating = tokens.length > 1 && isNum(tokens[tokens.length - 1]) ? Number(tokens.pop()) : undefined
+    return { name: tokens.join(' '), rating }
+  }).filter((x) => x.name)
+}
+
 export function MembersAdminPage() {
   const { api, slug } = useClub()
   const list = useAsync(() => api.members(true), [api])
@@ -13,10 +24,10 @@ export function MembersAdminPage() {
   const [names, setNames] = useState('')
 
   const add = async () => {
-    const items = names.split(/[\n,]/).map((s) => s.trim()).filter(Boolean)
+    const items = parseMembers(names)
     if (!items.length) return
     const ok = await run(async () => {
-      for (const n of items) await api.createMember(n)
+      for (const it of items) await api.createMember(it.name, it.rating)
       return true
     }, `${items.length}명 추가했어요`)
     if (ok) {
@@ -32,10 +43,13 @@ export function MembersAdminPage() {
         <section className="card stack" style={{ gap: 10 }}>
           <label className="field">새 멤버(여러 명은 쉼표나 줄바꿈으로)
             <textarea className="input" style={{ height: 84, padding: 10, resize: 'vertical' }} value={names}
-              onChange={(e) => setNames(e.target.value)} placeholder="김응철, 박민선" />
+              onChange={(e) => setNames(e.target.value)} placeholder={'김응철, 박민선\n손원일 1081'} />
           </label>
           <button type="button" className="btn primary" disabled={busy || !names.trim()} onClick={add}>추가</button>
-          <p className="small muted">새 멤버는 기본 Rating에서 시작하고, 경기 기록이 쌓이며 팀 편성에 반영돼요.</p>
+          <p className="small muted">
+            이름 뒤에 숫자를 붙이면 그 값이 시작 Rating이 돼요(예: 손원일 1081). 순위표를 그대로 붙여 넣어도 앞의 순위 숫자는 무시해요.
+            숫자가 없으면 기본 Rating에서 시작해요.
+          </p>
         </section>
 
         {list.error ? <ErrorBox error={list.error} onRetry={list.reload} /> : !list.data ? <Loading /> : (

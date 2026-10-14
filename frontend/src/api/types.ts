@@ -335,6 +335,8 @@ export interface RatingRow {
   memberId: number
   name: string
   active: boolean
+  /** 시작 Rating(지정값 또는 클럽 기본값) */
+  initialRating: number
   rating: number
   confidence: number
   matchCount: number

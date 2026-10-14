@@ -30,22 +30,39 @@ class RatingState:
     last_played_date: date | None
 
 
+def initial_rating_of(member: Member, cfg: ClubConfig) -> float:
+    """멤버의 시작 Rating: MEMBER.INITIAL_RATING(지정 시) → 없으면 클럽 설정 INITIAL_RATING."""
+    return float(member.initial_rating) if member.initial_rating is not None else float(cfg["INITIAL_RATING"])
+
+
+def initial_ratings(db: Session, club_id: int, cfg: ClubConfig, member_ids: list[int] | None = None) -> dict[int, float]:
+    """member_id → 시작 Rating. 재계산/현재값 복원의 출발점."""
+    stmt = select(Member.member_id, Member.initial_rating).where(Member.club_id == club_id)
+    if member_ids is not None:
+        stmt = stmt.where(Member.member_id.in_(member_ids))
+    init = float(cfg["INITIAL_RATING"])
+    return {mid: (float(r) if r is not None else init) for mid, r in db.execute(stmt)}
+
+
 def ensure_player_rating(db: Session, member: Member, cfg: ClubConfig) -> PlayerRating:
     pr = db.get(PlayerRating, member.member_id)
     if not pr:
         pr = PlayerRating(member_id=member.member_id, club_id=member.club_id,
-                          current_rating=float(cfg["INITIAL_RATING"]), match_sample_count=0)
+                          current_rating=initial_rating_of(member, cfg), match_sample_count=0)
         db.add(pr)
     return pr
 
 
 def current_states(db: Session, club_id: int, member_ids: list[int], cfg: ClubConfig) -> dict[int, RatingState]:
     rows = {r.member_id: r for r in db.scalars(select(PlayerRating).where(PlayerRating.member_id.in_(member_ids)))}
+    missing = [mid for mid in member_ids if mid not in rows]
+    base = initial_ratings(db, club_id, cfg, missing) if missing else {}
     init = float(cfg["INITIAL_RATING"])
     out = {}
     for mid in member_ids:
         r = rows.get(mid)
-        out[mid] = RatingState(r.current_rating, r.match_sample_count, r.last_played_date) if r else RatingState(init, 0, None)
+        out[mid] = (RatingState(r.current_rating, r.match_sample_count, r.last_played_date) if r
+                    else RatingState(base.get(mid, init), 0, None))
     return out
 
 
@@ -111,9 +128,9 @@ def rebuild_ratings(db: Session, club_id: int, from_key: MatchKey | None = None,
         void_stmt = void_stmt.where(PlayerRatingHistory.reference_id.not_in(kept_ids))
     db.execute(void_stmt)
 
-    # 2) 유지 구간 끝 시점의 상태 복원
-    member_ids = list(db.scalars(select(Member.member_id).where(Member.club_id == club_id)))
-    state: dict[int, RatingState] = {mid: RatingState(init, 0, None) for mid in member_ids}
+    # 2) 유지 구간 끝 시점의 상태 복원(출발점은 멤버별 시작 Rating)
+    base = initial_ratings(db, club_id, cfg)
+    state: dict[int, RatingState] = {mid: RatingState(r, 0, None) for mid, r in base.items()}
     if kept_ids:
         order = {mid: i for i, mid in enumerate(kept_ids)}
         hist = db.scalars(
@@ -130,7 +147,7 @@ def rebuild_ratings(db: Session, club_id: int, from_key: MatchKey | None = None,
         last_idx: dict[int, int] = {}
         for h in hist:
             idx = order[h.reference_id]
-            st = state.setdefault(h.member_id, RatingState(init, 0, None))
+            st = state.setdefault(h.member_id, RatingState(base.get(h.member_id, init), 0, None))
             st.match_count += 1
             d = session_date_of[h.reference_id]
             if st.last_played_date is None or d > st.last_played_date:
@@ -158,7 +175,7 @@ def rebuild_ratings(db: Session, club_id: int, from_key: MatchKey | None = None,
         as_of = s.session_date
 
         def rated(mm: MatchMember) -> RatedPlayer:
-            st = state.setdefault(mm.member_id, RatingState(init, 0, None))
+            st = state.setdefault(mm.member_id, RatingState(base.get(mm.member_id, init), 0, None))
             return RatedPlayer(mm.member_id, st.rating, confidence_of(st, as_of, cfg))
 
         team_a = [rated(x) for x in side_a]
@@ -213,12 +230,13 @@ def rating_rows(db: Session, club_id: int, as_of: date) -> list[dict]:
         .where(Member.club_id == club_id)
         .order_by(PlayerRating.current_rating.desc(), Member.name)
     ).all()
-    init = float(cfg["INITIAL_RATING"])
     out = []
     for m, r in rows:
-        st = RatingState(r.current_rating, r.match_sample_count, r.last_played_date) if r else RatingState(init, 0, None)
+        start = initial_rating_of(m, cfg)
+        st = RatingState(r.current_rating, r.match_sample_count, r.last_played_date) if r else RatingState(start, 0, None)
         out.append({
             "memberId": m.member_id, "name": m.name, "active": m.active_yn,
+            "initialRating": round(start, 2),
             "rating": round(st.rating, 2), "confidence": round(confidence_of(st, as_of, cfg), 4),
             "matchCount": st.match_count, "lastPlayedDate": st.last_played_date,
         })
@@ -235,6 +253,6 @@ def rating_history(db: Session, club_id: int, member_id: int, include_voided: bo
 
 
 __all__ = [
-    "RatingState", "ensure_player_rating", "current_states", "confidence_of", "match_key",
+    "RatingState", "initial_rating_of", "initial_ratings", "ensure_player_rating", "current_states", "confidence_of", "match_key",
     "rebuild_ratings", "rating_rows", "rating_history", "match_rating_strategy",
 ]

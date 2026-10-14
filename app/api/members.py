@@ -26,7 +26,7 @@ def list_members(include_inactive: bool = Query(False, alias="includeInactive"),
 def create_member(body: MemberCreate, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
                   db: Session = Depends(get_db)):
     return _m(member_service.create_member(db, club.club_id, body.name, body.joined_at, body.profile_image_url,
-                                           body.display_order))
+                                           body.display_order, body.initial_rating))
 
 
 @router.patch("/{member_id}", summary="멤버 수정/비활성화(active=false). 삭제는 하지 않음")

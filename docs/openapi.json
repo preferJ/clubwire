@@ -3893,6 +3893,20 @@
               }
             ],
             "title": "Displayorder"
+          },
+          "initialRating": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 5000.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initialrating",
+            "description": "시작 Rating(기존 기록 이관용). 비우면 클럽 설정 INITIAL_RATING"
           }
         },
         "additionalProperties": false,

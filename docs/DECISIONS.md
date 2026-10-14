@@ -101,6 +101,14 @@
 - A/B 제외로 `AB_SAMPLE_COUNT` 제거
 - `LAST_PLAYED_AT`(DATETIME) → `LAST_PLAYED_DATE`(DATE): 미출전 일수는 일정 날짜 기준이 자연스러움
 
+### 2-10-1. 멤버별 시작 Rating (2026-10-14 추가)
+- 기존 기록(다른 곳에서 쓰던 Rating 표)을 가져올 수 있도록 `MEMBER.INITIAL_RATING`(NULL 허용) 추가. 마이그레이션 `0003`
+- 이유: 시작값을 `PLAYER_RATING.CURRENT_RATING`에만 넣으면, 확정 해제·전체 재계산 때 모두 설정값(1000)에서 다시 출발해 값이 틀어진다.
+  재계산의 출발점을 멤버별 시작값으로 바꿔 증분 계산과 전체 재계산 결과가 항상 같게 했다(`tests/test_regressions.py`)
+- NULL이면 기존처럼 설정 `INITIAL_RATING`. 시작값이 있어도 Confidence는 0(경기 기록 기준)에서 시작
+- 등록: `POST /members {name, initialRating}`(관리자). 멤버 관리 화면에서 `손원일 1081`처럼 이름 뒤 숫자로 입력, 순위표를 붙여 넣어도 됨
+- 등록 후 시작값 변경은 아직 없음(바꾸려면 재계산이 함께 필요)
+
 ### 2-11. 설정 (원문 §87~88)
 - `SYSTEM_CONFIG`를 **클럽별**(PK: CLUB_ID + CONFIG_KEY)로. 키 정의(타입/기본값/허용값)는 코드(`core/club_config.py`), 값은 DB
 - `CLUB.CONFIG_VERSION`을 변경마다 +1, 이력에 버전 기록. Rating 이력/팀 편성에는 사용한 버전 저장
@@ -161,6 +169,14 @@
 - 골 등록은 시트를 열 때마다 멱등키를 새로 만들어 연타해도 1번만 기록
 - 배포: `npm run build` 결과(`frontend/dist`)를 FastAPI가 같이 서빙(설정 `FRONTEND_DIST`). 개발 중에는 Vite 서버가 `/api`, `/ws`를 백엔드로 프록시
 - 화면 ↔ 스토리보드: S01 `HomePage`, S02 `ArticlePage`, S03 `SessionPage`, S04/A04/A05/A06 `MatchPage`, S05 `PlayerPage`, S06 `RecordsPage`, A01 `PinSheet`, A02 `SessionFormPage`, A03 `TeamsPage`, A07 `ClosePage`, A08 `ArticlesAdminPage` (+ 일정 목록, 멤버 목록, 관리자 메뉴, 멤버 관리, 운영 설정)
+
+## 3-3. 샘플 데이터 (2026-10-14)
+
+- `scripts/gen_sample_data.py`: 2026-07-05 ~ 09-27 일요일 13회를 **실제 API로 시뮬레이션**(시계만 과거로 이동)해서 DB를 채운다.
+  INSERT문을 손으로 만들면 기록·통계·Rating 이력·Pair·타이틀·Insight·기사가 서로 어긋나기 때문
+- 선수 23명(시작 Rating = 전달받은 표), 3팀·15~21명·하루 7~9경기, 밀어내기 대진, 득점/도움/자책골/게스트 골/입력 정정(골 취소), 휴가 복귀, 지각 합류
+- 기사는 OpenAI 대신 스크립트 안의 템플릿 작성기가 Insight 사실로 작성(`MODEL_NAME='sample-template'`). 마지막 주 마감 기사는 검토 대기로 남김
+- 결과를 `mysqldump`로 데이터만 뽑아 INSERT문(.sql) 제공. 검증: 빈 DB에 적재 후 28개 테이블 CHECKSUM 일치, 전체 재계산 전후 Rating·통계 동일
 
 ## 4. 남은 이슈 / 다음 단계
 

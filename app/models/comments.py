@@ -39,6 +39,7 @@ COMMENTS: dict[str, dict[str, str]] = {
         "PROFILE_IMAGE_URL": "프로필 이미지 URL",
         "DISPLAY_ORDER": "표시 순서",
         "JOINED_AT": "가입일",
+        "INITIAL_RATING": "시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작",
     },
     "SYSTEM_CONFIG": {
         "__table__": "클럽별 운영 설정값(Rating K, 경기 시간, 밀어내기 규칙 등)",

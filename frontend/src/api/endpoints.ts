@@ -36,7 +36,8 @@ export const makeApi = (slug: string) => ({
 
   // 멤버
   members: (includeInactive = false) => request<Member[]>(slug, 'GET', '/members', { query: { includeInactive } }),
-  createMember: (name: string) => request<Member>(slug, 'POST', '/members', { body: { name } }),
+  createMember: (name: string, initialRating?: number) =>
+    request<Member>(slug, 'POST', '/members', { body: { name, initialRating } }),
   updateMember: (memberId: number, body: Partial<{ name: string; active: boolean; displayOrder: number }>) =>
     request<Member>(slug, 'PATCH', `/members/${memberId}`, { body }),
 

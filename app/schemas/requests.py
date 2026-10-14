@@ -23,6 +23,8 @@ class MemberCreate(CamelModel):
     joined_at: date | None = None
     profile_image_url: str | None = Field(default=None, max_length=500)
     display_order: int | None = None
+    initial_rating: float | None = Field(default=None, gt=0, le=5000,
+                                         description="시작 Rating(기존 기록 이관용). 비우면 클럽 설정 INITIAL_RATING")
 
 
 class MemberUpdate(CamelModel):

@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, ForeignKey, Index, Integer, String
+from sqlalchemy import Boolean, Date, Double, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, Id, TimestampMixin, UtcDateTime
@@ -47,6 +47,8 @@ class Member(TimestampMixin, Base):
     display_order: Mapped[int | None] = mapped_column("DISPLAY_ORDER", Integer)
     active_yn: Mapped[bool] = mapped_column("ACTIVE_YN", Boolean, nullable=False, default=True)
     joined_at: Mapped[date | None] = mapped_column("JOINED_AT", Date)
+    # 시작 Rating(이관·수동 지정). NULL이면 클럽 설정 INITIAL_RATING에서 시작. 재계산(rebuild)도 이 값에서 출발한다.
+    initial_rating: Mapped[float | None] = mapped_column("INITIAL_RATING", Double)
 
 
 class SystemConfig(Base):

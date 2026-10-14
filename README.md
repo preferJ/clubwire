@@ -2,7 +2,7 @@
 
 아마추어 풋살팀 운영(참석 → 자동 팀 편성 → LIVE 경기 → 기록 확정) + **The Wire**(데이터 기반 AI 기사).
 
-- 백엔드: Python 3.12+ / FastAPI / SQLAlchemy 2 / Alembic / Pydantic v2 / MySQL 8.0
+- 백엔드: Python 3.12~3.13 (3.15처럼 갓 나온 버전은 일부 라이브러리 Windows용 사전 빌드본이 없어 설치 실패) / FastAPI / SQLAlchemy 2 / Alembic / Pydantic v2 / MySQL 8.0
 - 프론트: React 18 + TypeScript + Vite (`frontend/`, 모바일 우선)
 - 조회는 공개(URL), 쓰기는 **관리자 모드**(클럽 PIN → Bearer 토큰)
 - LIVE 경기는 WebSocket으로 실시간 전파, 타이머는 서버가 자동 종료
@@ -10,8 +10,10 @@
 ## 1. 실행
 
 ```bash
-# 0) MySQL 8.0 DB 준비
-mysql -uroot -e "CREATE DATABASE clubwire CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;"
+# 0) MySQL 8.x DB + 접속 계정 준비 (.env.example 의 DATABASE_URL 이 clubwire/clubwire 계정을 씀)
+mysql -uroot -p -e "CREATE DATABASE clubwire CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+  CREATE USER 'clubwire'@'localhost' IDENTIFIED BY 'clubwire';
+  GRANT ALL PRIVILEGES ON clubwire.* TO 'clubwire'@'localhost';"
 
 # 1) 의존성
 pip install -r requirements.txt
@@ -122,7 +124,22 @@ scripts/gen_docs.py   문서 재생성
 
 스키마나 API를 바꾼 뒤에는 `alembic revision --autogenerate -m "..."` → `python scripts/gen_docs.py`.
 
-## 6. 브라우저 E2E
+## 6. 샘플 데이터
+
+`ypr_sample_data.sql`(별도 전달): 2026년 7~9월 일요일 13회 경기 기록. 모든 테이블을 비우고 다시 넣는다.
+
+```
+# 0) 최신 코드로 테이블 준비
+alembic upgrade head
+# 1) MySQL Command Line Client
+charset utf8mb4
+use clubwire
+source C:/clubwire/ypr_sample_data.sql
+```
+
+다시 만들려면(빈 DB에서): `pip install time-machine` → `alembic upgrade head` → `python -m scripts.gen_sample_data` → `mysqldump`로 데이터만 추출.
+
+## 7. 브라우저 E2E
 
 `frontend` 빌드 후 백엔드를 띄운 상태에서 Playwright로 관리자/관전자 두 브라우저를 동시에 조작해 확인했다:
 PIN(오답→정답) → 멤버 18명 → 일정·게스트 → 3팀 편성·[일정확정] → 경기 시작(관전자 화면 실시간 반영) → 골·도움·골 취소·자책골 →

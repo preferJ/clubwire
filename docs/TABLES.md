@@ -61,8 +61,9 @@
 | 5 | `DISPLAY_ORDER` | INTEGER | Y |  | 표시 순서 |
 | 6 | `ACTIVE_YN` | BOOL | N |  | 사용 여부(false=비활성, 삭제 대신 사용) |
 | 7 | `JOINED_AT` | DATE | Y |  | 가입일 |
-| 8 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 9 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 8 | `INITIAL_RATING` | DOUBLE | Y |  | 시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작 |
+| 9 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 10 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 
