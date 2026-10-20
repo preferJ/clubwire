@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { errorMessage } from '../api/client'
 import { useClub } from '../lib/club'
 import { tagTone, teamColor } from '../lib/format'
@@ -56,21 +56,36 @@ export function AdminButton({ onDark }: { onDark?: boolean }) {
   )
 }
 
+/** 지금 주소가 어느 탭 소속인지: 기사→와이어, 경기→일정, 선수→멤버. 관리자 화면은 강조 없음 */
+export function tabOf(pathname: string, slug: string): 'home' | 'sessions' | 'records' | 'members' | null {
+  const base = `/c/${slug}`
+  if (!pathname.startsWith(base)) return null
+  const rest = pathname.slice(base.length)
+  if (rest === '' || rest === '/' || /^\/articles(\/|$)/.test(rest)) return 'home'
+  if (/^\/(sessions|matches)(\/|$)/.test(rest)) return 'sessions'
+  if (/^\/records(\/|$)/.test(rest)) return 'records'
+  if (/^\/members(\/|$)/.test(rest)) return 'members'
+  return null
+}
+
 export function BottomNav() {
   const { slug } = useClub()
+  const { pathname } = useLocation()
+  const current = tabOf(pathname, slug)
   const items = [
-    { to: `/c/${slug}`, label: '와이어', icon: 'wire', end: true },
-    { to: `/c/${slug}/sessions`, label: '일정', icon: 'calendar', end: false },
-    { to: `/c/${slug}/records`, label: '기록', icon: 'trophy', end: false },
-    { to: `/c/${slug}/members`, label: '멤버', icon: 'users', end: false },
+    { key: 'home', to: `/c/${slug}`, label: '와이어', icon: 'wire' },
+    { key: 'sessions', to: `/c/${slug}/sessions`, label: '일정', icon: 'calendar' },
+    { key: 'records', to: `/c/${slug}/records`, label: '기록', icon: 'trophy' },
+    { key: 'members', to: `/c/${slug}/members`, label: '멤버', icon: 'users' },
   ]
   return (
     <nav className="bottom-nav" aria-label="주요 메뉴">
       {items.map((it) => (
-        <NavLink key={it.to} to={it.to} end={it.end} className={({ isActive }) => (isActive ? 'active' : '')}>
+        <Link key={it.key} to={it.to} className={current === it.key ? 'active' : ''}
+          aria-current={current === it.key ? 'page' : undefined}>
           <Icon name={it.icon} size={22} />
           {it.label}
-        </NavLink>
+        </Link>
       ))}
     </nav>
   )

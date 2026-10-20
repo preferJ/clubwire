@@ -30,19 +30,12 @@ function ClubLayout() {
   )
 }
 
+/** 클럽 화면 공통 틀: 모든 화면(상세·관리자 포함)에 아래 탭 메뉴를 고정 표시 */
 function TabShell() {
   return (
     <div className="app with-nav">
       <Outlet />
       <BottomNav />
-    </div>
-  )
-}
-
-function DetailShell() {
-  return (
-    <div className="app">
-      <Outlet />
     </div>
   )
 }
@@ -106,8 +99,6 @@ export default function App() {
               <Route path="sessions" element={<SessionsPage />} />
               <Route path="records" element={<RecordsPage />} />
               <Route path="members" element={<MembersPage />} />
-            </Route>
-            <Route element={<DetailShell />}>
               <Route path="articles/:articleId" element={<ArticlePage />} />
               <Route path="sessions/:sessionId" element={<SessionPage />} />
               <Route path="matches/:matchId" element={<MatchPage />} />

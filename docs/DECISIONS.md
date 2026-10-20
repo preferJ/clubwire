@@ -178,6 +178,31 @@
 - 기사는 OpenAI 대신 스크립트 안의 템플릿 작성기가 Insight 사실로 작성(`MODEL_NAME='sample-template'`). 마지막 주 마감 기사는 검토 대기로 남김
 - 결과를 `mysqldump`로 데이터만 뽑아 INSERT문(.sql) 제공. 검증: 빈 DB에 적재 후 28개 테이블 CHECKSUM 일치, 전체 재계산 전후 Rating·통계 동일
 
+## 3-4. 기사거리 12종 추가 + 하단 탭 메뉴 (2026-10-20)
+
+새 Insight 유형(기준 숫자는 `INSIGHT_CONFIG_PARAM`, 켜고 끄기·태그·중요도는 `INSIGHT_TYPE_CONFIG`). 기존 DB에는 기사 생성 시 자동으로 추가된다(`ensure_insight_types`), 스키마 변경 없음.
+
+| 시점 | 유형 (태그) | 조건(기본값) | 계산 근거 |
+|---|---|---|---|
+| 프리뷰 | DUO_REUNITED (듀오) | 같은 팀 배정 + 같은 팀 10경기 이상 + 승률 65% 이상, 하루 최대 3쌍 | Pair 집계(같은 팀 경기·승·무) |
+| 프리뷰 | NEMESIS_MATCH (천적) | 다른 팀 배정 + 맞대결 6경기 이상 + 한쪽 승률 70% 이상, 열세 쪽이 주인공, 최대 3쌍 | Pair 집계(맞대결 각자 승) + 최근 연패 |
+| 프리뷰 | JINX_PAIR (징크스) | 같은 팀 배정 + 같은 팀 10경기 이상 + 승률 30% 이하, 최대 2쌍 | Pair 집계 |
+| 프리뷰 | SCORING_RACE (레이스) | 이달 득점 1·2위 2골 차 이내 + 1위 3골 이상 + 둘 다 출전 | 이달 경기 기록 |
+| 프리뷰 | ATTENDANCE_STREAK (개근) | 오늘 포함 6일정 이상 연속 출전 | 경기 기록 |
+| 마감 | REVENGE_RESULT (천적) | 오늘 프리뷰의 천적 매치 두 사람이 실제로 맞붙은 경우의 결과(설욕/천적 계속/무승부) | 오늘 경기 + 프리뷰 Insight |
+| 마감 | ASSIST_COMBO (콤비) | 같은 도움→득점 조합이 오늘 2번 이상 | 오늘 골 기록 |
+| 마감 | UNBEATEN_TEAM (무패) | 오늘 3경기 이상 + 패배 0(전승이면 중요도 ↑) | 오늘 팀 전적 |
+| 마감 | CLEAN_SHEET (철벽) | 오늘 3경기 이상 무실점 | 오늘 팀 전적 |
+| 마감 | FIRST_GOAL / FIRST_ASSIST (데뷔) | 통산 첫 골·첫 도움. 클럽 첫 기록일은 제외(전원이 첫 골이 되므로) | 이전 누적 |
+| 마감 | PERSONAL_BEST_GOALS (신기록) | 오늘 3골 이상 + 본인 하루 최다 초과 + 이전 출전 3일정 이상 | 일정별 득점 |
+
+- 팀 단위 사실(무패·철벽)은 대표 선수(`INSIGHT.MEMBER_ID`)를 두지 않고 팀원 전원을 `INSIGHT_MEMBER`(TEAM)로 연결: 한 사람의 공으로 기사화되는 것을 막고, 선수 화면에서는 관련 기사로 보이게
+- AI 프롬프트 v2: 천적·징크스·복수는 "설욕할까/징크스 깰까"처럼 도전 관점으로만, 팀 단위 사실은 특정 선수 공으로 돌리지 않음
+- 순수 계산은 `insight_engine`의 함수(`same_team_rate_candidates`, `nemesis_candidates`, `monthly_goal_ranking`, `attendance_streak`, `team_day_records`, `assist_combos` 등)로 분리해 단위 테스트(`tests/test_insight_rules_v2.py`)
+- 홈 태그 칩에 새 태그 추가, 관리자 기사 검토 화면에 새 사실 설명 추가
+- **하단 탭 메뉴**: 상세(기사·일정·경기·선수)와 관리자 화면에서도 항상 표시. 기사 → 와이어, 일정·경기 → 일정, 선수 → 멤버 탭을 강조. 화면 하단 실행 버튼(`.bar-actions`)은 탭 메뉴 위에 붙는다
+- 샘플 데이터(`ypr_sample_data.sql`)를 새 기사거리 포함으로 다시 생성
+
 ## 4. 남은 이슈 / 다음 단계
 
 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)

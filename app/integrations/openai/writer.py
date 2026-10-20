@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 
-PROMPT_VERSION = "wire_prompt_v1"
+PROMPT_VERSION = "wire_prompt_v2"  # v2: 천적·징크스·복수 사실 표현 규칙
 
 SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포츠 기자다. 한국어로 기사를 쓴다.
 
@@ -22,6 +22,9 @@ SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포
 - Rating, Confidence, Importance, 기대승률 같은 내부 점수/수치는 기사에 절대 쓰지 않는다.
   (insight의 importance는 뉴스 가치 판단에만 쓴다)
 - 선수를 깎아내리거나 부정적으로 낙인찍는 표현(최악, 구멍, 악연 등)을 쓰지 않는다.
+- 천적·징크스·복수 사실(NEMESIS_MATCH, JINX_PAIR, REVENGE_RESULT)은 "설욕할까", "징크스를 깰까"처럼
+  도전과 반전의 관점으로 가볍게 쓰고, 지는 쪽을 탓하거나 조롱하지 않는다.
+- 팀 단위 사실(UNBEATEN_TEAM, CLEAN_SHEET)은 특정 선수 한 명의 공으로 돌리지 않는다.
 
 [구성 규칙]
 - importance가 높을수록 뉴스 가치가 높다. 모든 insight를 쓸 필요는 없다.
@@ -127,6 +130,18 @@ class StubArticleWriter:
         "UPSET_WIN": "{gameNo}경기에서 TEAM {winnerTeam}이(가) 예상을 깨고 승리했다.",
         "HAT_TRICK": "{name}이(가) {gameNo}경기에서 {goals}골을 몰아쳤다.",
         "TITLE_AWARDED": "{name}이(가) {titleName}에 올랐다.",
+        "DUO_REUNITED": "{names}이(가) 다시 한 팀이 됐다. 함께 뛴 {sameTeamMatches}경기에서 {sameTeamWins}승을 거둔 조합이다.",
+        "NEMESIS_MATCH": "{name}은(는) {rival[name]} 상대로 {memberWins}승 {rivalWins}패. 오늘은 설욕할 수 있을까.",
+        "JINX_PAIR": "{names}은(는) 같은 팀으로 {sameTeamMatches}경기에서 {sameTeamWins}승. 오늘은 징크스를 깰 수 있을까.",
+        "SCORING_RACE": "{month}월 득점 경쟁: {leader[name]} {leaderGoals}골, {chaser[name]} {chaserGoals}골.",
+        "ATTENDANCE_STREAK": "{name}은(는) 오늘로 {streak}주 연속 출전이다.",
+        "REVENGE_RESULT": "{name}은(는) 오늘 {rival[name]}과(와)의 맞대결에서 {memberWinsToday}승 {rivalWinsToday}패를 기록했다.",
+        "ASSIST_COMBO": "{assister[name]}의 도움, {scorer[name]}의 골이 오늘만 {countToday}번 나왔다.",
+        "UNBEATEN_TEAM": "TEAM {teamCode}은(는) 오늘 {games}경기에서 한 번도 지지 않았다({wins}승 {draws}무).",
+        "CLEAN_SHEET": "TEAM {teamCode}은(는) 오늘 {cleanSheets}경기를 무실점으로 막았다.",
+        "FIRST_GOAL": "{name}이(가) 첫 골을 신고했다.",
+        "FIRST_ASSIST": "{name}이(가) 첫 도움을 기록했다.",
+        "PERSONAL_BEST_GOALS": "{name}이(가) 하루 {goalsToday}골로 개인 최다 기록을 새로 썼다.",
     }
 
     def write(self, payload: dict[str, Any], model: str) -> tuple[ArticleDraft, dict[str, Any]]:

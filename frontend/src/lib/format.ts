@@ -92,8 +92,8 @@ export function pct(rate: number | null | undefined): string {
 export function tagTone(tag: string): string {
   if (tag === '마감') return 'dark'
   if (tag === '프리뷰') return 'green'
-  if (['복귀', '데뷔', '페어'].includes(tag)) return 'blue'
-  if (['타이틀', '마일스톤'].includes(tag)) return 'gold'
+  if (['복귀', '데뷔', '페어', '듀오', '콤비'].includes(tag)) return 'blue'
+  if (['타이틀', '마일스톤', '신기록', '개근', '무패', '철벽'].includes(tag)) return 'gold'
   return 'warm'
 }
 

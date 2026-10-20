@@ -55,6 +55,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리�
 | `..::test_guests_rotation_timer_correction_and_ws` | 게스트(인원 +1, 분산), 지각 추가, WebSocket 수신, 타이머 자동 종료, 확정 해제→정정→재확정 시 Rating 증분 재계산 = 전체 재계산 |
 | `..::test_insights_return_player_and_close_order` | 63일 만의 복귀/3연승 Insight, 마감 순서 강제, AUTO 게시, 재생성 버전 관리, 설정 이력 |
 | `test_insight_rules.py` | 결승골(종료 10초 전)/역전/해트트릭/이변/타이틀 Insight 판정 |
+| `test_insight_rules_v2.py` | 듀오·징크스·천적 후보, 이달 득점 순위, 연속 출전, 팀 하루 전적, 도움→득점 조합, 하루 최다 골 계산 + 마감 시 콤비·무패·철벽·첫 골 Insight |
 | `test_concurrency.py` | 동시 골 20건(멱등키 중복 8건 포함) → 점수 = 이벤트 수 |
 | `test_regressions.py` | 한쪽 팀이 빈 경기 포함 시 증분=전체 재계산, 설정 버전 연속 증가, 마감 이전 날짜 일정 차단, 득점자 팀 이동 차단, 제외 멤버 참석자 목록 반영 |
 | `test_frontend_apis.py` | 홈 LIVE 배너, 일정 목록 인원수, 일정 요약, 멤버별 수상 이력 |
@@ -117,6 +118,7 @@ scripts/gen_docs.py   문서 재생성
 ## 5. 문서
 
 - [docs/DECISIONS.md](docs/DECISIONS.md) — 확정된 결정사항, 원 요구사항 대비 변경점과 이유, 남은 이슈
+- [docs/WIRE_RULES.md](docs/WIRE_RULES.md) — 기사거리(Insight) 26종의 조건과 제목 예시
 - [docs/ERD.md](docs/ERD.md) — 영역별 ERD(Mermaid)
 - [docs/TABLES.md](docs/TABLES.md) — 테이블 정의서(28개)
 - [docs/schema.sql](docs/schema.sql) — MySQL DDL(COMMENT 포함)

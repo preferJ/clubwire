@@ -9,7 +9,8 @@ import { useClub, useClubEvent } from '../lib/club'
 import { fmtClock, fmtDate, fmtDateTime, SESSION_STATUS_LABEL } from '../lib/format'
 import { useAsync, useMatchClock } from '../lib/hooks'
 
-const TAGS = ['전체', '마감', '프리뷰', '복귀', '연승', '결승골', '역전', '타이틀']
+const TAGS = ['전체', '마감', '프리뷰', '복귀', '연승', '결승골', '역전', '타이틀',
+  '듀오', '천적', '콤비', '무패', '철벽', '신기록', '레이스', '개근', '징크스', '데뷔']
 
 export function HomePage() {
   const { api, club, slug, isAdmin } = useClub()

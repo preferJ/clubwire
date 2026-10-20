@@ -108,7 +108,10 @@ def names_ko(names: list[str]) -> str:
 _RECENT_HEADS: dict[str, list[tuple[str, str]]] = {}  # 기사 종류별 최근 제목 (유형, 선수) — 같은 유형 반복 방지
 _HEAD_BONUS = {"HAT_TRICK": 14, "COMEBACK_WIN": 14, "UPSET_WIN": 12, "LATE_WINNER": 8, "RETURN_PLAYER_RESULT": 10,
                "RETURN_PLAYER": 12, "RARE_PAIR": 6, "WIN_STREAK": 4, "TITLE_AWARDED": 2,
-               "CLOSE_MATCH_EXPECTED": -8, "MILESTONE_EXPECTED": -10, "MILESTONE_ACHIEVED": -4}
+               "CLOSE_MATCH_EXPECTED": -8, "MILESTONE_EXPECTED": -10, "MILESTONE_ACHIEVED": -4,
+               "REVENGE_RESULT": 16, "NEMESIS_MATCH": 10, "PERSONAL_BEST_GOALS": 12, "ASSIST_COMBO": 8,
+               "DUO_REUNITED": 6, "SCORING_RACE": 6, "UNBEATEN_TEAM": 6, "JINX_PAIR": 4, "CLEAN_SHEET": 4,
+               "ATTENDANCE_STREAK": -2}
 _METRIC = {"games": ("경기 출전", "경기"), "goals": ("골", "골"), "assists": ("도움", "개")}
 
 
@@ -132,8 +135,10 @@ class SampleArticleWriter:
 
     def _group_key(self, ins: dict[str, Any], phase: str) -> tuple:
         t, f = ins["type"], ins.get("facts") or {}
-        if t in ("WIN_STREAK", "SCORING_STREAK"):
+        if t in ("WIN_STREAK", "SCORING_STREAK", "ATTENDANCE_STREAK"):
             return (t, phase)
+        if t in ("FIRST_GOAL", "FIRST_ASSIST"):
+            return (t,)
         if t == "MILESTONE_ACHIEVED":
             return (t, f.get("metric"), f.get("milestone"))
         if t == "MILESTONE_EXPECTED":
@@ -154,6 +159,73 @@ class SampleArticleWriter:
         head_who = f"{lead} 등 {len(names)}명" if many else lead
         g = f.get("gameNo")
         try:
+            if t == "ATTENDANCE_STREAK":
+                ranked = sorted(items, key=lambda i: -(i.get("facts") or {}).get("streak", 0))
+                tagged = [(self._name(i), f"{i['facts']['streak']}주") for i in ranked if self._name(i)]
+                top, top_s = tagged[0][0], ranked[0]["facts"]["streak"]
+                if len(tagged) == 1:
+                    return f"{top}, {top_s}주 연속 개근", f"{j(top, '은', '는')} 오늘로 {top_s}주 연속 출전이다."
+                body_, last = tagged_list(tagged)
+                return f"{top}, {top_s}주 연속 개근", f"{body_}{josa_only(last, '이', '가')} 개근 행진을 이어가고 있다."
+            if t in ("DUO_REUNITED", "JINX_PAIR"):
+                ms = [m.get("name") for m in f.get("members", []) if m.get("name")]
+                pair, both = f"{ms[0]}·{ms[1]}", names_ko(ms)
+                m_, w_ = f["sameTeamMatches"], f["sameTeamWins"]
+                if t == "DUO_REUNITED":
+                    return (f"{pair}, 다시 한 팀… 함께 {m_}경기 {w_}승",
+                            f"{j(both, '이', '가')} 다시 한 팀이 됐다. 같은 팀으로 뛴 {m_}경기에서 {w_}승을 거둔 조합이다.")
+                return (f"{pair}, 징크스 깰까",
+                        f"{j(both, '은', '는')} 같은 팀으로 {m_}경기에서 {w_}승에 그쳤다. 오늘은 징크스를 깰 수 있을까.")
+            if t == "NEMESIS_MATCH":
+                u, r = f["member"]["name"], f["rival"]["name"]
+                uw, dw, dr, ls = f["memberWins"], f["rivalWins"], f["draws"], f.get("lossStreak", 0)
+                streak_txt = f" 최근 {ls}연패 중이다." if ls >= 2 else ""
+                rec_txt = f"{uw}승 {dr}무 {dw}패" if dr else f"{uw}승 {dw}패"
+                return (f"{u}, {r} 상대 {uw}승 {dw}패… 설욕할까",
+                        f"{j(u, '은', '는')} {r} 상대로 {rec_txt}.{streak_txt} 오늘은 다른 팀으로 갈려 설욕을 노린다.")
+            if t == "REVENGE_RESULT":
+                u, r = f["member"]["name"], f["rival"]["name"]
+                uw, dw, ls, oc = f["memberWinsToday"], f["rivalWinsToday"], f.get("lossStreakBefore", 0), f["outcome"]
+                if oc == "REVENGE":
+                    head = f"{u}, {r} 상대 {ls}연패 끊었다" if ls >= 2 else f"{u}, {r}에게 설욕"
+                    return head, f"{j(u, '은', '는')} 오늘 {j(r, '과', '와')}의 맞대결에서 {uw}승 {dw}패로 앞서며 설욕에 성공했다."
+                if oc == "HELD":
+                    return (f"{r}, {u} 상대 강세 이어가",
+                            f"{j(r, '은', '는')} 오늘도 {u} 상대로 {dw}승을 챙기며 강세를 이어갔다.")
+                if uw == dw == 0:
+                    return None, f"{j(u, '과', '와')} {j(r, '은', '는')} 오늘 {f['drawsToday']}번 맞붙어 모두 비겼다."
+                return None, f"{j(u, '과', '와')} {r}의 맞대결은 오늘 {uw}승 {dw}패로 팽팽했다."
+            if t == "SCORING_RACE":
+                mo, ld, ch = f["month"], f["leader"]["name"], f["chaser"]["name"]
+                lg, cg, gap = f["leaderGoals"], f["chaserGoals"], f["gap"]
+                if gap == 0:
+                    return (f"{mo}월 득점왕, {ld}·{ch} 공동 선두",
+                            f"{mo}월 득점 경쟁이 뜨겁다. {j(names_ko([ld, ch]), '이', '가')} 나란히 {lg}골로 공동 선두다.")
+                return (f"{mo}월 득점왕, {ld}·{ch} {gap}골 차",
+                        f"{mo}월 득점 경쟁이 뜨겁다. {j(ld, '이', '가')} {lg}골, {j(ch, '이', '가')} {cg}골로 {gap}골 차다.")
+            if t == "ASSIST_COMBO":
+                a_, s_, n_, c_ = f["assister"]["name"], f["scorer"]["name"], f["countToday"], f.get("careerCount", 0)
+                tail = f" 둘이 합작한 골은 통산 {c_}골이다." if c_ > n_ else ""
+                cnt = {2: "두", 3: "세", 4: "네", 5: "다섯"}.get(n_, str(n_))
+                return (f"{a_}→{s_}, 오늘만 {cnt} 번",
+                        f"{a_}의 패스를 {j(s_, '이', '가')} 마무리한 골이 오늘만 {cnt} 번 나왔다.{tail}")
+            if t in ("UNBEATEN_TEAM", "CLEAN_SHEET"):
+                team = f["teamCode"] + "팀"
+                if t == "CLEAN_SHEET":
+                    return (f"{team}, {f['cleanSheets']}경기 무실점",
+                            f"{j(team, '은', '는')} 오늘 {f['games']}경기 중 {f['cleanSheets']}경기를 무실점으로 막아 냈다.")
+                if f.get("perfect"):
+                    return f"{team}, {f['games']}전 전승", f"{j(team, '은', '는')} 오늘 {f['games']}경기를 모두 이겼다."
+                return (f"{team}, 오늘 {f['games']}경기 무패",
+                        f"{j(team, '은', '는')} 오늘 {f['games']}경기에서 {f['wins']}승 {f['draws']}무로 한 번도 지지 않았다.")
+            if t in ("FIRST_GOAL", "FIRST_ASSIST"):
+                what = "첫 골을 신고했다" if t == "FIRST_GOAL" else "첫 도움을 기록했다"
+                return (f"{head_who}, {'첫 골 신고' if t == 'FIRST_GOAL' else '첫 도움'}",
+                        f"{j(who, '이', '가')} {'나란히 ' if many else ''}기록 집계 후 {what}.")
+            if t == "PERSONAL_BEST_GOALS":
+                g_, pb = f["goalsToday"], f["previousBest"]
+                return (f"{lead}, 하루 {g_}골 개인 최다",
+                        f"{j(lead, '은', '는')} 오늘 {g_}골을 넣어 하루 최다 기록({pb}골)을 넘어섰다.")
             if t in ("WIN_STREAK", "SCORING_STREAK") and len({(i.get("facts") or {}).get("streak") for i in items}) > 1:
                 ranked = sorted(items, key=lambda i: -(i.get("facts") or {}).get("streak", 0))
                 unit = "연승" if t == "WIN_STREAK" else "주"

@@ -7,6 +7,7 @@ FACTS에 넣지 않는다.
 - PRE  : [일정확정] 시점. 해당 일정 이전의 확정 경기만 사용.
 - POST : [일정마감] 시점. 해당 일정까지의 확정 경기 사용.
 """
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date
 from itertools import combinations
@@ -77,12 +78,14 @@ class _Ctx:
         return int(max(c.min_importance, min(c.max_importance, c.base_importance + steps * per_step)))
 
     def add(self, t: str, importance: int, facts: dict, *, members: list[tuple[int, str]] | None = None,
-            match_id: int | None = None) -> Insight:
+            match_id: int | None = None, subject: bool = True) -> Insight:
+        """subject=False: 팀 단위 사실(무패·철벽)처럼 대표 선수가 없는 Insight. 관련 선수는 INSIGHT_MEMBER로만 연결."""
         c = self.types[t]
         members = members or []
         ins = Insight(
             club_id=self.club_id, session_id=self.session.session_id, match_id=match_id,
-            member_id=members[0][0] if members else None, insight_type=t, category=c.category, phase=self.phase,
+            member_id=members[0][0] if members and subject else None, insight_type=t, category=c.category,
+            phase=self.phase,
             importance=int(importance), facts_json=facts, rule_version=c.rule_version, active_yn=True,
         )
         self.db.add(ins)
@@ -122,6 +125,129 @@ def _milestones(ctx: _Ctx, t: str) -> list[int]:
 
 
 METRIC_LABEL = {"games": "출전 경기", "goals": "골", "assists": "도움"}
+
+
+# ---------------------------------------------------------------------- 순수 계산(2026-10-20 추가 규칙)
+def same_team_record(p: dict) -> dict:
+    """Pair 집계 → 같은 팀 전적 사실."""
+    m = p["same_m"]
+    return {"sameTeamMatches": m, "sameTeamWins": p["same_w"], "sameTeamDraws": p["same_d"],
+            "sameTeamLosses": m - p["same_w"] - p["same_d"],
+            "winRatePercent": round(100 * p["same_w"] / m) if m else 0}
+
+
+def pairs_today(team_of: dict[int, int], pairs: dict, *, same_team: bool):
+    """오늘 같은 팀(same_team=True) 또는 다른 팀으로 배정된 두 선수와, 그 이전까지의 Pair 집계."""
+    for a, b in combinations(sorted(team_of), 2):
+        if (team_of[a] == team_of[b]) != same_team:
+            continue
+        p = pairs.get((a, b))
+        if p:
+            yield a, b, p
+
+
+def same_team_rate_candidates(team_of: dict[int, int], pairs: dict, min_matches: float, *,
+                              min_rate: float | None = None, max_rate: float | None = None) -> list[tuple]:
+    """같은 팀 승률 조건(듀오: min_rate 이상 / 징크스: max_rate 이하). 반환 (승률, a, b, pair)."""
+    out = []
+    for a, b, p in pairs_today(team_of, pairs, same_team=True):
+        m = p["same_m"]
+        if m < min_matches:
+            continue
+        rate = p["same_w"] / m
+        if (min_rate is not None and rate >= min_rate) or (max_rate is not None and rate <= max_rate):
+            out.append((rate, a, b, p))
+    return out
+
+
+def nemesis_candidates(team_of: dict[int, int], pairs: dict, min_matches: float, min_rate: float) -> list[tuple]:
+    """다른 팀이 된 두 선수 중 맞대결에서 한쪽이 크게 앞선 조합. 반환 (앞선 쪽 승률, 열세, 우세, 경기, 열세 승, 우세 승)."""
+    out = []
+    for a, b, p in pairs_today(team_of, pairs, same_team=False):
+        n = p["opp"]
+        if n < min_matches:
+            continue
+        for dom, und, dw, uw in ((a, b, p["low_w"], p["high_w"]), (b, a, p["high_w"], p["low_w"])):
+            if dw / n >= min_rate:
+                out.append((dw / n, und, dom, n, uw, dw))
+    return out
+
+
+def monthly_goal_ranking(records: list[MatchRecord], year: int, month: int) -> list[tuple[int, int]]:
+    """해당 월 득점 순위 [(member_id, 골)] (자책골 제외)."""
+    goals: Counter[int] = Counter()
+    for r in records:
+        if (r.session_date.year, r.session_date.month) != (year, month):
+            continue
+        for g in r.goals:
+            if g.scorer_member_id and not g.own_goal:
+                goals[g.scorer_member_id] += 1
+    return sorted(goals.items(), key=lambda kv: (-kv[1], kv[0]))
+
+
+def attendance_streak(records: list[MatchRecord], member_id: int) -> int:
+    """가장 최근 일정부터 연속으로 출전한 일정 수(오늘 제외). 출전 = 확정 경기에 1번 이상 뛴 일정."""
+    players: dict[int, set[int]] = {}
+    for r in records:
+        players.setdefault(r.session_id, set()).update(r.members)
+    streak = 0
+    for sid in reversed(list(players)):
+        if member_id not in players[sid]:
+            break
+        streak += 1
+    return streak
+
+
+def head_to_head(records: list[MatchRecord], member_id: int, rival_id: int) -> list[MatchRecord]:
+    """두 선수가 서로 다른 팀으로 맞붙은 경기(시간순)."""
+    return [r for r in records if member_id in r.members and rival_id in r.members
+            and r.members[member_id] != r.members[rival_id]]
+
+
+def h2h_loss_streak(records: list[MatchRecord], member_id: int, rival_id: int) -> int:
+    """member가 rival 상대로 최근 연속 패배한 경기 수."""
+    streak = 0
+    for r in reversed(head_to_head(records, member_id, rival_id)):
+        if r.win_team_id == r.members[rival_id]:
+            streak += 1
+        else:
+            break
+    return streak
+
+
+def assist_combos(records: list[MatchRecord]) -> Counter:
+    """(도움, 득점) 조합별 골 수(자책골 제외)."""
+    c: Counter[tuple[int, int]] = Counter()
+    for r in records:
+        for g in r.goals:
+            if g.assist_member_id and g.scorer_member_id and not g.own_goal:
+                c[(g.assist_member_id, g.scorer_member_id)] += 1
+    return c
+
+
+def team_day_records(records: list[MatchRecord]) -> dict[int, dict]:
+    """오늘 팀별 전적: 경기·승·무·패·득점·실점·무실점 경기 수·출전 선수."""
+    out: dict[int, dict] = {}
+    for r in records:
+        for tid, mine, theirs in ((r.team_a_id, r.score_a, r.score_b), (r.team_b_id, r.score_b, r.score_a)):
+            t = out.setdefault(tid, {"games": 0, "wins": 0, "draws": 0, "losses": 0, "goalsFor": 0,
+                                     "goalsAgainst": 0, "cleanSheets": 0, "players": set()})
+            t["games"] += 1
+            t["wins" if mine > theirs else "draws" if mine == theirs else "losses"] += 1
+            t["goalsFor"] += mine
+            t["goalsAgainst"] += theirs
+            t["cleanSheets"] += 1 if theirs == 0 else 0
+            t["players"].update(mid for mid, team in r.members.items() if team == tid)
+    return out
+
+
+def session_goal_history(records: list[MatchRecord], member_id: int) -> tuple[int, int]:
+    """(출전한 일정 수, 하루 최다 골)."""
+    per: dict[int, int] = {}
+    for r in records:
+        if member_id in r.members:
+            per[r.session_id] = per.get(r.session_id, 0) + r.member_goals(member_id)
+    return len(per), max(per.values(), default=0)
 
 
 # ====================================================================== PRE
@@ -191,10 +317,11 @@ def generate_pre_insights(db: Session, club_id: int, session: ClubSession) -> li
                              "current": cur, "milestone": nxt, "remaining": nxt - cur, "teamCode": team_code(mid)},
                             members=[(mid, "SUBJECT")])
 
+    pairs = aggregate_pairs(history)  # 이 일정 '이전' 기록만으로 계산(RARE_PAIR / DUO / NEMESIS / JINX 공용)
+
     # RARE_PAIR (같은 팀이 된 조합 중)
     t = "RARE_PAIR"
     if ctx.enabled(t):
-        pairs = aggregate_pairs(history)  # 이 일정 '이전' 기록만으로 계산
         candidates = []
         by_team: dict[int, list[int]] = {}
         for mid, tid in team_of.items():
@@ -217,6 +344,65 @@ def generate_pre_insights(db: Session, club_id: int, session: ClubSession) -> li
                              "lastSameTeamDate": p["last_same"].isoformat() if p["last_same"] else None,
                              "neverSameTeam": p["same"] == 0},
                     members=[(a, "SUBJECT"), (b, "PARTNER")])
+
+    # DUO_REUNITED (같은 팀일 때 승률 높은 조합이 다시 한 팀)
+    t = "DUO_REUNITED"
+    if ctx.enabled(t):
+        mn, rate_min = ctx.p(t, "min_same_team_matches", 10), ctx.p(t, "min_win_rate", 0.65)
+        cands = same_team_rate_candidates(team_of, pairs, mn, min_rate=rate_min)
+        for rate, a, b, p in sorted(cands, key=lambda x: (-x[0], -x[3]["same_m"], x[1], x[2]))[: int(ctx.p(t, "max_per_session", 3))]:
+            ctx.add(t, ctx.imp_linear(t, rate, rate_min, 1.0),
+                    {"members": [ctx.person(a), ctx.person(b)], "teamCode": team_code(a), **same_team_record(p)},
+                    members=[(a, "SUBJECT"), (b, "PARTNER")])
+
+    # JINX_PAIR (같은 팀일 때 승률 낮은 조합이 다시 한 팀 → "징크스 깰까")
+    t = "JINX_PAIR"
+    if ctx.enabled(t):
+        mn, rate_max = ctx.p(t, "min_same_team_matches", 10), ctx.p(t, "max_win_rate", 0.3)
+        cands = same_team_rate_candidates(team_of, pairs, mn, max_rate=rate_max)
+        for rate, a, b, p in sorted(cands, key=lambda x: (x[0], -x[3]["same_m"], x[1], x[2]))[: int(ctx.p(t, "max_per_session", 2))]:
+            ctx.add(t, ctx.imp_linear(t, rate_max - rate, 0, rate_max),
+                    {"members": [ctx.person(a), ctx.person(b)], "teamCode": team_code(a), **same_team_record(p)},
+                    members=[(a, "SUBJECT"), (b, "PARTNER")])
+
+    # NEMESIS_MATCH (맞대결 열세인 선수가 주인공: "복수할까")
+    t = "NEMESIS_MATCH"
+    if ctx.enabled(t):
+        mn, rate_min = ctx.p(t, "min_matches", 6), ctx.p(t, "min_win_rate", 0.7)
+        cands = nemesis_candidates(team_of, pairs, mn, rate_min)
+        for rate, und, dom, n, uw, dw in sorted(cands, key=lambda x: (-x[0], -x[3], x[1], x[2]))[: int(ctx.p(t, "max_per_session", 3))]:
+            ctx.add(t, ctx.imp_linear(t, rate, rate_min, 1.0),
+                    {"member": ctx.person(und), "rival": ctx.person(dom), "members": [ctx.person(und), ctx.person(dom)],
+                     "headToHeadMatches": n, "memberWins": uw, "rivalWins": dw, "draws": n - uw - dw,
+                     "memberTeamCode": team_code(und), "rivalTeamCode": team_code(dom),
+                     "lossStreak": h2h_loss_streak(history, und, dom), "teamCount": len(teams)},
+                    members=[(und, "SUBJECT"), (dom, "RIVAL")])
+
+    # SCORING_RACE (이달 득점 1·2위 근소 차, 둘 다 출전)
+    t = "SCORING_RACE"
+    if ctx.enabled(t):
+        d = session.session_date
+        ranking = monthly_goal_ranking(history, d.year, d.month)
+        if len(ranking) >= 2:
+            (lead, lg), (chase, cg) = ranking[0], ranking[1]
+            gap_max = ctx.p(t, "max_gap", 2)
+            if lg >= ctx.p(t, "min_leader_goals", 3) and lg - cg <= gap_max and lead in team_of and chase in team_of:
+                ctx.add(t, ctx.imp_linear(t, gap_max - (lg - cg), 0, gap_max),
+                        {"month": d.month, "leader": ctx.person(lead), "leaderGoals": lg,
+                         "chaser": ctx.person(chase), "chaserGoals": cg, "gap": lg - cg,
+                         "members": [ctx.person(lead), ctx.person(chase)]},
+                        members=[(lead, "SUBJECT"), (chase, "RIVAL")])
+
+    # ATTENDANCE_STREAK (오늘 포함 연속 출전)
+    t = "ATTENDANCE_STREAK"
+    if ctx.enabled(t):
+        mn = ctx.p(t, "minimum_streak", 6)
+        for mid in players:
+            streak = attendance_streak(history, mid) + 1  # 오늘 포함
+            if streak >= mn:
+                ctx.add(t, ctx.imp_step(t, streak - mn, ctx.p(t, "importance_per_extra", 4)),
+                        {"member": ctx.person(mid), "streak": streak, "streakUnit": "일정", "teamCode": team_code(mid)},
+                        members=[(mid, "SUBJECT")])
 
     # CLOSE_MATCH_EXPECTED (팀 간 전력 균형. 숫자는 넘기지 않음)
     t = "CLOSE_MATCH_EXPECTED"
@@ -383,6 +569,83 @@ def generate_post_insights(db: Session, club_id: int, session: ClubSession) -> l
                          "drawsToday": td.draws if td else 0, "lossesToday": td.losses if td else 0,
                          "goalsToday": td.goals if td else 0, "assistsToday": td.assists if td else 0},
                         members=[(mid, "SUBJECT")])
+
+    # PERSONAL_BEST_GOALS / FIRST_GOAL / FIRST_ASSIST
+    for mid in today_players:
+        td, tb = tot_today.get(mid), tot_before.get(mid)
+        if not td:
+            continue
+        t = "PERSONAL_BEST_GOALS"
+        if ctx.enabled(t):
+            sessions_before, best_before = session_goal_history(before, mid)
+            if (sessions_before >= ctx.p(t, "min_prior_sessions", 3) and td.goals >= ctx.p(t, "min_goals", 3)
+                    and td.goals > best_before):
+                ctx.add(t, ctx.imp_step(t, td.goals - best_before - 1, 10),
+                        {"member": ctx.person(mid), "goalsToday": td.goals, "previousBest": best_before},
+                        members=[(mid, "SUBJECT")])
+        if not before:  # 클럽 첫 기록일은 모두가 '첫 골'이라 제외
+            continue
+        for t, metric in (("FIRST_GOAL", "goals"), ("FIRST_ASSIST", "assists")):
+            if ctx.enabled(t) and getattr(td, metric) > 0 and (tb is None or getattr(tb, metric) == 0):
+                prior_games = tb.games if tb else 0
+                ctx.add(t, ctx.types[t].base_importance,
+                        {"member": ctx.person(mid), f"{metric}Today": getattr(td, metric),
+                         "priorGames": prior_games, "debutDay": prior_games == 0},
+                        members=[(mid, "SUBJECT")])
+
+    # ASSIST_COMBO (같은 도움→득점 조합이 오늘 여러 번)
+    t = "ASSIST_COMBO"
+    if ctx.enabled(t):
+        mn = ctx.p(t, "min_count", 2)
+        career = assist_combos(upto)
+        for (ast, scr), n in sorted(assist_combos(today).items(), key=lambda kv: (-kv[1], kv[0])):
+            if n >= mn:
+                ctx.add(t, ctx.imp_step(t, n - mn, 10),
+                        {"assister": ctx.person(ast), "scorer": ctx.person(scr), "member": ctx.person(scr),
+                         "countToday": n, "careerCount": career[(ast, scr)]},
+                        members=[(scr, "SUBJECT"), (ast, "ASSIST")])
+
+    # UNBEATEN_TEAM / CLEAN_SHEET (팀 단위: 대표 선수 없음)
+    day = team_day_records(today)
+    for tid, rec in sorted(day.items(), key=lambda kv: code(kv[0]) or ""):
+        team_members = [(mid, "TEAM") for mid in sorted(rec["players"])]
+        t = "UNBEATEN_TEAM"
+        if ctx.enabled(t) and rec["games"] >= ctx.p(t, "min_games", 3) and rec["losses"] == 0:
+            perfect = rec["wins"] == rec["games"]
+            imp = ctx.imp_linear(t, rec["games"], ctx.p(t, "min_games", 3), ctx.p(t, "max_games_signal", 8))
+            ctx.add(t, min(ctx.types[t].max_importance, imp + (10 if perfect else 0)),
+                    {"teamCode": code(tid), "games": rec["games"], "wins": rec["wins"], "draws": rec["draws"],
+                     "perfect": perfect, "goalsFor": rec["goalsFor"], "goalsAgainst": rec["goalsAgainst"]},
+                    members=team_members, subject=False)
+        t = "CLEAN_SHEET"
+        if ctx.enabled(t) and rec["cleanSheets"] >= ctx.p(t, "min_clean_sheets", 3):
+            ctx.add(t, ctx.imp_linear(t, rec["cleanSheets"], ctx.p(t, "min_clean_sheets", 3), ctx.p(t, "max_signal", 6)),
+                    {"teamCode": code(tid), "cleanSheets": rec["cleanSheets"], "games": rec["games"],
+                     "goalsAgainst": rec["goalsAgainst"]},
+                    members=team_members, subject=False)
+
+    # REVENGE_RESULT (오늘 프리뷰의 천적 매치 → 실제 맞대결 결과)
+    t = "REVENGE_RESULT"
+    if ctx.enabled(t):
+        nemesis = db.scalars(select(Insight).where(
+            Insight.session_id == session.session_id, Insight.phase == InsightPhase.PRE,
+            Insight.insight_type == "NEMESIS_MATCH", Insight.active_yn.is_(True)).order_by(Insight.insight_id))
+        for pre in nemesis:
+            f = pre.facts_json or {}
+            und, dom = f.get("member", {}).get("memberId"), f.get("rival", {}).get("memberId")
+            meets = head_to_head(today, und, dom) if und and dom else []
+            if not meets:
+                continue  # 3팀이면 둘이 안 만날 수도 있음
+            uw = sum(1 for r in meets if r.win_team_id == r.members[und])
+            dw = sum(1 for r in meets if r.win_team_id == r.members[dom])
+            outcome = "REVENGE" if uw > dw else "HELD" if dw > uw else "EVEN"
+            ctx.add(t, ctx.imp_step(t, {"REVENGE": 3, "EVEN": 1, "HELD": 0}[outcome], 10),
+                    {"member": ctx.person(und), "rival": ctx.person(dom), "members": [ctx.person(und), ctx.person(dom)],
+                     "outcome": outcome, "matchesToday": len(meets), "memberWinsToday": uw, "rivalWinsToday": dw,
+                     "drawsToday": len(meets) - uw - dw, "lossStreakBefore": f.get("lossStreak", 0),
+                     "memberWinsBefore": f.get("memberWins"), "rivalWinsBefore": f.get("rivalWins"),
+                     "matchesBefore": f.get("headToHeadMatches")},
+                    members=[(und, "SUBJECT"), (dom, "RIVAL")])
 
     # TITLE_AWARDED (이번 마감으로 확정된 자동 타이틀)
     t = "TITLE_AWARDED"
