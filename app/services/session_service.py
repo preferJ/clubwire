@@ -211,12 +211,9 @@ def serialize_session(db: Session, s: ClubSession, *, detail: bool = False, admi
             "guests": [{"guestId": g.guest_id, "name": g.guest_name} for g in info["guests"]],
             "headcount": len(info["members"]) + len(info["guests"]),
         }
-        if admin:
+        if admin:  # 팀 편성 정보(팀 단위)만. 선수별 Rating은 DB에서만 확인
             team["avgRatingSnapshot"] = t.avg_rating_snapshot
             team["strengthSnapshot"] = t.team_strength_snapshot
-            for (stm, _), md in zip(info["members"], team["members"]):
-                md["ratingSnapshot"] = round(stm.rating_snapshot, 2)
-                md["confidenceSnapshot"] = round(stm.confidence_snapshot, 4)
         teams.append(team)
     data["teams"] = teams
     data["balanceLabel"] = balance_label(spread_percent(strengths)) if len(strengths) >= 2 else None

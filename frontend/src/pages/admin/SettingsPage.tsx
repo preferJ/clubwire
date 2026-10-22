@@ -1,32 +1,17 @@
-// 운영 설정(SYSTEM_CONFIG) + 관리자 암호 변경 + Hidden Rating 확인
+// 운영 설정(SYSTEM_CONFIG) + 관리자 암호 변경
+// 설정 키는 화면에 보여 주지 않는다. 이름·설명은 settingsHelp.ts, (?)를 누르면 자세한 설명이 펼쳐진다.
+// 선수별 실력 점수(Rating)는 관리자 화면에서도 보여 주지 않는다(DB에서만 확인).
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import type { ConfigItem } from '../../api/types'
 import { ErrorBox, Loading, Switch, TopBar } from '../../components/ui'
 import { useClub } from '../../lib/club'
 import { useAction, useAsync } from '../../lib/hooks'
-
-const GROUPS: { title: string; match: (k: string) => boolean }[] = [
-  { title: '경기', match: (k) => k.startsWith('MATCH_') && k !== 'MATCH_RATING_K' },
-  { title: '기사(The Wire)', match: (k) => k.startsWith('ARTICLE_') || k.startsWith('WIRE_') },
-  { title: '팀 편성', match: (k) => k.startsWith('TEAM_') || k.startsWith('PAIR_') },
-  { title: 'Rating · Confidence (고급)', match: () => true },
-]
-
-const LABELS: Record<string, string> = {
-  MATCH_DURATION_SEC: '경기 시간(초)',
-  MATCH_AUTO_END_YN: '시간이 끝나면 자동 종료',
-  MATCH_EARLY_END_GOALS: 'N골 먼저 넣으면 조기 종료(0=사용 안 함)',
-  ARTICLE_PUBLISH_MODE: '기사 게시 방식',
-  WIRE_MAX_INSIGHTS: '기사 1건에 넘기는 사실 최대 개수',
-  TEAM_RATING_TOLERANCE_PERCENT: '팀 전력 허용 차이(%)',
-  TEAM_CANDIDATE_COUNT: '팀 편성 후보 수',
-}
+import { CONFIG_GROUPS, CONFIG_HELP, RATING_GROUP_NOTE, type ConfigHelp } from './settingsHelp'
 
 export function SettingsPage() {
   const { api, slug } = useClub()
   const cfg = useAsync(() => api.config(), [api])
-  const ratings = useAsync(() => api.ratings(), [api])
   const { busy, run } = useAction()
   const [draft, setDraft] = useState<Record<string, ConfigItem['value']>>({})
   const [pin, setPin] = useState('')
@@ -37,12 +22,15 @@ export function SettingsPage() {
 
   const grouped = useMemo(() => {
     const items = cfg.data?.items ?? []
-    const used = new Set<string>()
-    return GROUPS.map((g) => {
-      const list = items.filter((i) => !used.has(i.key) && g.match(i.key))
-      list.forEach((i) => used.add(i.key))
-      return { title: g.title, list }
-    })
+    const known = new Set(CONFIG_GROUPS.flatMap((g) => g.keys))
+    return CONFIG_GROUPS.map((g) => ({
+      ...g,
+      // 묶음에 없는 새 설정은 고급 묶음 끝에 붙인다(서버 설명을 이름으로 사용)
+      list: [
+        ...g.keys.map((k) => items.find((i) => i.key === k)).filter((i): i is ConfigItem => !!i),
+        ...(g.advanced ? items.filter((i) => !known.has(i.key)) : []),
+      ],
+    }))
   }, [cfg.data])
 
   const changed = Object.fromEntries(
@@ -62,9 +50,10 @@ export function SettingsPage() {
       <TopBar title="운영 설정" sub={`설정 버전 ${cfg.data.configVersion}`} back={`/c/${slug}/admin`} />
       <main className="page">
         {grouped.map((g) => g.list.length ? (
-          <details key={g.title} className="card" open={!g.title.includes('고급')}>
+          <details key={g.title} className="card" open={!g.advanced}>
             <summary>{g.title}</summary>
-            <div className="stack" style={{ gap: 12 }}>
+            <div className="stack" style={{ gap: 18 }}>
+              {g.advanced ? <p className="small muted" style={{ lineHeight: 1.6 }}>{RATING_GROUP_NOTE}</p> : null}
               {g.list.map((i) => (
                 <ConfigField key={i.key} item={i} value={draft[i.key]} onChange={(v) => setDraft((d) => ({ ...d, [i.key]: v }))} />
               ))}
@@ -79,22 +68,6 @@ export function SettingsPage() {
           <button type="button" className="btn" disabled={busy || pin.length < 4}
             onClick={async () => { if (await run(() => api.changePin(pin), '암호를 바꿨어요')) setPin('') }}>암호 바꾸기</button>
         </section>
-
-        <details className="card">
-          <summary>Hidden Rating 보기(관리자 전용)</summary>
-          {ratings.data ? (
-            <div className="table-box" style={{ border: 0 }}>
-              <table className="data">
-                <thead><tr><th>#</th><th>이름</th><th>Rating</th><th>Confidence</th><th>경기</th></tr></thead>
-                <tbody>
-                  {ratings.data.map((r, i) => (
-                    <tr key={r.memberId}><td>{i + 1}</td><td>{r.name}</td><td className="mono">{r.rating.toFixed(1)}</td><td className="mono">{r.confidence.toFixed(2)}</td><td>{r.matchCount}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : <Loading rows={1} />}
-        </details>
       </main>
       <div className="bar-actions">
         <button type="button" className="btn primary lg block" disabled={busy || Object.keys(changed).length === 0} onClick={save}>
@@ -105,31 +78,72 @@ export function SettingsPage() {
   )
 }
 
+/** 설정 한 줄: 이름 + (?) / 입력 / 한 줄 설명 · 기본값 / (?)를 누르면 자세한 설명 */
 function ConfigField({ item, value, onChange }: { item: ConfigItem; value: ConfigItem['value'] | undefined; onChange: (v: ConfigItem['value']) => void }) {
-  const label = LABELS[item.key] ?? item.description
+  const help: ConfigHelp | undefined = CONFIG_HELP[item.key]
+  const label = help?.label ?? item.description
+  const [open, setOpen] = useState(false)
+  const id = useId()
+  const helpId = `${id}-help`
+  const helpButton = help ? (
+    <button type="button" className="help-btn" aria-label={`${label} 설명`} aria-expanded={open} aria-controls={helpId}
+      onClick={() => setOpen((o) => !o)}>?</button>
+  ) : null
+
+  let control
   if (item.valueType === 'BOOL') {
-    return (
-      <div className="row between">
-        <span className="stack" style={{ gap: 0 }}><b style={{ fontSize: 14 }}>{label}</b><span className="small muted">{item.key}</span></span>
-        <Switch checked={!!value} onChange={onChange} label={label} />
+    control = null // 스위치는 이름 줄 오른쪽에
+  } else if (item.choices) {
+    control = (
+      <select id={id} className="select" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)}>
+        {item.choices.map((c) => <option key={c} value={c}>{help?.choiceLabels?.[c] ?? c}</option>)}
+      </select>
+    )
+  } else {
+    control = (
+      <div className="row" style={{ gap: 8 }}>
+        <input id={id} className="input" type="number" step={item.valueType === 'FLOAT' ? 'any' : 1} value={String(value ?? '')} style={{ flex: 1 }}
+          onChange={(e) => onChange(item.valueType === 'INT' ? parseInt(e.target.value || '0', 10) : parseFloat(e.target.value || '0'))} />
+        {help?.unit ? <span className="muted" style={{ fontSize: 14, minWidth: 28 }}>{help.unit}</span> : null}
       </div>
     )
   }
-  if (item.choices) {
-    return (
-      <label className="field">{label}
-        <select className="select" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)}>
-          {item.choices.map((c) => <option key={c} value={c}>{c === 'MANUAL' ? 'MANUAL (관리자 검토 후 게시)' : c === 'AUTO' ? 'AUTO (생성 즉시 게시)' : c}</option>)}
-        </select>
-      </label>
-    )
-  }
+
   return (
-    <label className="field">
-      <span>{label}{item.key === 'MATCH_DURATION_SEC' && value ? ` · ${Math.round(Number(value) / 60)}분` : ''}</span>
-      <input className="input" type="number" step={item.valueType === 'FLOAT' ? 'any' : 1} value={String(value ?? '')}
-        onChange={(e) => onChange(item.valueType === 'INT' ? parseInt(e.target.value || '0', 10) : parseFloat(e.target.value || '0'))} />
-      <span className="small" style={{ fontWeight: 400 }}>{item.key} · 기본 {String(item.defaultValue)}{LABELS[item.key] ? ` · ${item.description}` : ''}</span>
-    </label>
+    <div className="stack" style={{ gap: 6 }}>
+      <div className="row between" style={{ gap: 8 }}>
+        <span className="row" style={{ gap: 6 }}>
+          {item.valueType === 'BOOL'
+            ? <b style={{ fontSize: 14 }}>{label}</b>
+            : <label htmlFor={id} style={{ fontSize: 14, fontWeight: 700 }}>{label}</label>}
+          {helpButton}
+        </span>
+        {item.valueType === 'BOOL' ? <Switch checked={!!value} onChange={onChange} label={label} /> : null}
+      </div>
+      {control}
+      <span className="small muted" style={{ lineHeight: 1.5 }}>
+        {help?.summary ?? ''}
+        {help?.summary ? ' ' : ''}
+        <span style={{ whiteSpace: 'nowrap' }}>기본값 {fmtValue(item, item.defaultValue)}{item.key === 'MATCH_DURATION_SEC' && value ? ` · 지금 ${Math.round(Number(value) / 60)}분` : ''}</span>
+      </span>
+      {help && open ? (
+        <div id={helpId} className="help-box">
+          <p>{help.how}</p>
+          <dl>
+            {help.effects.map(([when, what]) => (
+              <div key={when}><dt>{when}</dt><dd>{what}</dd></div>
+            ))}
+          </dl>
+          {help.tip ? <p className="tip">{help.tip}</p> : null}
+        </div>
+      ) : null}
+    </div>
   )
+}
+
+function fmtValue(item: ConfigItem, v: ConfigItem['value']): string {
+  const help = CONFIG_HELP[item.key]
+  if (item.valueType === 'BOOL') return v ? '켬' : '끔'
+  if (item.choices) return help?.choiceLabels?.[String(v)] ?? String(v)
+  return `${v}${help?.unit ?? ''}`
 }

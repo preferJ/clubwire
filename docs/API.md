@@ -17,7 +17,7 @@
 | 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 삭제는 하지 않음 |
 | 🔓 | GET | `/sessions` | 일정 목록(공개) |
 | 🔑 | POST | `/sessions` | 일정 생성 |
-| 🔓 | GET | `/sessions/{session_id}` | 일정 상세(참석자/팀/경기) — 공개, 관리자는 Rating Snapshot 포함 |
+| 🔓 | GET | `/sessions/{session_id}` | 일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함 |
 | 🔑 | PATCH | `/sessions/{session_id}` | 일정 수정 |
 | 🔑 | POST | `/sessions/{session_id}/cancel` | 일정 취소(경기 시작 전만) |
 | 🔑 | POST | `/sessions/{session_id}/close` | [일정마감] 수정 잠금 → 자동 타이틀/통계/마감 기사 |
@@ -46,8 +46,6 @@
 | 🔑 | POST | `/matches/{match_id}/unfinalize` | 확정 해제(일정마감 전까지) |
 | 🔑 | POST | `/sessions/{session_id}/matches/next` | 다음 경기 생성(READY). 두 팀은 관리자가 지정 |
 | 🔑 | GET | `/sessions/{session_id}/matches/next-suggestion` | 다음 경기 대진 화면용: 팀별 경기 수 + 추천 대진 |
-| 🔑 | GET | `/admin/ratings` | [관리자] 현재 Hidden Rating / Confidence |
-| 🔑 | GET | `/admin/ratings/{member_id}/history` | [관리자] Rating 변경 이력 |
 | 🔑 | POST | `/admin/rebuild` | [관리자] Rating/통계/Pair 전체 재계산 |
 | 🔓 | GET | `/stats/members` | 개인 통계 목록(공개) |
 | 🔓 | GET | `/stats/members/{member_id}` | 개인 상세 통계: 최근 폼, 자주 같은 팀, 자주 만난 상대(공개) |

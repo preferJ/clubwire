@@ -13,6 +13,9 @@ from app.core.security import login_limiter  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models import Base  # noqa: E402
 from app.services import club_service  # noqa: E402
+from app.services import rating_service  # noqa: E402
+from app.services.common import get_club_by_slug  # noqa: E402
+from app.core.timeutil import utcnow  # noqa: E402
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -70,6 +73,19 @@ class Api:
             sug = self.ok(self.get(f"/sessions/{sid}/matches/next-suggestion"))
             teams = (sug["suggestedTeamAId"], sug["suggestedTeamBId"])
         return self.ok(self.post(f"/sessions/{sid}/matches/next", {"teamAId": teams[0], "teamBId": teams[1]}), 201)
+
+    # Rating은 API로 공개하지 않는다(관리자 포함) → 테스트는 DB에서 직접 확인
+    def ratings_db(self) -> list[dict]:
+        with SessionLocal() as s:
+            club = get_club_by_slug(s, self.slug)
+            return rating_service.rating_rows(s, club.club_id, utcnow().date())
+
+    def rating_history_db(self, member_id: int) -> list[dict]:
+        with SessionLocal() as s:
+            club = get_club_by_slug(s, self.slug)
+            return [{"before": h.before_rating, "after": h.after_rating, "reason": h.change_reason,
+                     "referenceId": h.reference_id}
+                    for h in rating_service.rating_history(s, club.club_id, member_id)]
 
     def login(self, pin="7777"):
         r = self.post("/admin/auth", {"password": pin}, admin=False)

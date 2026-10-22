@@ -37,7 +37,7 @@ def create_session(body: SessionCreate, club: Club = Depends(club_dep), admin: A
     return session_service.serialize_session(db, s, detail=True, admin=True)
 
 
-@router.get("/{session_id}", summary="일정 상세(참석자/팀/경기) — 공개, 관리자는 Rating Snapshot 포함")
+@router.get("/{session_id}", summary="일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함")
 def get_session_detail(session_id: int, club: Club = Depends(club_dep),
                        admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
     s = get_session(db, club.club_id, session_id)

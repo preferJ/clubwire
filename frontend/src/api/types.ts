@@ -48,8 +48,6 @@ export interface SessionListItem {
 
 export interface TeamMemberView extends PersonRef {
   assignType: 'AUTO' | 'MANUAL'
-  ratingSnapshot?: number
-  confidenceSnapshot?: number
 }
 
 export interface GuestView {
@@ -117,7 +115,7 @@ export interface Generation {
     avgRating: number
     strength: number
     pairPenalty: number
-    members: (PersonRef & { rating: number })[]
+    members: PersonRef[]  // 선수별 Rating은 서버가 내보내지 않음
     guests: GuestView[]
   }[]
 }
@@ -331,18 +329,6 @@ export interface ConfigItem {
   defaultValue: string | number | boolean
   description: string
   choices: string[] | null
-}
-
-export interface RatingRow {
-  memberId: number
-  name: string
-  active: boolean
-  /** 시작 Rating(지정값 또는 클럽 기본값) */
-  initialRating: number
-  rating: number
-  confidence: number
-  matchCount: number
-  lastPlayedDate: string | null
 }
 
 export interface AssignmentLog {

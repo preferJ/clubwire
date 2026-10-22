@@ -56,6 +56,11 @@ def test_full_loop(make_club, client, db):
     # 공개 조회에는 Rating이 없다
     pub = api.ok(api.get(f"/sessions/{sid}", admin=False))
     assert "ratingSnapshot" not in pub["teams"][0]["members"][0]
+    # 관리자에게도 선수별 Rating은 없다(팀 단위 편성 정보만)
+    adm = api.ok(api.get(f"/sessions/{sid}"))
+    assert not {"ratingSnapshot", "confidenceSnapshot"} & set(adm["teams"][0]["members"][0])
+    assert "avgRatingSnapshot" in adm["teams"][0]
+    assert all(set(m) == {"memberId", "name"} for t in gen["teams"] for m in t["members"])
     # PRE_MATCH 기사 1건 생성(게시 방식 MANUAL → GENERATED)
     pre = api.ok(api.get("/articles", params={"all": "true", "sessionId": sid}))
     assert len(pre) == 1 and pre[0]["articleType"] == "PRE_MATCH" and pre[0]["status"] == "GENERATED"
@@ -112,13 +117,15 @@ def test_full_loop(make_club, client, db):
     assert stats[a_ids[0]]["wins"] == 1 and stats[b_ids[0]]["losses"] == 1
     h2h = api.ok(api.get("/stats/pairs", params={"memberA": a_ids[0], "memberB": b_ids[0]}, admin=False))
     assert h2h["opponentMatches"] == 1 and h2h["winsA"] == 1
-    ratings = {x["memberId"]: x for x in api.ok(api.get("/admin/ratings"))}
+    ratings = {x["memberId"]: x for x in api.ratings_db()}
     assert ratings[a_ids[0]]["rating"] > 1000 > ratings[b_ids[0]]["rating"]
     c_member = next(i for i in ids if i not in a_ids + b_ids)
     assert ratings[c_member]["rating"] == 1000  # 대기팀은 영향 없음
-    hist = api.ok(api.get(f"/admin/ratings/{a_ids[0]}/history"))
+    hist = api.rating_history_db(a_ids[0])
     assert len(hist) == 1 and hist[0]["reason"] == "MATCH_RESULT" and hist[0]["referenceId"] == mid
-    assert api.get("/admin/ratings", admin=False).status_code == 401
+    # Rating은 관리자에게도 API로 공개하지 않는다(DB에서만 확인)
+    assert api.get("/admin/ratings").status_code == 404
+    assert api.get(f"/admin/ratings/{a_ids[0]}/history").status_code == 404
 
     # --- 대진은 매 경기 관리자가 지정(추천은 가장 오래 쉰 두 팀)
     assert api.post(f"/sessions/{sid}/matches/next", {}).status_code == 422
@@ -198,7 +205,7 @@ def test_guests_rotation_timer_correction_and_ws(make_club, client, db):
 
     api.ok(api.post(f"/matches/{mid}/finalize"))
     a_member = d["teamA"]["members"][0]["memberId"]
-    before = api.ok(api.get("/admin/ratings"))
+    before = api.ratings_db()
 
     # 2팀 → 항상 같은 대진
     m2, a2, b2 = _play(api, sid, 0, 1)
@@ -211,13 +218,13 @@ def test_guests_rotation_timer_correction_and_ws(make_club, client, db):
     api.ok(api.post(f"/matches/{mid}/finalize"))
     voided = db.scalar(select(func.count()).select_from(PlayerRatingHistory).where(PlayerRatingHistory.voided_yn.is_(True)))
     assert voided > 0  # 기존 이력은 지우지 않고 VOIDED
-    after = {x["memberId"]: x["rating"] for x in api.ok(api.get("/admin/ratings"))}
+    after = {x["memberId"]: x["rating"] for x in api.ratings_db()}
     assert after != {x["memberId"]: x["rating"] for x in before}
     # 전체 재계산 결과와 증분 재계산 결과가 같아야 한다
     api.ok(api.post("/admin/rebuild"))
-    rebuilt = {x["memberId"]: x["rating"] for x in api.ok(api.get("/admin/ratings"))}
+    rebuilt = {x["memberId"]: x["rating"] for x in api.ratings_db()}
     assert rebuilt == after
-    hist = api.ok(api.get(f"/admin/ratings/{a_member}/history"))
+    hist = api.rating_history_db(a_member)
     assert len(hist) == 2 and all(h["reason"] == "ADMIN_RECALC" for h in hist)
 
 

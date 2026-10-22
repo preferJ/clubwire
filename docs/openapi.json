@@ -666,7 +666,7 @@
         "tags": [
           "sessions"
         ],
-        "summary": "일정 상세(참석자/팀/경기) — 공개, 관리자는 Rating Snapshot 포함",
+        "summary": "일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함",
         "operationId": "get_session_detail_api_clubs__club_slug__sessions__session_id__get",
         "security": [
           {
@@ -2528,119 +2528,6 @@
             "schema": {
               "type": "integer",
               "title": "Memberb"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/clubs/{club_slug}/admin/ratings": {
-      "get": {
-        "tags": [
-          "stats"
-        ],
-        "summary": "[관리자] 현재 Hidden Rating / Confidence",
-        "operationId": "ratings_api_clubs__club_slug__admin_ratings_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "club_slug",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "description": "클럽 주소(slug)",
-              "title": "Club Slug"
-            },
-            "description": "클럽 주소(slug)"
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/clubs/{club_slug}/admin/ratings/{member_id}/history": {
-      "get": {
-        "tags": [
-          "stats"
-        ],
-        "summary": "[관리자] Rating 변경 이력",
-        "operationId": "rating_history_api_clubs__club_slug__admin_ratings__member_id__history_get",
-        "security": [
-          {
-            "HTTPBearer": []
-          }
-        ],
-        "parameters": [
-          {
-            "name": "member_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Member Id"
-            }
-          },
-          {
-            "name": "club_slug",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "description": "클럽 주소(slug)",
-              "title": "Club Slug"
-            },
-            "description": "클럽 주소(slug)"
-          },
-          {
-            "name": "includeVoided",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean",
-              "default": false,
-              "title": "Includevoided"
             }
           }
         ],

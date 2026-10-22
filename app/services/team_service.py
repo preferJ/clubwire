@@ -74,7 +74,6 @@ def serialize_generation(db: Session, gen: TeamGeneration) -> dict:
     rj = gen.result_json
     ids = [mid for t in rj["teams"] for mid in t["memberIds"]]
     names = member_names(db, ids)
-    inputs = {i["memberId"]: i for i in rj.get("inputs", [])}
     guest_names = {g.guest_id: g.guest_name for g in db.scalars(select(SessionGuest).where(SessionGuest.session_id == gen.session_id))}
     return {
         "generationId": gen.generation_id, "sessionId": gen.session_id, "status": gen.status,
@@ -86,8 +85,7 @@ def serialize_generation(db: Session, gen: TeamGeneration) -> dict:
             {
                 "teamCode": t["teamCode"], "headcount": t["headcount"], "avgRating": round(t["avgRating"], 2),
                 "strength": round(t["strength"], 2), "pairPenalty": round(t["pairPenalty"], 4),
-                "members": [{"memberId": mid, "name": names.get(mid),
-                             "rating": round(inputs.get(mid, {}).get("rating", 0), 2)} for mid in t["memberIds"]],
+                "members": [{"memberId": mid, "name": names.get(mid)} for mid in t["memberIds"]],  # 선수별 Rating은 내보내지 않음
                 "guests": [{"guestId": gid, "name": guest_names.get(gid)} for gid in t["guestIds"]],
             }
             for t in rj["teams"]

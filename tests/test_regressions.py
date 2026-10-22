@@ -33,9 +33,9 @@ def test_incremental_equals_full_with_one_sided_match(make_club):
         mid2, _, _ = _match(api, sid)
         api.ok(api.post(f"/matches/{mid2}/end"))
         api.ok(api.post(f"/matches/{mid2}/finalize"))
-    inc = {r["memberId"]: (r["rating"], r["matchCount"]) for r in api.ok(api.get("/admin/ratings"))}
+    inc = {r["memberId"]: (r["rating"], r["matchCount"]) for r in api.ratings_db()}
     api.ok(api.post("/admin/rebuild"))
-    full = {r["memberId"]: (r["rating"], r["matchCount"]) for r in api.ok(api.get("/admin/ratings"))}
+    full = {r["memberId"]: (r["rating"], r["matchCount"]) for r in api.ratings_db()}
     assert inc == full
 
 
@@ -74,7 +74,7 @@ def test_member_initial_rating_is_start_point_for_incremental_and_rebuild(make_c
     hi = api.ok(api.post("/members", {"name": "고수", "initialRating": 1081}), 201)["memberId"]
     lo = api.ok(api.post("/members", {"name": "신입", "initialRating": 910}), 201)["memberId"]
     plain = [api.ok(api.post("/members", {"name": f"기본{i}"}), 201)["memberId"] for i in range(2)]
-    start = {r["memberId"]: (r["rating"], r["initialRating"]) for r in api.ok(api.get("/admin/ratings"))}
+    start = {r["memberId"]: (r["rating"], r["initialRating"]) for r in api.ratings_db()}
     assert start[hi] == (1081, 1081) and start[lo] == (910, 910) and start[plain[0]] == (1000, 1000)
 
     sid = api.ok(api.post("/sessions", {"sessionDate": "2026-11-21"}), 201)["sessionId"]
@@ -85,9 +85,9 @@ def test_member_initial_rating_is_start_point_for_incremental_and_rebuild(make_c
         mid, _, _ = _match(api, sid)
         api.ok(api.post(f"/matches/{mid}/end"))
         api.ok(api.post(f"/matches/{mid}/finalize"))
-    inc = {r["memberId"]: r["rating"] for r in api.ok(api.get("/admin/ratings"))}
+    inc = {r["memberId"]: r["rating"] for r in api.ratings_db()}
     api.ok(api.post("/admin/rebuild"))
-    full = {r["memberId"]: r["rating"] for r in api.ok(api.get("/admin/ratings"))}
+    full = {r["memberId"]: r["rating"] for r in api.ratings_db()}
     assert inc == full
-    hist = api.ok(api.get(f"/admin/ratings/{hi}/history"))
+    hist = api.rating_history_db(hi)
     assert hist[0]["before"] == 1081  # 재계산 이력도 시작값에서 출발

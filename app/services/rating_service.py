@@ -223,6 +223,7 @@ def rebuild_ratings(db: Session, club_id: int, from_key: MatchKey | None = None,
 
 
 def rating_rows(db: Session, club_id: int, as_of: date) -> list[dict]:
+    """현재 Rating 목록. API로 내보내지 않는다(테스트·DB 점검용)."""
     cfg = load_config(db, club_id)
     rows = db.execute(
         select(Member, PlayerRating)

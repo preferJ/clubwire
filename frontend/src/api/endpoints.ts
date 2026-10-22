@@ -18,7 +18,6 @@ import type {
   MemberDetail,
   MemberStat,
   NextSuggestion,
-  RatingRow,
   SessionDetail,
   SessionListItem,
   SessionSummary,
@@ -101,7 +100,6 @@ export const makeApi = (slug: string) => ({
     request<Award[]>(slug, 'GET', '/titles/awards', { query }),
   award: (body: { titleCode: string; memberId: number; sessionId?: number; note?: string }) =>
     request(slug, 'POST', '/titles/awards', { body }),
-  ratings: () => request<RatingRow[]>(slug, 'GET', '/admin/ratings'),
 
   // The Wire
   articles: (query: { tag?: string; memberId?: number; sessionId?: number; all?: boolean; limit?: number; beforeId?: number } = {}) =>

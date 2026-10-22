@@ -1,0 +1,966 @@
+diff --git a/app/api/sessions.py b/app/api/sessions.py
+index 085fd22..c899bd1 100644
+--- a/app/api/sessions.py
++++ b/app/api/sessions.py
+@@ -37,7 +37,7 @@ def create_session(body: SessionCreate, club: Club = Depends(club_dep), admin: A
+     return session_service.serialize_session(db, s, detail=True, admin=True)
+ 
+ 
+-@router.get("/{session_id}", summary="일정 상세(참석자/팀/경기) — 공개, 관리자는 Rating Snapshot 포함")
++@router.get("/{session_id}", summary="일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함")
+ def get_session_detail(session_id: int, club: Club = Depends(club_dep),
+                        admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+     s = get_session(db, club.club_id, session_id)
+diff --git a/app/api/stats.py b/app/api/stats.py
+index 12e7e58..8e23a16 100644
+--- a/app/api/stats.py
++++ b/app/api/stats.py
+@@ -1,13 +1,15 @@
+-"""통계(공개) / Rating(관리자·디버그 전용) / 재계산."""
++"""통계(공개) / 재계산.
++
++Rating은 API로 내보내지 않는다(관리자 포함). 확인은 DB(PLAYER_RATING, PLAYER_RATING_HISTORY)에서만.
++"""
+ from fastapi import APIRouter, Depends, Query
+ from sqlalchemy.orm import Session
+ 
+ from app.api.deps import admin_dep, club_dep
+ from app.core.database import get_db
+ from app.core.security import AdminPrincipal
+-from app.core.timeutil import to_iso, utcnow
+ from app.models import Club
+-from app.services import lifecycle_service, rating_service, stats_service
++from app.services import lifecycle_service, stats_service
+ from app.services.common import get_member
+ 
+ router = APIRouter(tags=["stats"])
+@@ -32,26 +34,6 @@ def pair_stats(a: int = Query(..., alias="memberA"), b: int = Query(..., alias="
+     return stats_service.head_to_head(db, club.club_id, a, b)
+ 
+ 
+-@router.get("/admin/ratings", summary="[관리자] 현재 Hidden Rating / Confidence")
+-def ratings(club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
+-    return rating_service.rating_rows(db, club.club_id, utcnow().date())
+-
+-
+-@router.get("/admin/ratings/{member_id}/history", summary="[관리자] Rating 변경 이력")
+-def rating_history(member_id: int, include_voided: bool = Query(False, alias="includeVoided"),
+-                   club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
+-                   db: Session = Depends(get_db)):
+-    return [
+-        {"ratingHistoryId": h.rating_history_id, "before": round(h.before_rating, 3), "after": round(h.after_rating, 3),
+-         "change": round(h.change_amount, 3), "beforeConfidence": round(h.before_confidence, 4),
+-         "afterConfidence": round(h.after_confidence, 4), "reason": h.change_reason,
+-         "referenceType": h.reference_type, "referenceId": h.reference_id, "algorithmVersion": h.algorithm_version,
+-         "configVersion": h.config_version, "detail": h.calc_detail_json, "voided": h.voided_yn,
+-         "createdAt": to_iso(h.created_at)}
+-        for h in rating_service.rating_history(db, club.club_id, member_id, include_voided)
+-    ]
+-
+-
+ @router.post("/admin/rebuild", summary="[관리자] Rating/통계/Pair 전체 재계산")
+ def rebuild(club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
+     return lifecycle_service.rebuild_everything(db, club.club_id)
+diff --git a/app/services/rating_service.py b/app/services/rating_service.py
+index 014f701..f419421 100644
+--- a/app/services/rating_service.py
++++ b/app/services/rating_service.py
+@@ -223,6 +223,7 @@ def rebuild_ratings(db: Session, club_id: int, from_key: MatchKey | None = None,
+ 
+ 
+ def rating_rows(db: Session, club_id: int, as_of: date) -> list[dict]:
++    """현재 Rating 목록. API로 내보내지 않는다(테스트·DB 점검용)."""
+     cfg = load_config(db, club_id)
+     rows = db.execute(
+         select(Member, PlayerRating)
+diff --git a/app/services/session_service.py b/app/services/session_service.py
+index ab4feb6..3acf066 100644
+--- a/app/services/session_service.py
++++ b/app/services/session_service.py
+@@ -211,12 +211,9 @@ def serialize_session(db: Session, s: ClubSession, *, detail: bool = False, admi
+             "guests": [{"guestId": g.guest_id, "name": g.guest_name} for g in info["guests"]],
+             "headcount": len(info["members"]) + len(info["guests"]),
+         }
+-        if admin:
++        if admin:  # 팀 편성 정보(팀 단위)만. 선수별 Rating은 DB에서만 확인
+             team["avgRatingSnapshot"] = t.avg_rating_snapshot
+             team["strengthSnapshot"] = t.team_strength_snapshot
+-            for (stm, _), md in zip(info["members"], team["members"]):
+-                md["ratingSnapshot"] = round(stm.rating_snapshot, 2)
+-                md["confidenceSnapshot"] = round(stm.confidence_snapshot, 4)
+         teams.append(team)
+     data["teams"] = teams
+     data["balanceLabel"] = balance_label(spread_percent(strengths)) if len(strengths) >= 2 else None
+diff --git a/app/services/team_service.py b/app/services/team_service.py
+index 8e67193..3a5f27a 100644
+--- a/app/services/team_service.py
++++ b/app/services/team_service.py
+@@ -74,7 +74,6 @@ def serialize_generation(db: Session, gen: TeamGeneration) -> dict:
+     rj = gen.result_json
+     ids = [mid for t in rj["teams"] for mid in t["memberIds"]]
+     names = member_names(db, ids)
+-    inputs = {i["memberId"]: i for i in rj.get("inputs", [])}
+     guest_names = {g.guest_id: g.guest_name for g in db.scalars(select(SessionGuest).where(SessionGuest.session_id == gen.session_id))}
+     return {
+         "generationId": gen.generation_id, "sessionId": gen.session_id, "status": gen.status,
+@@ -86,8 +85,7 @@ def serialize_generation(db: Session, gen: TeamGeneration) -> dict:
+             {
+                 "teamCode": t["teamCode"], "headcount": t["headcount"], "avgRating": round(t["avgRating"], 2),
+                 "strength": round(t["strength"], 2), "pairPenalty": round(t["pairPenalty"], 4),
+-                "members": [{"memberId": mid, "name": names.get(mid),
+-                             "rating": round(inputs.get(mid, {}).get("rating", 0), 2)} for mid in t["memberIds"]],
++                "members": [{"memberId": mid, "name": names.get(mid)} for mid in t["memberIds"]],  # 선수별 Rating은 내보내지 않음
+                 "guests": [{"guestId": gid, "name": guest_names.get(gid)} for gid in t["guestIds"]],
+             }
+             for t in rj["teams"]
+diff --git a/docs/API.md b/docs/API.md
+index 6dfc257..b6b7e43 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -17,7 +17,7 @@
+ | 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 삭제는 하지 않음 |
+ | 🔓 | GET | `/sessions` | 일정 목록(공개) |
+ | 🔑 | POST | `/sessions` | 일정 생성 |
+-| 🔓 | GET | `/sessions/{session_id}` | 일정 상세(참석자/팀/경기) — 공개, 관리자는 Rating Snapshot 포함 |
++| 🔓 | GET | `/sessions/{session_id}` | 일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함 |
+ | 🔑 | PATCH | `/sessions/{session_id}` | 일정 수정 |
+ | 🔑 | POST | `/sessions/{session_id}/cancel` | 일정 취소(경기 시작 전만) |
+ | 🔑 | POST | `/sessions/{session_id}/close` | [일정마감] 수정 잠금 → 자동 타이틀/통계/마감 기사 |
+@@ -46,8 +46,6 @@
+ | 🔑 | POST | `/matches/{match_id}/unfinalize` | 확정 해제(일정마감 전까지) |
+ | 🔑 | POST | `/sessions/{session_id}/matches/next` | 다음 경기 생성(READY). 두 팀은 관리자가 지정 |
+ | 🔑 | GET | `/sessions/{session_id}/matches/next-suggestion` | 다음 경기 대진 화면용: 팀별 경기 수 + 추천 대진 |
+-| 🔑 | GET | `/admin/ratings` | [관리자] 현재 Hidden Rating / Confidence |
+-| 🔑 | GET | `/admin/ratings/{member_id}/history` | [관리자] Rating 변경 이력 |
+ | 🔑 | POST | `/admin/rebuild` | [관리자] Rating/통계/Pair 전체 재계산 |
+ | 🔓 | GET | `/stats/members` | 개인 통계 목록(공개) |
+ | 🔓 | GET | `/stats/members/{member_id}` | 개인 상세 통계: 최근 폼, 자주 같은 팀, 자주 만난 상대(공개) |
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index 76a169f..ce7c85b 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -218,6 +218,38 @@
+ - API 수정: `GET /articles?beforeId=` 페이지 커서를 게시 순서와 맞춤. 게시본은 `PUBLISHED_AT` 순으로 정렬하는데 커서는 `ARTICLE_ID`로 잘라서, 검토 대기였던 옛 기사를 나중에 게시하면 그 뒤 기사들이 다음 페이지에서 빠졌다 → 게시본은 `(PUBLISHED_AT, ARTICLE_ID) < 커서` 로 비교(관리자 전체 목록은 기존대로 ID). 테스트 `test_article_pages_follow_publish_order`
+ - 프론트: 기사 카드를 `components/ArticleCard.tsx`로 분리(와이어·기록 탭 공용)
+ 
++## 3-6. 레이팅은 DB에서만 + 설정 화면 설명 (2026-10-22)
++
++**레이팅 비공개(관리자 포함)**: 선수별 실력 점수는 화면·API 어디에서도 보여 주지 않고 DB에서만 확인한다.
++
++| 위치 | 변경 |
++|---|---|
++| `GET /admin/ratings`, `GET /admin/ratings/{memberId}/history` | 삭제(404) |
++| 설정 화면 "Hidden Rating 보기" 표 | 삭제 |
++| 일정 상세(관리자) 팀원 `ratingSnapshot` · `confidenceSnapshot` | 응답에서 제외. 팀 단위 `avgRatingSnapshot` · `strengthSnapshot`은 유지 |
++| 팀 편성 미리보기 팀원 `rating` | 응답에서 제외. 팀 평균·편차·후보 수·seed 등 편성 정보는 유지(팀 편성 화면 "관리자 상세") |
++| 시작 레이팅 입력(멤버 추가 `이름 숫자`) | 그대로(입력만 가능, 조회 불가) |
++
++- 테스트는 `conftest.Api.ratings_db()` / `rating_history_db()`로 DB에서 직접 확인. `rating_service.rating_rows`·`rating_history`는 API 없이 점검용으로만 남김
++- DB 확인 SQL
++
++```sql
++-- 현재 레이팅(높은 순)
++SELECT M.NAME, ROUND(R.CURRENT_RATING, 1) AS RATING, R.MATCH_SAMPLE_COUNT AS GAMES, R.LAST_PLAYED_DATE, M.INITIAL_RATING
++  FROM PLAYER_RATING R JOIN MEMBER M ON M.MEMBER_ID = R.MEMBER_ID
++ WHERE R.CLUB_ID = (SELECT CLUB_ID FROM CLUB WHERE CLUB_SLUG = 'sanha')
++ ORDER BY R.CURRENT_RATING DESC;
++
++-- 한 선수의 경기별 변동(재계산으로 무효 처리된 이력 제외)
++SELECT H.CREATED_AT, ROUND(H.BEFORE_RATING, 1) AS BEFORE_R, ROUND(H.AFTER_RATING, 1) AS AFTER_R,
++       ROUND(H.CHANGE_AMOUNT, 2) AS CHANGE_R, ROUND(H.AFTER_CONFIDENCE, 2) AS CONFIDENCE, H.CHANGE_REASON, H.REFERENCE_ID AS MATCH_ID
++  FROM PLAYER_RATING_HISTORY H JOIN MEMBER M ON M.MEMBER_ID = H.MEMBER_ID
++ WHERE M.NAME = '홍길동' AND H.VOIDED_YN = 0
++ ORDER BY H.RATING_HISTORY_ID;
++```
++
++**설정 화면**: 설정 키(영문 변수명)를 화면에서 모두 지우고, 항목마다 이름 · 한 줄 설명 · 기본값 + **(?) 버튼**. (?)를 누르면 항목 바로 아래에 "이렇게 동작해요 / 올리면 / 내리면 / 참고"가 펼쳐진다. 문구는 `frontend/src/pages/admin/settingsHelp.ts` 한 곳에서 관리(새 설정이 생기면 여기에 추가, 없으면 서버 설명을 이름으로 쓰고 고급 묶음에 붙음). 묶음: 경기 / 기사 / 팀 자동 편성 / 실력 점수 계산(고급).
++
+ ## 4. 남은 이슈 / 다음 단계
+ 
+ 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
+diff --git a/docs/openapi.json b/docs/openapi.json
+index 0f3d3a0..7f5479a 100644
+--- a/docs/openapi.json
++++ b/docs/openapi.json
+@@ -666,7 +666,7 @@
+         "tags": [
+           "sessions"
+         ],
+-        "summary": "일정 상세(참석자/팀/경기) — 공개, 관리자는 Rating Snapshot 포함",
++        "summary": "일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함",
+         "operationId": "get_session_detail_api_clubs__club_slug__sessions__session_id__get",
+         "security": [
+           {
+@@ -2553,119 +2553,6 @@
+         }
+       }
+     },
+-    "/api/clubs/{club_slug}/admin/ratings": {
+-      "get": {
+-        "tags": [
+-          "stats"
+-        ],
+-        "summary": "[관리자] 현재 Hidden Rating / Confidence",
+-        "operationId": "ratings_api_clubs__club_slug__admin_ratings_get",
+-        "security": [
+-          {
+-            "HTTPBearer": []
+-          }
+-        ],
+-        "parameters": [
+-          {
+-            "name": "club_slug",
+-            "in": "path",
+-            "required": true,
+-            "schema": {
+-              "type": "string",
+-              "description": "클럽 주소(slug)",
+-              "title": "Club Slug"
+-            },
+-            "description": "클럽 주소(slug)"
+-          }
+-        ],
+-        "responses": {
+-          "200": {
+-            "description": "Successful Response",
+-            "content": {
+-              "application/json": {
+-                "schema": {}
+-              }
+-            }
+-          },
+-          "422": {
+-            "description": "Validation Error",
+-            "content": {
+-              "application/json": {
+-                "schema": {
+-                  "$ref": "#/components/schemas/HTTPValidationError"
+-                }
+-              }
+-            }
+-          }
+-        }
+-      }
+-    },
+-    "/api/clubs/{club_slug}/admin/ratings/{member_id}/history": {
+-      "get": {
+-        "tags": [
+-          "stats"
+-        ],
+-        "summary": "[관리자] Rating 변경 이력",
+-        "operationId": "rating_history_api_clubs__club_slug__admin_ratings__member_id__history_get",
+-        "security": [
+-          {
+-            "HTTPBearer": []
+-          }
+-        ],
+-        "parameters": [
+-          {
+-            "name": "member_id",
+-            "in": "path",
+-            "required": true,
+-            "schema": {
+-              "type": "integer",
+-              "title": "Member Id"
+-            }
+-          },
+-          {
+-            "name": "club_slug",
+-            "in": "path",
+-            "required": true,
+-            "schema": {
+-              "type": "string",
+-              "description": "클럽 주소(slug)",
+-              "title": "Club Slug"
+-            },
+-            "description": "클럽 주소(slug)"
+-          },
+-          {
+-            "name": "includeVoided",
+-            "in": "query",
+-            "required": false,
+-            "schema": {
+-              "type": "boolean",
+-              "default": false,
+-              "title": "Includevoided"
+-            }
+-          }
+-        ],
+-        "responses": {
+-          "200": {
+-            "description": "Successful Response",
+-            "content": {
+-              "application/json": {
+-                "schema": {}
+-              }
+-            }
+-          },
+-          "422": {
+-            "description": "Validation Error",
+-            "content": {
+-              "application/json": {
+-                "schema": {
+-                  "$ref": "#/components/schemas/HTTPValidationError"
+-                }
+-              }
+-            }
+-          }
+-        }
+-      }
+-    },
+     "/api/clubs/{club_slug}/admin/rebuild": {
+       "post": {
+         "tags": [
+diff --git a/frontend/src/api/endpoints.ts b/frontend/src/api/endpoints.ts
+index c3e91ce..afcfee6 100644
+--- a/frontend/src/api/endpoints.ts
++++ b/frontend/src/api/endpoints.ts
+@@ -18,7 +18,6 @@ import type {
+   MemberDetail,
+   MemberStat,
+   NextSuggestion,
+-  RatingRow,
+   SessionDetail,
+   SessionListItem,
+   SessionSummary,
+@@ -101,7 +100,6 @@ export const makeApi = (slug: string) => ({
+     request<Award[]>(slug, 'GET', '/titles/awards', { query }),
+   award: (body: { titleCode: string; memberId: number; sessionId?: number; note?: string }) =>
+     request(slug, 'POST', '/titles/awards', { body }),
+-  ratings: () => request<RatingRow[]>(slug, 'GET', '/admin/ratings'),
+ 
+   // The Wire
+   articles: (query: { tag?: string; memberId?: number; sessionId?: number; all?: boolean; limit?: number; beforeId?: number } = {}) =>
+diff --git a/frontend/src/api/types.ts b/frontend/src/api/types.ts
+index 69c7c25..13f678e 100644
+--- a/frontend/src/api/types.ts
++++ b/frontend/src/api/types.ts
+@@ -48,8 +48,6 @@ export interface SessionListItem {
+ 
+ export interface TeamMemberView extends PersonRef {
+   assignType: 'AUTO' | 'MANUAL'
+-  ratingSnapshot?: number
+-  confidenceSnapshot?: number
+ }
+ 
+ export interface GuestView {
+@@ -117,7 +115,7 @@ export interface Generation {
+     avgRating: number
+     strength: number
+     pairPenalty: number
+-    members: (PersonRef & { rating: number })[]
++    members: PersonRef[]  // 선수별 Rating은 서버가 내보내지 않음
+     guests: GuestView[]
+   }[]
+ }
+@@ -333,18 +331,6 @@ export interface ConfigItem {
+   choices: string[] | null
+ }
+ 
+-export interface RatingRow {
+-  memberId: number
+-  name: string
+-  active: boolean
+-  /** 시작 Rating(지정값 또는 클럽 기본값) */
+-  initialRating: number
+-  rating: number
+-  confidence: number
+-  matchCount: number
+-  lastPlayedDate: string | null
+-}
+-
+ export interface AssignmentLog {
+   logId: number
+   action: 'ADD' | 'MOVE' | 'REMOVE'
+diff --git a/frontend/src/pages/admin/SettingsPage.tsx b/frontend/src/pages/admin/SettingsPage.tsx
+index cc0eb84..c86b929 100644
+--- a/frontend/src/pages/admin/SettingsPage.tsx
++++ b/frontend/src/pages/admin/SettingsPage.tsx
+@@ -1,32 +1,17 @@
+-// 운영 설정(SYSTEM_CONFIG) + 관리자 암호 변경 + Hidden Rating 확인
++// 운영 설정(SYSTEM_CONFIG) + 관리자 암호 변경
++// 설정 키는 화면에 보여 주지 않는다. 이름·설명은 settingsHelp.ts, (?)를 누르면 자세한 설명이 펼쳐진다.
++// 선수별 실력 점수(Rating)는 관리자 화면에서도 보여 주지 않는다(DB에서만 확인).
+ 
+-import { useEffect, useMemo, useState } from 'react'
++import { useEffect, useId, useMemo, useState } from 'react'
+ import type { ConfigItem } from '../../api/types'
+ import { ErrorBox, Loading, Switch, TopBar } from '../../components/ui'
+ import { useClub } from '../../lib/club'
+ import { useAction, useAsync } from '../../lib/hooks'
+-
+-const GROUPS: { title: string; match: (k: string) => boolean }[] = [
+-  { title: '경기', match: (k) => k.startsWith('MATCH_') && k !== 'MATCH_RATING_K' },
+-  { title: '기사(The Wire)', match: (k) => k.startsWith('ARTICLE_') || k.startsWith('WIRE_') },
+-  { title: '팀 편성', match: (k) => k.startsWith('TEAM_') || k.startsWith('PAIR_') },
+-  { title: 'Rating · Confidence (고급)', match: () => true },
+-]
+-
+-const LABELS: Record<string, string> = {
+-  MATCH_DURATION_SEC: '경기 시간(초)',
+-  MATCH_AUTO_END_YN: '시간이 끝나면 자동 종료',
+-  MATCH_EARLY_END_GOALS: 'N골 먼저 넣으면 조기 종료(0=사용 안 함)',
+-  ARTICLE_PUBLISH_MODE: '기사 게시 방식',
+-  WIRE_MAX_INSIGHTS: '기사 1건에 넘기는 사실 최대 개수',
+-  TEAM_RATING_TOLERANCE_PERCENT: '팀 전력 허용 차이(%)',
+-  TEAM_CANDIDATE_COUNT: '팀 편성 후보 수',
+-}
++import { CONFIG_GROUPS, CONFIG_HELP, RATING_GROUP_NOTE, type ConfigHelp } from './settingsHelp'
+ 
+ export function SettingsPage() {
+   const { api, slug } = useClub()
+   const cfg = useAsync(() => api.config(), [api])
+-  const ratings = useAsync(() => api.ratings(), [api])
+   const { busy, run } = useAction()
+   const [draft, setDraft] = useState<Record<string, ConfigItem['value']>>({})
+   const [pin, setPin] = useState('')
+@@ -37,12 +22,15 @@ export function SettingsPage() {
+ 
+   const grouped = useMemo(() => {
+     const items = cfg.data?.items ?? []
+-    const used = new Set<string>()
+-    return GROUPS.map((g) => {
+-      const list = items.filter((i) => !used.has(i.key) && g.match(i.key))
+-      list.forEach((i) => used.add(i.key))
+-      return { title: g.title, list }
+-    })
++    const known = new Set(CONFIG_GROUPS.flatMap((g) => g.keys))
++    return CONFIG_GROUPS.map((g) => ({
++      ...g,
++      // 묶음에 없는 새 설정은 고급 묶음 끝에 붙인다(서버 설명을 이름으로 사용)
++      list: [
++        ...g.keys.map((k) => items.find((i) => i.key === k)).filter((i): i is ConfigItem => !!i),
++        ...(g.advanced ? items.filter((i) => !known.has(i.key)) : []),
++      ],
++    }))
+   }, [cfg.data])
+ 
+   const changed = Object.fromEntries(
+@@ -62,9 +50,10 @@ export function SettingsPage() {
+       <TopBar title="운영 설정" sub={`설정 버전 ${cfg.data.configVersion}`} back={`/c/${slug}/admin`} />
+       <main className="page">
+         {grouped.map((g) => g.list.length ? (
+-          <details key={g.title} className="card" open={!g.title.includes('고급')}>
++          <details key={g.title} className="card" open={!g.advanced}>
+             <summary>{g.title}</summary>
+-            <div className="stack" style={{ gap: 12 }}>
++            <div className="stack" style={{ gap: 18 }}>
++              {g.advanced ? <p className="small muted" style={{ lineHeight: 1.6 }}>{RATING_GROUP_NOTE}</p> : null}
+               {g.list.map((i) => (
+                 <ConfigField key={i.key} item={i} value={draft[i.key]} onChange={(v) => setDraft((d) => ({ ...d, [i.key]: v }))} />
+               ))}
+@@ -79,22 +68,6 @@ export function SettingsPage() {
+           <button type="button" className="btn" disabled={busy || pin.length < 4}
+             onClick={async () => { if (await run(() => api.changePin(pin), '암호를 바꿨어요')) setPin('') }}>암호 바꾸기</button>
+         </section>
+-
+-        <details className="card">
+-          <summary>Hidden Rating 보기(관리자 전용)</summary>
+-          {ratings.data ? (
+-            <div className="table-box" style={{ border: 0 }}>
+-              <table className="data">
+-                <thead><tr><th>#</th><th>이름</th><th>Rating</th><th>Confidence</th><th>경기</th></tr></thead>
+-                <tbody>
+-                  {ratings.data.map((r, i) => (
+-                    <tr key={r.memberId}><td>{i + 1}</td><td>{r.name}</td><td className="mono">{r.rating.toFixed(1)}</td><td className="mono">{r.confidence.toFixed(2)}</td><td>{r.matchCount}</td></tr>
+-                  ))}
+-                </tbody>
+-              </table>
+-            </div>
+-          ) : <Loading rows={1} />}
+-        </details>
+       </main>
+       <div className="bar-actions">
+         <button type="button" className="btn primary lg block" disabled={busy || Object.keys(changed).length === 0} onClick={save}>
+@@ -105,31 +78,72 @@ export function SettingsPage() {
+   )
+ }
+ 
++/** 설정 한 줄: 이름 + (?) / 입력 / 한 줄 설명 · 기본값 / (?)를 누르면 자세한 설명 */
+ function ConfigField({ item, value, onChange }: { item: ConfigItem; value: ConfigItem['value'] | undefined; onChange: (v: ConfigItem['value']) => void }) {
+-  const label = LABELS[item.key] ?? item.description
++  const help: ConfigHelp | undefined = CONFIG_HELP[item.key]
++  const label = help?.label ?? item.description
++  const [open, setOpen] = useState(false)
++  const id = useId()
++  const helpId = `${id}-help`
++  const helpButton = help ? (
++    <button type="button" className="help-btn" aria-label={`${label} 설명`} aria-expanded={open} aria-controls={helpId}
++      onClick={() => setOpen((o) => !o)}>?</button>
++  ) : null
++
++  let control
+   if (item.valueType === 'BOOL') {
+-    return (
+-      <div className="row between">
+-        <span className="stack" style={{ gap: 0 }}><b style={{ fontSize: 14 }}>{label}</b><span className="small muted">{item.key}</span></span>
+-        <Switch checked={!!value} onChange={onChange} label={label} />
+-      </div>
++    control = null // 스위치는 이름 줄 오른쪽에
++  } else if (item.choices) {
++    control = (
++      <select id={id} className="select" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)}>
++        {item.choices.map((c) => <option key={c} value={c}>{help?.choiceLabels?.[c] ?? c}</option>)}
++      </select>
+     )
+-  }
+-  if (item.choices) {
+-    return (
+-      <label className="field">{label}
+-        <select className="select" value={String(value ?? '')} onChange={(e) => onChange(e.target.value)}>
+-          {item.choices.map((c) => <option key={c} value={c}>{c === 'MANUAL' ? 'MANUAL (관리자 검토 후 게시)' : c === 'AUTO' ? 'AUTO (생성 즉시 게시)' : c}</option>)}
+-        </select>
+-      </label>
++  } else {
++    control = (
++      <div className="row" style={{ gap: 8 }}>
++        <input id={id} className="input" type="number" step={item.valueType === 'FLOAT' ? 'any' : 1} value={String(value ?? '')} style={{ flex: 1 }}
++          onChange={(e) => onChange(item.valueType === 'INT' ? parseInt(e.target.value || '0', 10) : parseFloat(e.target.value || '0'))} />
++        {help?.unit ? <span className="muted" style={{ fontSize: 14, minWidth: 28 }}>{help.unit}</span> : null}
++      </div>
+     )
+   }
++
+   return (
+-    <label className="field">
+-      <span>{label}{item.key === 'MATCH_DURATION_SEC' && value ? ` · ${Math.round(Number(value) / 60)}분` : ''}</span>
+-      <input className="input" type="number" step={item.valueType === 'FLOAT' ? 'any' : 1} value={String(value ?? '')}
+-        onChange={(e) => onChange(item.valueType === 'INT' ? parseInt(e.target.value || '0', 10) : parseFloat(e.target.value || '0'))} />
+-      <span className="small" style={{ fontWeight: 400 }}>{item.key} · 기본 {String(item.defaultValue)}{LABELS[item.key] ? ` · ${item.description}` : ''}</span>
+-    </label>
++    <div className="stack" style={{ gap: 6 }}>
++      <div className="row between" style={{ gap: 8 }}>
++        <span className="row" style={{ gap: 6 }}>
++          {item.valueType === 'BOOL'
++            ? <b style={{ fontSize: 14 }}>{label}</b>
++            : <label htmlFor={id} style={{ fontSize: 14, fontWeight: 700 }}>{label}</label>}
++          {helpButton}
++        </span>
++        {item.valueType === 'BOOL' ? <Switch checked={!!value} onChange={onChange} label={label} /> : null}
++      </div>
++      {control}
++      <span className="small muted" style={{ lineHeight: 1.5 }}>
++        {help?.summary ?? ''}
++        {help?.summary ? ' ' : ''}
++        <span style={{ whiteSpace: 'nowrap' }}>기본값 {fmtValue(item, item.defaultValue)}{item.key === 'MATCH_DURATION_SEC' && value ? ` · 지금 ${Math.round(Number(value) / 60)}분` : ''}</span>
++      </span>
++      {help && open ? (
++        <div id={helpId} className="help-box">
++          <p>{help.how}</p>
++          <dl>
++            {help.effects.map(([when, what]) => (
++              <div key={when}><dt>{when}</dt><dd>{what}</dd></div>
++            ))}
++          </dl>
++          {help.tip ? <p className="tip">{help.tip}</p> : null}
++        </div>
++      ) : null}
++    </div>
+   )
+ }
++
++function fmtValue(item: ConfigItem, v: ConfigItem['value']): string {
++  const help = CONFIG_HELP[item.key]
++  if (item.valueType === 'BOOL') return v ? '켬' : '끔'
++  if (item.choices) return help?.choiceLabels?.[String(v)] ?? String(v)
++  return `${v}${help?.unit ?? ''}`
++}
+diff --git a/frontend/src/pages/admin/settingsHelp.ts b/frontend/src/pages/admin/settingsHelp.ts
+new file mode 100644
+index 0000000..5b4c8d7
+--- /dev/null
++++ b/frontend/src/pages/admin/settingsHelp.ts
+@@ -0,0 +1,234 @@
++// 운영 설정 화면 문구: 이름 · 한 줄 설명 · (?)를 눌렀을 때 펼치는 자세한 설명
++// 키는 서버 설정 키(app/core/club_config.py CONFIG_DEFS). 화면에는 키를 보여 주지 않는다.
++
++export interface ConfigHelp {
++  /** 화면에 보이는 이름 */
++  label: string
++  /** 입력칸 뒤 단위 */
++  unit?: string
++  /** 항상 보이는 한 줄 설명 */
++  summary: string
++  /** (?) 펼침: 이렇게 동작해요 */
++  how: string
++  /** (?) 펼침: [상황, 결과] 예) ['올리면', '…'], ['내리면', '…'] */
++  effects: [string, string][]
++  /** (?) 펼침: 참고 */
++  tip?: string
++  /** 선택형 값의 화면 이름 */
++  choiceLabels?: Record<string, string>
++}
++
++export const CONFIG_GROUPS: { title: string; keys: string[]; advanced?: boolean }[] = [
++  { title: '경기', keys: ['MATCH_DURATION_SEC', 'MATCH_AUTO_END_YN', 'MATCH_EARLY_END_GOALS'] },
++  { title: '기사(The Wire)', keys: ['ARTICLE_PUBLISH_MODE', 'WIRE_MAX_INSIGHTS'] },
++  { title: '팀 자동 편성', keys: ['TEAM_RATING_TOLERANCE_PERCENT', 'TEAM_CANDIDATE_COUNT', 'PAIR_ALPHA', 'PAIR_PENALTY_EPSILON'] },
++  {
++    title: '실력 점수 계산 (고급)',
++    advanced: true,
++    keys: ['INITIAL_RATING', 'MATCH_RATING_K', 'RATING_EXPECTATION_SCALE', 'HEADCOUNT_ADVANTAGE_FACTOR',
++      'CONFIDENCE_MATCH_SCALE', 'CONFIDENCE_DECAY_GRACE_DAYS', 'CONFIDENCE_DECAY_DAYS', 'CONFIDENCE_MULT_MAX', 'CONFIDENCE_MULT_MIN'],
++  },
++]
++
++/** 실력 점수 계산 묶음 위에 한 번 보여 주는 안내 */
++export const RATING_GROUP_NOTE =
++  '실력 점수는 팀 자동 편성의 균형을 맞추는 데만 쓰이고 화면·기사 어디에도 나오지 않아요. 바꾼 값은 다음에 [기록 확정]하는 경기부터 계산에 쓰여요.'
++
++export const CONFIG_HELP: Record<string, ConfigHelp> = {
++  // ---------------------------------------------------------------- 경기
++  MATCH_DURATION_SEC: {
++    label: '경기 시간',
++    unit: '초',
++    summary: '한 경기의 길이예요. 타이머가 이 시간부터 줄어들어요.',
++    how: '경기를 만들 때 이 값이 그 경기에 저장돼요. 그래서 바꾼 값은 다음에 만드는 경기부터 적용되고, 지금 진행 중인 경기는 그대로예요. "종료 직전 결승골" 기사도 이 시간을 기준으로 남은 시간을 계산해요.',
++    effects: [
++      ['올리면', '한 경기가 길어져 하루에 하는 경기 수가 줄어요.'],
++      ['내리면', '짧은 경기를 여러 번 해요. 대진이 자주 바뀌고 쉬는 팀의 대기 시간이 줄어요.'],
++    ],
++    tip: '600초 = 10분. 입력칸 아래에 분으로도 보여 줘요.',
++  },
++  MATCH_AUTO_END_YN: {
++    label: '시간이 끝나면 자동 종료',
++    summary: '켜 두면 경기 시간이 다 됐을 때 서버가 알아서 경기를 끝내요.',
++    how: '서버가 1초마다 진행 중인 경기를 확인해서, 시간이 다 된 경기를 "시간 종료"로 끝내요. 관리자가 [종료]를 누르는 건 언제든 할 수 있어요. 이 값도 경기를 만들 때 저장돼서 다음 경기부터 적용돼요.',
++    effects: [
++      ['켜면', '관리자가 휴대폰을 보고 있지 않아도 경기가 정시에 끝나요.'],
++      ['끄면', '시간이 지나도 경기가 이어지고, 화면에는 추가 시간으로 표시돼요. 관리자가 직접 [종료]를 눌러야 끝나요.'],
++    ],
++  },
++  MATCH_EARLY_END_GOALS: {
++    label: '먼저 넣으면 끝나는 골 수',
++    unit: '골',
++    summary: '한 팀이 이 골 수에 먼저 닿으면 시간이 남아도 바로 끝나요. 0이면 쓰지 않아요.',
++    how: '골이 들어갈 때마다 두 팀 중 높은 점수가 이 값 이상인지 봐요. 닿으면 그 자리에서 "조기 종료"로 경기가 끝나요. 경기를 만들 때 저장돼서 다음 경기부터 적용돼요.',
++    effects: [
++      ['올리면', '조기 종료가 드물어져요. 대부분 시간을 다 채워요.'],
++      ['내리면', '경기가 빨리 끝나 대진이 자주 바뀌어요. 예: 2로 두면 "2골 먼저 넣는 팀 승리".'],
++      ['0', '조기 종료 없이 항상 시간으로만 끝나요.'],
++    ],
++    tip: '조기 종료 뒤에 골을 취소해도 경기가 자동으로 다시 열리지는 않아요.',
++  },
++
++  // ---------------------------------------------------------------- 기사
++  ARTICLE_PUBLISH_MODE: {
++    label: '기사 게시 방식',
++    summary: '새 기사를 바로 공개할지, 관리자가 확인한 뒤 공개할지 정해요.',
++    how: '[일정확정] 때 프리뷰, [일정마감] 때 마감 기사가 만들어져요. "검토 후 게시"면 관리자 > 기사 검토에서 [게시]를 눌러야 홈에 보여요.',
++    effects: [
++      ['검토 후 게시', '어색한 문장을 공개 전에 [다시 쓰기]나 [반려]로 거를 수 있어요. 대신 게시를 잊으면 기사가 안 보여요.'],
++      ['바로 게시', '만들어지자마자 모두에게 보여요. 확인 없이 나가니 문장이 어색해도 그대로 공개돼요.'],
++    ],
++    tip: '이미 만들어진 기사에는 적용되지 않아요.',
++    choiceLabels: { MANUAL: '관리자 검토 후 게시', AUTO: '만들어지면 바로 게시' },
++  },
++  WIRE_MAX_INSIGHTS: {
++    label: '기사 한 건에 넣는 소식 수',
++    unit: '개',
++    summary: '기사를 쓸 때 넘겨주는 "기사거리(사실)"의 최대 개수예요.',
++    how: '그날 계산된 기사거리를 중요한 순서로 줄 세워 이 개수까지만 넘겨요. AI는 그중 뉴스 가치가 큰 것을 골라 문장으로 써요.',
++    effects: [
++      ['올리면', '작은 소식까지 기사에 들어갈 수 있어요. 대신 기사가 길고 산만해질 수 있고 AI 사용량이 조금 늘어요.'],
++      ['내리면', '굵직한 소식만 남아 기사가 짧고 선명해져요. 개근·기록 도전 같은 작은 소식은 빠지기 쉬워요.'],
++    ],
++    tip: 'AI 키가 없을 때 쓰는 템플릿 작성기는 이 값과 상관없이 최대 6문장까지만 써요.',
++  },
++
++  // ---------------------------------------------------------------- 팀 자동 편성
++  TEAM_RATING_TOLERANCE_PERCENT: {
++    label: '팀 전력 허용 차이',
++    unit: '%',
++    summary: '자동 편성에서 "이 정도면 균형이 맞다"고 보는 팀 간 전력 차이예요.',
++    how: '무작위로 나눈 편성 후보마다 (가장 강한 팀 − 가장 약한 팀) ÷ 평균을 계산해요. 이 범위 안에 든 후보 중에서 "자주 같은 팀이던 조합"을 가장 잘 떼어 놓은 편성을 골라요. 범위 안 후보가 하나도 없으면 전력 차이가 가장 작은 후보를 써요.',
++    effects: [
++      ['올리면', '균형 기준이 느슨해져 사람을 더 다양하게 섞어요. 대신 팀 간 실력 차이가 커질 수 있어요.'],
++      ['내리면', '실력 균형을 더 엄격하게 맞춰요. 대신 늘 비슷한 사람끼리 한 팀이 되기 쉬워요.'],
++    ],
++    tip: '편성 화면의 "매우 균형적" 문구는 이 값과 별개로 차이 1% 이내일 때 나와요.',
++  },
++  TEAM_CANDIDATE_COUNT: {
++    label: '편성 후보 수',
++    unit: '개',
++    summary: '자동 편성 한 번에 무작위로 나눠 보는 횟수예요.',
++    how: '참석자를 이 횟수만큼 무작위로 나눠 본 뒤, 규칙(전력 차이 범위 → 조합 섞기 → 전력 균형 → 무작위) 순서로 가장 맞는 편성을 골라요.',
++    effects: [
++      ['올리면', '더 좋은 편성을 찾을 가능성이 커져요. 대신 [팀 편성]·[다시 섞기]가 느려져요(최대 50,000).'],
++      ['내리면', '빠르지만, 전력 차이 범위를 만족하는 후보를 못 찾을 때가 생겨요.'],
++    ],
++    tip: '20명 안팎이면 3,000개로 충분해요.',
++  },
++  PAIR_ALPHA: {
++    label: '조합 판단 완충값',
++    summary: '함께 온 횟수가 적은 두 사람을 "자주 같은 팀"으로 성급하게 판단하지 않게 하는 값이에요.',
++    how: '두 사람의 조합 점수 = 같은 팀이 된 횟수 ÷ (함께 참석한 횟수 + 이 값). 조합 점수가 높은 두 사람은 자동 편성에서 다른 팀으로 떼어 놓아요.',
++    effects: [
++      ['올리면', '몇 번 겹친 정도로는 신경 쓰지 않아요. 기록이 충분히 쌓인 조합만 떼어 놓아요.'],
++      ['내리면', '조금만 겹쳐도 바로 떼어 놓아요. 0이면 2번 같이 와서 2번 같은 팀이었던 두 사람을 가장 강하게 떼어 놓아요.'],
++    ],
++    tip: '예: 2번 같이 와서 2번 같은 팀 → 값이 2면 조합 점수 0.5, 0이면 1.0.',
++  },
++  PAIR_PENALTY_EPSILON: {
++    label: '조합 점수 동점 범위',
++    summary: '편성 후보끼리 조합 점수가 이 차이 안이면 같은 것으로 보고, 전력 균형이 더 좋은 쪽을 골라요.',
++    how: '조합 점수가 가장 낮은 후보와 그보다 이 값 이내로 높은 후보들을 모은 다음, 그중 전력 차이가 가장 작은 편성을 골라요. 그래도 같으면 무작위예요.',
++    effects: [
++      ['올리면', '사람 섞기는 조금 양보하고 실력 균형을 더 챙겨요.'],
++      ['내리면', '실력 균형보다 사람 섞기를 끝까지 우선해요.'],
++    ],
++  },
++
++  // ---------------------------------------------------------------- 실력 점수 계산
++  INITIAL_RATING: {
++    label: '신규 선수 시작 점수',
++    unit: '점',
++    summary: '시작 점수를 따로 적지 않고 등록한 선수가 처음 갖는 실력 점수예요.',
++    how: '멤버를 추가할 때 "이름 숫자"로 시작 점수를 적으면 그 값이 우선이에요. 적지 않은 선수만 이 값에서 시작해요. 이미 경기를 뛴 선수의 점수는 그대로이고(전체 재계산을 돌리면 그 선수들도 새 값에서 다시 계산돼요), 아직 경기를 안 뛴 선수는 다음 [기록 확정] 때 새 값에서 시작해요.',
++    effects: [
++      ['올리면', '새로 온 선수를 기존 선수보다 잘하는 사람으로 보고 편성해요.'],
++      ['내리면', '새로 온 선수를 약한 쪽으로 보고 편성해요.'],
++    ],
++    tip: '점수는 선수끼리 비교하는 값이라, 기존 선수들 점수 분포의 가운데쯤이 무난해요.',
++  },
++  MATCH_RATING_K: {
++    label: '한 경기 점수 변동 폭',
++    unit: '점',
++    summary: '경기 결과 하나로 실력 점수가 움직이는 폭이에요.',
++    how: '경기 전 예상과 실제 결과(승 1 · 무 0.5 · 패 0)의 차이에 이 값을 곱해 팀 변동량을 정해요. 골 차이는 보지 않아요(1:0도 5:0도 같은 승리). 여기에 선수마다 "변동 배수"가 곱해져요.',
++    effects: [
++      ['올리면', '최근 결과에 민감해져요. 몇 경기만 잘해도 크게 오르고, 운 나쁜 날 크게 떨어져요.'],
++      ['내리면', '점수가 천천히 안정적으로 움직여요. 실력이 갑자기 늘거나 줄어든 선수를 따라가는 데 오래 걸려요.'],
++    ],
++    tip: '예(기본 20): 예상 승률 57%인 팀이 이기면 팀 변동 +8.6, 지면 −11.4.',
++  },
++  RATING_EXPECTATION_SCALE: {
++    label: '전력 차이 민감도',
++    unit: '점',
++    summary: '두 팀 점수 차이를 "이길 가능성"으로 바꾸는 기준이에요. 이 값만큼 차이 나면 강팀이 약 10배 유리하다고 봐요.',
++    how: '예상 승률 = 1 ÷ (1 + 10^(−점수 차 ÷ 이 값)). 예상보다 잘하면 오르고 못하면 내려요. 이 예상 승률은 "이변" 기사(예상 40% 이하 팀의 승리)에도 쓰여요.',
++    effects: [
++      ['올리면', '같은 점수 차도 "비슷한 전력"으로 봐요. 누가 이기든 변동이 고르게 나오고, 이변 기사는 줄어요.'],
++      ['내리면', '작은 점수 차도 크게 봐요. 강팀이 이기면 거의 안 오르고 약팀이 이기면 많이 올라요. 이변 기사가 늘어요.'],
++    ],
++  },
++  HEADCOUNT_ADVANTAGE_FACTOR: {
++    label: '인원 1명당 전력 가산',
++    unit: '점',
++    summary: '팀 전력을 계산할 때 인원 1명당 더하는 점수예요. 0이면 인원 차이를 보지 않아요.',
++    how: '팀 전력 = 팀원 평균 점수 + 이 값 × 팀 인원(게스트 포함). 팀 인원은 최대 1명 차이라, 사실상 "한 명 많은 팀"을 얼마나 유리하게 볼지 정해요. 편성 균형과 경기 결과 점수 계산에 모두 쓰여요.',
++    effects: [
++      ['올리면', '한 명 많은 팀을 더 강하게 봐요. 편성 때 그 팀에 약한 선수가 들어가고, 그 팀이 이겨도 점수가 덜 올라요.'],
++      ['0', '인원 차이는 무시하고 평균 실력만 봐요.'],
++    ],
++    tip: '처음엔 0으로 두고, 한 명 많은 팀이 눈에 띄게 자주 이기면 조금씩 올려 보세요.',
++  },
++  CONFIDENCE_MATCH_SCALE: {
++    label: '점수가 자리 잡는 경기 수',
++    unit: '경기',
++    summary: '몇 경기쯤 뛰어야 그 선수의 점수를 "믿을 만하다"고 볼지 정해요.',
++    how: '신뢰도 = 1 − e^(−경기 수 ÷ 이 값). 이 값만큼 뛰면 신뢰도 약 63%, 3배를 뛰면 약 95%. 신뢰도가 낮을수록 점수가 크게 움직여요(아래 변동 배수).',
++    effects: [
++      ['올리면', '새 선수의 점수가 오랫동안 크게 움직여요.'],
++      ['내리면', '몇 경기 만에 점수가 자리를 잡고 잘 안 움직여요.'],
++    ],
++  },
++  CONFIDENCE_DECAY_GRACE_DAYS: {
++    label: '신뢰도가 줄기 시작하는 공백',
++    unit: '일',
++    summary: '마지막 출전 뒤 이 기간이 지나면 신뢰도가 서서히 줄어요. 점수 자체는 깎지 않아요.',
++    how: '오래 쉰 선수는 실력이 변했을 수 있으니, 복귀했을 때 점수가 다시 크게 움직이도록 신뢰도를 낮춰요.',
++    effects: [
++      ['올리면', '꽤 오래 쉬어도 점수를 그대로 믿어요.'],
++      ['내리면', '조금만 쉬어도 복귀 경기에서 점수가 크게 움직여요.'],
++    ],
++  },
++  CONFIDENCE_DECAY_DAYS: {
++    label: '신뢰도가 줄어드는 속도',
++    unit: '일',
++    summary: '공백 기간이 지난 뒤 신뢰도가 줄어드는 빠르기예요. 클수록 천천히 줄어요.',
++    how: '공백 기간을 넘긴 날수 ÷ 이 값만큼 지수로 줄어요. 공백 기간을 넘기고 이 값만큼 더 쉬면 신뢰도가 원래의 약 37%가 돼요.',
++    effects: [
++      ['올리면', '오래 쉬어도 신뢰도가 천천히 줄어요.'],
++      ['내리면', '공백이 조금만 길어도 신뢰도가 빠르게 0에 가까워져요.'],
++    ],
++  },
++  CONFIDENCE_MULT_MAX: {
++    label: '새 선수 변동 배수',
++    unit: '배',
++    summary: '신뢰도 0(첫 경기, 오래 쉰 복귀)일 때 점수 변동에 곱하는 배수예요.',
++    how: '선수 변동 = 팀 변동 × 배수. 배수는 신뢰도 0일 때 이 값, 신뢰도 1일 때 "고참 변동 배수"이고 그 사이는 비례해요.',
++    effects: [
++      ['올리면', '새 선수·복귀 선수가 더 빨리 제 점수를 찾아가요. 대신 처음 몇 경기의 운에 많이 흔들려요.'],
++      ['내리면', '새 선수도 천천히 움직여요. 처음 등록한 시작 점수가 오래 유지돼요.'],
++    ],
++  },
++  CONFIDENCE_MULT_MIN: {
++    label: '고참 변동 배수',
++    unit: '배',
++    summary: '신뢰도 1(경기를 충분히 뛴 선수)일 때 점수 변동에 곱하는 배수예요.',
++    how: '경기를 많이 뛴 선수일수록 배수가 이 값에 가까워져요.',
++    effects: [
++      ['올리면', '고참 점수도 최근 결과를 따라 크게 움직여요.'],
++      ['내리면', '고참 점수가 거의 고정돼요. 실력이 변해도 반영이 느려요.'],
++    ],
++    tip: '"새 선수 변동 배수"보다 작게 두는 게 일반적이에요.',
++  },
++}
+diff --git a/frontend/src/styles/global.css b/frontend/src/styles/global.css
+index 65ae0b8..ec74231 100644
+--- a/frontend/src/styles/global.css
++++ b/frontend/src/styles/global.css
+@@ -266,6 +266,21 @@ table.data a { color: var(--ink); font-weight: 600; }
+ .pin-dots span.on { background: var(--ink); border-color: var(--ink); }
+ 
+ /* ---------- 알림 ---------- */
++/* ---------- 설정 (?) 설명 ---------- */
++.help-btn {
++  width: 22px; height: 22px; flex: none; border-radius: 11px; padding: 0;
++  border: 1.5px solid var(--line-strong); background: var(--card); color: var(--muted);
++  font-size: 12px; font-weight: 700; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
++}
++.help-btn[aria-expanded='true'] { background: var(--green); border-color: var(--green); color: #fff; }
++.help-box { background: var(--soft); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; font-size: 13px; line-height: 1.6; color: var(--ink-3); }
++.help-box p { margin: 0; }
++.help-box dl { margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; }
++.help-box dl div { display: grid; grid-template-columns: auto 1fr; gap: 8px; align-items: baseline; }
++.help-box dt { font-size: 11px; font-weight: 700; color: var(--green-dark); background: var(--green-soft); border-radius: 5px; padding: 1px 6px; white-space: nowrap; }
++.help-box dd { margin: 0; }
++.help-box .tip { margin-top: 8px; font-size: 12px; color: var(--muted); }
++
+ .notice { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; }
+ .notice.green { background: var(--green-soft); color: var(--green-dark); }
+ .notice.warn { background: var(--warn-soft); color: #7c2d12; }
+diff --git a/tests/conftest.py b/tests/conftest.py
+index c9e10a1..bb1dfd3 100644
+--- a/tests/conftest.py
++++ b/tests/conftest.py
+@@ -13,6 +13,9 @@ from app.core.security import login_limiter  # noqa: E402
+ from app.main import app  # noqa: E402
+ from app.models import Base  # noqa: E402
+ from app.services import club_service  # noqa: E402
++from app.services import rating_service  # noqa: E402
++from app.services.common import get_club_by_slug  # noqa: E402
++from app.core.timeutil import utcnow  # noqa: E402
+ 
+ 
+ @pytest.fixture(scope="session", autouse=True)
+@@ -71,6 +74,19 @@ class Api:
+             teams = (sug["suggestedTeamAId"], sug["suggestedTeamBId"])
+         return self.ok(self.post(f"/sessions/{sid}/matches/next", {"teamAId": teams[0], "teamBId": teams[1]}), 201)
+ 
++    # Rating은 API로 공개하지 않는다(관리자 포함) → 테스트는 DB에서 직접 확인
++    def ratings_db(self) -> list[dict]:
++        with SessionLocal() as s:
++            club = get_club_by_slug(s, self.slug)
++            return rating_service.rating_rows(s, club.club_id, utcnow().date())
++
++    def rating_history_db(self, member_id: int) -> list[dict]:
++        with SessionLocal() as s:
++            club = get_club_by_slug(s, self.slug)
++            return [{"before": h.before_rating, "after": h.after_rating, "reason": h.change_reason,
++                     "referenceId": h.reference_id}
++                    for h in rating_service.rating_history(s, club.club_id, member_id)]
++
+     def login(self, pin="7777"):
+         r = self.post("/admin/auth", {"password": pin}, admin=False)
+         self.token = self.ok(r)["accessToken"]
+diff --git a/tests/test_e2e_scenario.py b/tests/test_e2e_scenario.py
+index 31ce652..c0d8a7f 100644
+--- a/tests/test_e2e_scenario.py
++++ b/tests/test_e2e_scenario.py
+@@ -56,6 +56,11 @@ def test_full_loop(make_club, client, db):
+     # 공개 조회에는 Rating이 없다
+     pub = api.ok(api.get(f"/sessions/{sid}", admin=False))
+     assert "ratingSnapshot" not in pub["teams"][0]["members"][0]
++    # 관리자에게도 선수별 Rating은 없다(팀 단위 편성 정보만)
++    adm = api.ok(api.get(f"/sessions/{sid}"))
++    assert not {"ratingSnapshot", "confidenceSnapshot"} & set(adm["teams"][0]["members"][0])
++    assert "avgRatingSnapshot" in adm["teams"][0]
++    assert all(set(m) == {"memberId", "name"} for t in gen["teams"] for m in t["members"])
+     # PRE_MATCH 기사 1건 생성(게시 방식 MANUAL → GENERATED)
+     pre = api.ok(api.get("/articles", params={"all": "true", "sessionId": sid}))
+     assert len(pre) == 1 and pre[0]["articleType"] == "PRE_MATCH" and pre[0]["status"] == "GENERATED"
+@@ -112,13 +117,15 @@ def test_full_loop(make_club, client, db):
+     assert stats[a_ids[0]]["wins"] == 1 and stats[b_ids[0]]["losses"] == 1
+     h2h = api.ok(api.get("/stats/pairs", params={"memberA": a_ids[0], "memberB": b_ids[0]}, admin=False))
+     assert h2h["opponentMatches"] == 1 and h2h["winsA"] == 1
+-    ratings = {x["memberId"]: x for x in api.ok(api.get("/admin/ratings"))}
++    ratings = {x["memberId"]: x for x in api.ratings_db()}
+     assert ratings[a_ids[0]]["rating"] > 1000 > ratings[b_ids[0]]["rating"]
+     c_member = next(i for i in ids if i not in a_ids + b_ids)
+     assert ratings[c_member]["rating"] == 1000  # 대기팀은 영향 없음
+-    hist = api.ok(api.get(f"/admin/ratings/{a_ids[0]}/history"))
++    hist = api.rating_history_db(a_ids[0])
+     assert len(hist) == 1 and hist[0]["reason"] == "MATCH_RESULT" and hist[0]["referenceId"] == mid
+-    assert api.get("/admin/ratings", admin=False).status_code == 401
++    # Rating은 관리자에게도 API로 공개하지 않는다(DB에서만 확인)
++    assert api.get("/admin/ratings").status_code == 404
++    assert api.get(f"/admin/ratings/{a_ids[0]}/history").status_code == 404
+ 
+     # --- 대진은 매 경기 관리자가 지정(추천은 가장 오래 쉰 두 팀)
+     assert api.post(f"/sessions/{sid}/matches/next", {}).status_code == 422
+@@ -198,7 +205,7 @@ def test_guests_rotation_timer_correction_and_ws(make_club, client, db):
+ 
+     api.ok(api.post(f"/matches/{mid}/finalize"))
+     a_member = d["teamA"]["members"][0]["memberId"]
+-    before = api.ok(api.get("/admin/ratings"))
++    before = api.ratings_db()
+ 
+     # 2팀 → 항상 같은 대진
+     m2, a2, b2 = _play(api, sid, 0, 1)
+@@ -211,13 +218,13 @@ def test_guests_rotation_timer_correction_and_ws(make_club, client, db):
+     api.ok(api.post(f"/matches/{mid}/finalize"))
+     voided = db.scalar(select(func.count()).select_from(PlayerRatingHistory).where(PlayerRatingHistory.voided_yn.is_(True)))
+     assert voided > 0  # 기존 이력은 지우지 않고 VOIDED
+-    after = {x["memberId"]: x["rating"] for x in api.ok(api.get("/admin/ratings"))}
++    after = {x["memberId"]: x["rating"] for x in api.ratings_db()}
+     assert after != {x["memberId"]: x["rating"] for x in before}
+     # 전체 재계산 결과와 증분 재계산 결과가 같아야 한다
+     api.ok(api.post("/admin/rebuild"))
+-    rebuilt = {x["memberId"]: x["rating"] for x in api.ok(api.get("/admin/ratings"))}
++    rebuilt = {x["memberId"]: x["rating"] for x in api.ratings_db()}
+     assert rebuilt == after
+-    hist = api.ok(api.get(f"/admin/ratings/{a_member}/history"))
++    hist = api.rating_history_db(a_member)
+     assert len(hist) == 2 and all(h["reason"] == "ADMIN_RECALC" for h in hist)
+ 
+ 
+diff --git a/tests/test_regressions.py b/tests/test_regressions.py
+index fa8a331..f23d747 100644
+--- a/tests/test_regressions.py
++++ b/tests/test_regressions.py
+@@ -33,9 +33,9 @@ def test_incremental_equals_full_with_one_sided_match(make_club):
+         mid2, _, _ = _match(api, sid)
+         api.ok(api.post(f"/matches/{mid2}/end"))
+         api.ok(api.post(f"/matches/{mid2}/finalize"))
+-    inc = {r["memberId"]: (r["rating"], r["matchCount"]) for r in api.ok(api.get("/admin/ratings"))}
++    inc = {r["memberId"]: (r["rating"], r["matchCount"]) for r in api.ratings_db()}
+     api.ok(api.post("/admin/rebuild"))
+-    full = {r["memberId"]: (r["rating"], r["matchCount"]) for r in api.ok(api.get("/admin/ratings"))}
++    full = {r["memberId"]: (r["rating"], r["matchCount"]) for r in api.ratings_db()}
+     assert inc == full
+ 
+ 
+@@ -74,7 +74,7 @@ def test_member_initial_rating_is_start_point_for_incremental_and_rebuild(make_c
+     hi = api.ok(api.post("/members", {"name": "고수", "initialRating": 1081}), 201)["memberId"]
+     lo = api.ok(api.post("/members", {"name": "신입", "initialRating": 910}), 201)["memberId"]
+     plain = [api.ok(api.post("/members", {"name": f"기본{i}"}), 201)["memberId"] for i in range(2)]
+-    start = {r["memberId"]: (r["rating"], r["initialRating"]) for r in api.ok(api.get("/admin/ratings"))}
++    start = {r["memberId"]: (r["rating"], r["initialRating"]) for r in api.ratings_db()}
+     assert start[hi] == (1081, 1081) and start[lo] == (910, 910) and start[plain[0]] == (1000, 1000)
+ 
+     sid = api.ok(api.post("/sessions", {"sessionDate": "2026-11-21"}), 201)["sessionId"]
+@@ -85,9 +85,9 @@ def test_member_initial_rating_is_start_point_for_incremental_and_rebuild(make_c
+         mid, _, _ = _match(api, sid)
+         api.ok(api.post(f"/matches/{mid}/end"))
+         api.ok(api.post(f"/matches/{mid}/finalize"))
+-    inc = {r["memberId"]: r["rating"] for r in api.ok(api.get("/admin/ratings"))}
++    inc = {r["memberId"]: r["rating"] for r in api.ratings_db()}
+     api.ok(api.post("/admin/rebuild"))
+-    full = {r["memberId"]: r["rating"] for r in api.ok(api.get("/admin/ratings"))}
++    full = {r["memberId"]: r["rating"] for r in api.ratings_db()}
+     assert inc == full
+-    hist = api.ok(api.get(f"/admin/ratings/{hi}/history"))
++    hist = api.rating_history_db(hi)
+     assert hist[0]["before"] == 1081  # 재계산 이력도 시작값에서 출발

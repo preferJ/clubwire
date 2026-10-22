@@ -218,6 +218,38 @@
 - API 수정: `GET /articles?beforeId=` 페이지 커서를 게시 순서와 맞춤. 게시본은 `PUBLISHED_AT` 순으로 정렬하는데 커서는 `ARTICLE_ID`로 잘라서, 검토 대기였던 옛 기사를 나중에 게시하면 그 뒤 기사들이 다음 페이지에서 빠졌다 → 게시본은 `(PUBLISHED_AT, ARTICLE_ID) < 커서` 로 비교(관리자 전체 목록은 기존대로 ID). 테스트 `test_article_pages_follow_publish_order`
 - 프론트: 기사 카드를 `components/ArticleCard.tsx`로 분리(와이어·기록 탭 공용)
 
+## 3-6. 레이팅은 DB에서만 + 설정 화면 설명 (2026-10-22)
+
+**레이팅 비공개(관리자 포함)**: 선수별 실력 점수는 화면·API 어디에서도 보여 주지 않고 DB에서만 확인한다.
+
+| 위치 | 변경 |
+|---|---|
+| `GET /admin/ratings`, `GET /admin/ratings/{memberId}/history` | 삭제(404) |
+| 설정 화면 "Hidden Rating 보기" 표 | 삭제 |
+| 일정 상세(관리자) 팀원 `ratingSnapshot` · `confidenceSnapshot` | 응답에서 제외. 팀 단위 `avgRatingSnapshot` · `strengthSnapshot`은 유지 |
+| 팀 편성 미리보기 팀원 `rating` | 응답에서 제외. 팀 평균·편차·후보 수·seed 등 편성 정보는 유지(팀 편성 화면 "관리자 상세") |
+| 시작 레이팅 입력(멤버 추가 `이름 숫자`) | 그대로(입력만 가능, 조회 불가) |
+
+- 테스트는 `conftest.Api.ratings_db()` / `rating_history_db()`로 DB에서 직접 확인. `rating_service.rating_rows`·`rating_history`는 API 없이 점검용으로만 남김
+- DB 확인 SQL
+
+```sql
+-- 현재 레이팅(높은 순)
+SELECT M.NAME, ROUND(R.CURRENT_RATING, 1) AS RATING, R.MATCH_SAMPLE_COUNT AS GAMES, R.LAST_PLAYED_DATE, M.INITIAL_RATING
+  FROM PLAYER_RATING R JOIN MEMBER M ON M.MEMBER_ID = R.MEMBER_ID
+ WHERE R.CLUB_ID = (SELECT CLUB_ID FROM CLUB WHERE CLUB_SLUG = 'sanha')
+ ORDER BY R.CURRENT_RATING DESC;
+
+-- 한 선수의 경기별 변동(재계산으로 무효 처리된 이력 제외)
+SELECT H.CREATED_AT, ROUND(H.BEFORE_RATING, 1) AS BEFORE_R, ROUND(H.AFTER_RATING, 1) AS AFTER_R,
+       ROUND(H.CHANGE_AMOUNT, 2) AS CHANGE_R, ROUND(H.AFTER_CONFIDENCE, 2) AS CONFIDENCE, H.CHANGE_REASON, H.REFERENCE_ID AS MATCH_ID
+  FROM PLAYER_RATING_HISTORY H JOIN MEMBER M ON M.MEMBER_ID = H.MEMBER_ID
+ WHERE M.NAME = '홍길동' AND H.VOIDED_YN = 0
+ ORDER BY H.RATING_HISTORY_ID;
+```
+
+**설정 화면**: 설정 키(영문 변수명)를 화면에서 모두 지우고, 항목마다 이름 · 한 줄 설명 · 기본값 + **(?) 버튼**. (?)를 누르면 항목 바로 아래에 "이렇게 동작해요 / 올리면 / 내리면 / 참고"가 펼쳐진다. 문구는 `frontend/src/pages/admin/settingsHelp.ts` 한 곳에서 관리(새 설정이 생기면 여기에 추가, 없으면 서버 설명을 이름으로 쓰고 고급 묶음에 붙음). 묶음: 경기 / 기사 / 팀 자동 편성 / 실력 점수 계산(고급).
+
 ## 4. 남은 이슈 / 다음 단계
 
 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
