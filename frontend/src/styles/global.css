@@ -261,13 +261,15 @@ table.data a { color: var(--ink); font-weight: 600; }
 table.data td { font-variant-numeric: tabular-nums; }
 
 /* ---------- 시트/모달 ---------- */
-.sheet-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.6); display: flex; justify-content: center; align-items: flex-end; }
+.sheet-backdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0, 0, 0, 0.6); display: flex; justify-content: center; align-items: flex-end; overscroll-behavior: contain; }
 .sheet {
-  width: 100%; max-width: 520px; max-height: 92vh; overflow-y: auto;
+  width: 100%; max-width: 520px; max-height: 92vh; max-height: 92dvh; overflow-y: auto;
+  overscroll-behavior: contain; -webkit-overflow-scrolling: touch; /* 시트 끝까지 스크롤해도 뒤 화면으로 넘기지 않음 */
   display: flex; flex-direction: column; gap: 16px;
   padding: 12px 20px calc(22px + env(safe-area-inset-bottom));
   border-radius: 24px 24px 0 0; background: var(--card); border-top: 2px solid var(--accent);
 }
+.sheet > * { flex-shrink: 0; } /* 내용이 길면 줄어들지 말고 시트가 스크롤되게 */
 .sheet .grabber { align-self: center; width: 40px; height: 4px; border-radius: 2px; background: var(--line-strong); }
 .sheet h2 { font-size: 19px; font-weight: 700; }
 .keypad { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }

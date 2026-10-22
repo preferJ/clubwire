@@ -285,6 +285,11 @@ SELECT TITLE_CODE, TITLE_NAME, ACTIVE_YN FROM TITLE_TYPE
  WHERE CLUB_ID = (SELECT CLUB_ID FROM CLUB WHERE CLUB_SLUG = 'sanha');
 ```
 
+**버그 수정 – 바텀시트(팝업) 스크롤**: 일정 상세의 [다음 경기 만들기] 시트가 하단 버튼 영역(`.bar-actions`, sticky + z-index) 안에서 그려져 하단 탭 메뉴보다 아래 층이 됨 → 시트 아래쪽 [경기 만들기]가 탭 메뉴에 가려지고 휠·드래그가 뒤 화면으로 넘어감.
+- `components/ui.tsx` `Sheet`: `createPortal`로 `document.body`에 바로 그림(어느 화면에서 열어도 탭 메뉴까지 덮음), 열려 있는 동안 `body` 스크롤 잠금
+- `global.css` `.sheet`: `overscroll-behavior: contain`(시트 끝에서 뒤 화면으로 스크롤이 넘어가지 않음), `max-height: 92dvh`(모바일 주소창 높이 반영), 내용은 줄어들지 않고 시트가 스크롤
+- 같은 컴포넌트를 쓰는 시트 5개(다음 경기 · 관리자 PIN · 골 기록 · 출전 명단 · 팀 이동)에 함께 적용
+
 ## 4. 남은 이슈 / 다음 단계
 
 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)

@@ -1,4 +1,5 @@
 import { useEffect, useRef, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { errorMessage } from '../api/client'
 import { useClub } from '../lib/club'
@@ -184,7 +185,7 @@ export function Empty({ children }: { children: ReactNode }) {
   return <div className="state-box">{children}</div>
 }
 
-/** 바텀시트(배경 누르거나 Esc로 닫힘) */
+/** 바텀시트(배경 누르거나 Esc로 닫힘). 하단 탭 메뉴까지 덮고, 열려 있는 동안 스크롤은 시트 안에서만 */
 export function Sheet({ open, onClose, labelledBy, children }: {
   open: boolean
   onClose: () => void
@@ -199,15 +200,25 @@ export function Sheet({ open, onClose, labelledBy, children }: {
     ref.current?.focus()
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
+  useEffect(() => {
+    if (!open) return
+    // 시트가 열려 있는 동안 뒤 화면 스크롤 잠금(휠·드래그는 시트 안에서만)
+    const body = document.body
+    const prev = body.style.overflow
+    body.style.overflow = 'hidden'
+    return () => { body.style.overflow = prev }
+  }, [open])
   if (!open) return null
-  return (
+  // body로 바로 그린다: 부모(.bar-actions 등 sticky + z-index)의 층에 갇히면 하단 탭 메뉴 아래로 깔린다
+  return createPortal(
     <div className="sheet-backdrop" onClick={onClose}>
       <div ref={ref} className="sheet" role="dialog" aria-modal="true" aria-labelledby={labelledBy} tabIndex={-1}
         onClick={(e) => e.stopPropagation()}>
         <span className="grabber" />
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
 
