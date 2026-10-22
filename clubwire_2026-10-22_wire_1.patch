@@ -1,0 +1,594 @@
+diff --git a/README.md b/README.md
+index f09190b..8e09b62 100644
+--- a/README.md
++++ b/README.md
+@@ -58,7 +58,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리
+ | `test_insight_rules_v2.py` | 듀오·징크스·천적 후보, 이달 득점 순위, 연속 출전, 팀 하루 전적, 도움→득점 조합, 하루 최다 골 계산 + 마감 시 콤비·무패·철벽·첫 골 Insight |
+ | `test_concurrency.py` | 동시 골 20건(멱등키 중복 8건 포함) → 점수 = 이벤트 수 |
+ | `test_regressions.py` | 한쪽 팀이 빈 경기 포함 시 증분=전체 재계산, 설정 버전 연속 증가, 마감 이전 날짜 일정 차단, 득점자 팀 이동 차단, 제외 멤버 참석자 목록 반영 |
+-| `test_frontend_apis.py` | 홈 LIVE 배너, 일정 목록 인원수, 일정 요약, 멤버별 수상 이력 |
++| `test_frontend_apis.py` | 홈 LIVE 배너, 일정 목록 인원수, 일정 요약, 멤버별 수상 이력, 기사 목록 페이지(게시 순서 커서·일정 날짜) |
+ | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
+ 
+ ## 3. 운영 흐름 (API)
+diff --git a/app/wire/article_service.py b/app/wire/article_service.py
+index 6571b10..827ad0d 100644
+--- a/app/wire/article_service.py
++++ b/app/wire/article_service.py
+@@ -2,7 +2,7 @@
+ import logging
+ from typing import Any
+ 
+-from sqlalchemy import func, select
++from sqlalchemy import func, select, tuple_
+ from sqlalchemy.orm import Session
+ 
+ from app.core.config import settings
+@@ -198,8 +198,10 @@ def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
+ # ------------------------------------------------------------------ 조회
+ def serialize_article(db: Session, a: AiArticle, *, detail: bool = False, admin: bool = False) -> dict:
+     tags = list(db.scalars(select(ArticleTag.tag_name).where(ArticleTag.article_id == a.article_id).order_by(ArticleTag.tag_name)))
++    session = db.get(ClubSession, a.session_id) if a.session_id else None  # 화면에서 일정 날짜별로 묶기용
+     data = {
+         "articleId": a.article_id, "articleType": a.article_type, "sessionId": a.session_id,
++        "sessionDate": session.session_date.isoformat() if session else None,
+         "title": a.title, "summary": a.summary, "tags": tags, "status": a.status,
+         "publishedAt": to_iso(a.published_at), "createdAt": to_iso(a.created_at),
+         "generationNo": a.generation_no, "parentArticleId": a.parent_article_id,
+@@ -237,7 +239,14 @@ def list_articles(db: Session, club_id: int, *, published_only: bool = True, tag
+             .join(InsightMember, InsightMember.insight_id == AiArticleInsight.insight_id)
+             .where(InsightMember.member_id == member_id)))
+     if before_id:
+-        stmt = stmt.where(AiArticle.article_id < before_id)
++        # 커서는 정렬 기준과 같아야 한다: 게시본은 (PUBLISHED_AT, ARTICLE_ID), 관리자 전체는 ARTICLE_ID.
++        # (늦게 게시된 옛 기사가 있으면 ID만으로 자를 때 그 뒤 기사가 빠진다)
++        cursor = db.get(AiArticle, before_id) if published_only else None
++        if cursor is not None and cursor.published_at is not None:
++            stmt = stmt.where(tuple_(AiArticle.published_at, AiArticle.article_id)
++                              < tuple_(cursor.published_at, cursor.article_id))
++        else:
++            stmt = stmt.where(AiArticle.article_id < before_id)
+     order = AiArticle.published_at.desc() if published_only else AiArticle.article_id.desc()
+     return list(db.scalars(stmt.order_by(order, AiArticle.article_id.desc()).limit(min(limit, 100))))
+ 
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index cdc28ae..76a169f 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -203,6 +203,21 @@
+ - **하단 탭 메뉴**: 상세(기사·일정·경기·선수)와 관리자 화면에서도 항상 표시. 기사 → 와이어, 일정·경기 → 일정, 선수 → 멤버 탭을 강조. 화면 하단 실행 버튼(`.bar-actions`)은 탭 메뉴 위에 붙는다
+ - 샘플 데이터(`ypr_sample_data.sql`)를 새 기사거리 포함으로 다시 생성
+ 
++## 3-5. 와이어는 최근 일정만, 지난 기사는 기록 탭 (2026-10-22)
++
++| 화면 | 변경 | 이유 |
++|---|---|---|
++| 와이어(홈) | 일정 카드 2개: **이번 일정**(예정·진행 중 중 가장 가까운 것) + **지난 일정**(그 직전). 예정이 없으면 최근 일정 2개(지난 일정 · 그 전 일정) | 홈은 "이번 주에 무슨 일이 있나"만. 주(週) 경계가 아니라 일정 순서로 골라 한 주를 쉬어도 비지 않음 |
++| 와이어(홈) | 마감된 일정 카드에 결과 한 줄(팀별 승·무·패, 득점 1위). 기존 `GET /sessions/{id}/summary` 사용 | 기사를 열지 않아도 지난 결과 확인 |
++| 와이어(홈) | 기사는 위 두 일정의 게시 기사만, 최신 3개 + 작은 [기사 더보기] → 기록 탭 [기사] | 오래된 기사가 홈을 채우지 않게 |
++| 와이어(홈) | 태그 칩 제거(기록 탭으로 이동) | 두 일정 기사는 많아야 4건이라 거를 필요가 없음 |
++| 기록 탭 | [개인 기록 · 수상 내역 · **기사**]. 태그 칩 + 일정 날짜별 묶음 + 20개씩 [더 불러오기] | 지난 기사는 기록실에서 찾아봄 |
++| 기록 탭 | 탭·태그를 주소에 둠(`/records?tab=articles&tag=천적`). 기사 상세의 [뒤로]는 그 주소로, 하단 탭은 '기록' 강조(Link state `from`) | 기사를 읽고 돌아와도 보던 탭·태그 유지 |
++
++- API: 기사 응답에 `sessionDate`(일정 날짜) 추가. 화면이 일정별로 묶을 때 사용
++- API 수정: `GET /articles?beforeId=` 페이지 커서를 게시 순서와 맞춤. 게시본은 `PUBLISHED_AT` 순으로 정렬하는데 커서는 `ARTICLE_ID`로 잘라서, 검토 대기였던 옛 기사를 나중에 게시하면 그 뒤 기사들이 다음 페이지에서 빠졌다 → 게시본은 `(PUBLISHED_AT, ARTICLE_ID) < 커서` 로 비교(관리자 전체 목록은 기존대로 ID). 테스트 `test_article_pages_follow_publish_order`
++- 프론트: 기사 카드를 `components/ArticleCard.tsx`로 분리(와이어·기록 탭 공용)
++
+ ## 4. 남은 이슈 / 다음 단계
+ 
+ 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
+diff --git a/frontend/src/api/endpoints.ts b/frontend/src/api/endpoints.ts
+index c090ee6..c3e91ce 100644
+--- a/frontend/src/api/endpoints.ts
++++ b/frontend/src/api/endpoints.ts
+@@ -104,7 +104,7 @@ export const makeApi = (slug: string) => ({
+   ratings: () => request<RatingRow[]>(slug, 'GET', '/admin/ratings'),
+ 
+   // The Wire
+-  articles: (query: { tag?: string; memberId?: number; sessionId?: number; all?: boolean; limit?: number } = {}) =>
++  articles: (query: { tag?: string; memberId?: number; sessionId?: number; all?: boolean; limit?: number; beforeId?: number } = {}) =>
+     request<Article[]>(slug, 'GET', '/articles', { query }),
+   article: (id: number) => request<ArticleDetail>(slug, 'GET', `/articles/${id}`),
+   publishArticle: (id: number) => request<ArticleDetail>(slug, 'POST', `/articles/${id}/publish`),
+diff --git a/frontend/src/api/types.ts b/frontend/src/api/types.ts
+index 02c7494..69c7c25 100644
+--- a/frontend/src/api/types.ts
++++ b/frontend/src/api/types.ts
+@@ -294,6 +294,8 @@ export interface Article {
+   articleId: number
+   articleType: 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP'
+   sessionId: number | null
++  /** 기사가 속한 일정 날짜(YYYY-MM-DD). 와이어·기록 탭에서 일정별로 묶을 때 사용 */
++  sessionDate: string | null
+   title: string | null
+   summary: string | null
+   tags: string[]
+diff --git a/frontend/src/components/ArticleCard.tsx b/frontend/src/components/ArticleCard.tsx
+new file mode 100644
+index 0000000..d179929
+--- /dev/null
++++ b/frontend/src/components/ArticleCard.tsx
+@@ -0,0 +1,29 @@
++// 기사 카드: 와이어(홈) 최근 기사 · 기록 탭 지난 기사에서 같이 쓴다
++
++import { Link } from 'react-router-dom'
++import type { Article } from '../api/types'
++import { fmtDateTime } from '../lib/format'
++import { Tags, type FromState } from './ui'
++
++export function ArticleCard({ a, slug, lead, from }: {
++  a: Article
++  slug: string
++  lead: boolean
++  /** 상세에서 [뒤로]·하단 탭이 돌아갈 곳(없으면 와이어) */
++  from?: FromState['from']
++}) {
++  return (
++    <Link to={`/c/${slug}/articles/${a.articleId}`} state={from ? { from } : undefined} className="card link stack" style={{ gap: 8 }}>
++      <Tags tags={a.tags} />
++      {lead ? (
++        <div className="headline" style={{ fontSize: 22 }}>{a.title}</div>
++      ) : (
++        <div style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.4 }}>{a.title}</div>
++      )}
++      {lead && a.summary ? <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55 }}>{a.summary}</p> : null}
++      <span className="small muted">
++        {fmtDateTime(a.publishedAt ?? a.createdAt)} · {a.articleType === 'PRE_MATCH' ? '프리뷰' : '마감 기사'}
++      </span>
++    </Link>
++  )
++}
+diff --git a/frontend/src/components/ui.tsx b/frontend/src/components/ui.tsx
+index c0e89d8..c7ac3f4 100644
+--- a/frontend/src/components/ui.tsx
++++ b/frontend/src/components/ui.tsx
+@@ -56,8 +56,15 @@ export function AdminButton({ onDark }: { onDark?: boolean }) {
+   )
+ }
+ 
++export type TabKey = 'home' | 'sessions' | 'records' | 'members'
++
++/** 목록 → 상세로 갈 때 Link state로 넘기는 출처. 상세 화면의 [뒤로]와 하단 탭 강조에 쓴다(예: 기록 탭의 지난 기사 → 기사 상세) */
++export interface FromState {
++  from?: { path: string; tab: TabKey }
++}
++
+ /** 지금 주소가 어느 탭 소속인지: 기사→와이어, 경기→일정, 선수→멤버. 관리자 화면은 강조 없음 */
+-export function tabOf(pathname: string, slug: string): 'home' | 'sessions' | 'records' | 'members' | null {
++export function tabOf(pathname: string, slug: string): TabKey | null {
+   const base = `/c/${slug}`
+   if (!pathname.startsWith(base)) return null
+   const rest = pathname.slice(base.length)
+@@ -70,8 +77,8 @@ export function tabOf(pathname: string, slug: string): 'home' | 'sessions' | 're
+ 
+ export function BottomNav() {
+   const { slug } = useClub()
+-  const { pathname } = useLocation()
+-  const current = tabOf(pathname, slug)
++  const { pathname, state } = useLocation()
++  const current = (state as FromState | null)?.from?.tab ?? tabOf(pathname, slug)
+   const items = [
+     { key: 'home', to: `/c/${slug}`, label: '와이어', icon: 'wire' },
+     { key: 'sessions', to: `/c/${slug}/sessions`, label: '일정', icon: 'calendar' },
+diff --git a/frontend/src/pages/ArticlePage.tsx b/frontend/src/pages/ArticlePage.tsx
+index b67d244..83f66aa 100644
+--- a/frontend/src/pages/ArticlePage.tsx
++++ b/frontend/src/pages/ArticlePage.tsx
+@@ -1,8 +1,8 @@
+ // S02 기사 상세
+ 
+-import { Link, useParams } from 'react-router-dom'
++import { Link, useLocation, useParams } from 'react-router-dom'
+ import { Icon } from '../components/Icon'
+-import { ErrorBox, Loading, Tags, TopBar } from '../components/ui'
++import { ErrorBox, Loading, Tags, TopBar, type FromState } from '../components/ui'
+ import { useClub } from '../lib/club'
+ import { fmtDateTime, initials } from '../lib/format'
+ import { useAsync } from '../lib/hooks'
+@@ -11,6 +11,7 @@ import { useToast } from '../lib/toast'
+ export function ArticlePage() {
+   const { articleId } = useParams()
+   const { api, slug, isAdmin } = useClub()
++  const from = (useLocation().state as FromState | null)?.from  // 기록 탭 지난 기사에서 왔으면 그리로 돌아감
+   const toast = useToast()
+   const art = useAsync(() => api.article(Number(articleId)), [api, articleId])
+   const sessionId = art.data?.sessionId
+@@ -34,7 +35,7 @@ export function ArticlePage() {
+ 
+   return (
+     <>
+-      <TopBar title={<span className="eyebrow">THE WIRE</span>} back={`/c/${slug}`}
++      <TopBar title={<span className="eyebrow">THE WIRE</span>} back={from?.path ?? `/c/${slug}`}
+         right={<button type="button" className="icon-btn" aria-label="공유" onClick={share}><Icon name="share" /></button>} />
+       {art.error ? (
+         <ErrorBox error={art.error} onRetry={art.reload} />
+diff --git a/frontend/src/pages/HomePage.tsx b/frontend/src/pages/HomePage.tsx
+index e58659e..6e1e969 100644
+--- a/frontend/src/pages/HomePage.tsx
++++ b/frontend/src/pages/HomePage.tsx
+@@ -1,23 +1,25 @@
+-// S01 홈 · 와이어: LIVE 배너, 다음/진행 중 일정, 기사 피드
++// S01 홈 · 와이어: LIVE 배너, 이번·지난 일정, 두 일정의 최근 기사(지난 기사는 기록 탭)
+ 
+-import { useState } from 'react'
+ import { Link } from 'react-router-dom'
++import type { Api } from '../api/endpoints'
+ import type { Article, LiveMatch, SessionListItem } from '../api/types'
++import { ArticleCard } from '../components/ArticleCard'
+ import { Icon } from '../components/Icon'
+-import { AdminButton, Empty, ErrorBox, Loading, Tags, TeamBadge } from '../components/ui'
++import { AdminButton, Empty, ErrorBox, Loading, TeamBadge } from '../components/ui'
+ import { useClub, useClubEvent } from '../lib/club'
+-import { fmtClock, fmtDate, fmtDateTime, SESSION_STATUS_LABEL } from '../lib/format'
++import { fmtClock, fmtDate, SESSION_STATUS_LABEL } from '../lib/format'
+ import { useAsync, useMatchClock } from '../lib/hooks'
+ 
+-const TAGS = ['전체', '마감', '프리뷰', '복귀', '연승', '결승골', '역전', '타이틀',
+-  '듀오', '천적', '콤비', '무패', '철벽', '신기록', '레이스', '개근', '징크스', '데뷔']
++/** 와이어에 바로 보이는 기사 수. 나머지는 [기사 더보기] → 기록 탭 */
++const WIRE_ARTICLES = 3
+ 
+ export function HomePage() {
+   const { api, club, slug, isAdmin } = useClub()
+-  const [tag, setTag] = useState('전체')
+   const live = useAsync(() => api.live(), [api])
+   const sessions = useAsync(() => api.sessions(10), [api])
+-  const articles = useAsync(() => api.articles({ tag: tag === '전체' ? undefined : tag, limit: 20 }), [api, tag])
++  const picked = pickWireSessions(sessions.data ?? [])
++  const pickedIds = picked.map((p) => p.s.sessionId)
++  const articles = useAsync(() => loadWireArticles(api, pickedIds), [api, pickedIds.join(',')])
+ 
+   useClubEvent((m) => {
+     if (m.type === 'MATCH_UPDATED') live.reload()
+@@ -25,7 +27,9 @@ export function HomePage() {
+     if (m.type === 'ARTICLE_UPDATED') articles.reload()
+   })
+ 
+-  const current = pickCurrentSession(sessions.data ?? [])
++  // 일정 목록을 받기 전, 또는 고른 일정이 바뀌어 다시 불러오는 중이면 로딩 표시
++  const articlesLoading = (sessions.loading && !sessions.data) || (articles.loading && !articles.data?.length)
++  const shown = (articles.data ?? []).slice(0, WIRE_ARTICLES)
+ 
+   return (
+     <>
+@@ -43,43 +47,59 @@ export function HomePage() {
+         ))}
+ 
+         {sessions.loading && !sessions.data ? (
+-          <Loading rows={1} />
+-        ) : current ? (
+-          <SessionCard s={current} slug={slug} />
++          <Loading rows={2} />
+         ) : (
+-          <div className="card flat row between">
+-            <span className="muted" style={{ fontSize: 14 }}>예정된 일정이 없어요</span>
+-            {isAdmin ? <Link className="btn sm primary" to={`/c/${slug}/admin/sessions/new`}>새 일정</Link> : null}
+-          </div>
++          <>
++            {picked[0]?.label !== '이번 일정' ? (
++              <div className="card flat row between">
++                <span className="muted" style={{ fontSize: 14 }}>예정된 일정이 없어요</span>
++                {isAdmin ? <Link className="btn sm primary" to={`/c/${slug}/admin/sessions/new`}>새 일정</Link> : null}
++              </div>
++            ) : null}
++            {picked.map(({ s, label }) => (
++              <SessionCard key={s.sessionId} s={s} slug={slug} label={label} />
++            ))}
++          </>
+         )}
+ 
+         <section className="section" aria-labelledby="wire-title">
+           <div className="section-head">
+             <h2 id="wire-title" className="big">The Wire</h2>
+-            <span className="small muted">경기 기록으로 쓴 기사</span>
+-          </div>
+-          <div className="chips" role="group" aria-label="기사 태그">
+-            {TAGS.map((t) => (
+-              <button key={t} type="button" className="chip" aria-pressed={tag === t} onClick={() => setTag(t)}>
+-                {t}
+-              </button>
+-            ))}
++            <span className="small muted">{picked.length > 1 ? '이번·지난 일정 기사' : '최근 일정 기사'}</span>
+           </div>
+           {articles.error ? (
+             <ErrorBox error={articles.error} onRetry={articles.reload} />
+-          ) : articles.loading && !articles.data ? (
++          ) : articlesLoading ? (
+             <Loading />
+-          ) : (articles.data ?? []).length === 0 ? (
++          ) : shown.length === 0 ? (
+             <Empty>아직 게시된 기사가 없어요.<br />[일정확정] 때 프리뷰, [일정마감] 때 마감 기사가 나옵니다.</Empty>
+           ) : (
+-            (articles.data ?? []).map((a, i) => <ArticleCard key={a.articleId} a={a} slug={slug} lead={i === 0} />)
++            shown.map((a, i) => <ArticleCard key={a.articleId} a={a} slug={slug} lead={i === 0} />)
+           )}
++          <Link to={`/c/${slug}/records?tab=articles`} className="link-btn" style={{ alignSelf: 'flex-end', display: 'inline-flex', alignItems: 'center' }}>
++            기사 더보기 <Icon name="chevron" size={16} />
++          </Link>
+         </section>
+       </main>
+     </>
+   )
+ }
+ 
++type WireSession = { s: SessionListItem; label: '이번 일정' | '지난 일정' | '그 전 일정' }
++
++/** 와이어에 보일 일정: 예정·진행 중 1개(가장 가까운 것) + 바로 직전 일정 1개. 예정이 없으면 최근 일정 2개 */
++function pickWireSessions(list: SessionListItem[]): WireSession[] {
++  const valid = list.filter((s) => s.status !== 'CANCELLED')
++  const recent = [...valid].sort((a, b) => b.sessionDate.localeCompare(a.sessionDate) || b.sessionId - a.sessionId)
++  const current = pickCurrentSession(valid)
++  if (!current) {
++    return recent.slice(0, 2).map((s, i) => ({ s, label: i === 0 ? '지난 일정' : '그 전 일정' }))
++  }
++  const prev = recent.find((s) => s.sessionDate.localeCompare(current.sessionDate) < 0
++    || (s.sessionDate === current.sessionDate && s.sessionId < current.sessionId))
++  return [{ s: current, label: '이번 일정' }, ...(prev ? [{ s: prev, label: '지난 일정' as const }] : [])]
++}
++
+ function pickCurrentSession(list: SessionListItem[]): SessionListItem | null {
+   const open = list
+     .filter((s) => ['OPEN', 'CONFIRMED', 'IN_PROGRESS'].includes(s.status))
+@@ -87,6 +107,12 @@ function pickCurrentSession(list: SessionListItem[]): SessionListItem | null {
+   return open[0] ?? null
+ }
+ 
++/** 고른 일정들의 게시 기사(최신 게시 순). 일정마다 프리뷰·마감 기사가 1건씩이라 일정당 10건이면 충분 */
++async function loadWireArticles(api: Api, sessionIds: number[]): Promise<Article[]> {
++  const lists = await Promise.all(sessionIds.map((sessionId) => api.articles({ sessionId, limit: 10 })))
++  return lists.flat().sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? '') || b.articleId - a.articleId)
++}
++
+ function LiveBanner({ m, slug }: { m: LiveMatch; slug: string }) {
+   const clock = useMatchClock(m)
+   const label = m.status === 'READY' ? '곧 시작' : m.status === 'PAUSED' ? '일시정지' : fmtClock(clock.remaining)
+@@ -108,42 +134,44 @@ function LiveBanner({ m, slug }: { m: LiveMatch; slug: string }) {
+   )
+ }
+ 
+-function SessionCard({ s, slug }: { s: SessionListItem; slug: string }) {
++function SessionCard({ s, slug, label }: { s: SessionListItem; slug: string; label: WireSession['label'] }) {
+   const [, m, d] = s.sessionDate.split('-').map(Number)
++  const past = label !== '이번 일정'
+   return (
+     <Link to={`/c/${slug}/sessions/${s.sessionId}`} className="card link row" style={{ gap: 14 }}>
+-      <div style={{ width: 52, height: 56, borderRadius: 12, background: 'var(--green-soft)', color: 'var(--green)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
++      <div style={{ width: 52, height: 56, borderRadius: 12, background: past ? 'var(--soft)' : 'var(--green-soft)', color: past ? 'var(--ink-3)' : 'var(--green)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+         <span style={{ fontSize: 11, fontWeight: 600 }}>{m}월</span>
+         <span style={{ fontFamily: 'var(--display)', fontSize: 24, lineHeight: 1 }}>{d}</span>
+       </div>
+-      <div className="stack" style={{ flex: 1, gap: 3 }}>
++      <div className="stack" style={{ flex: 1, gap: 3, minWidth: 0 }}>
++        <span className="eyebrow" style={past ? { color: 'var(--muted)' } : undefined}>{label}</span>
+         <div className="row">
+           <b style={{ fontSize: 15 }}>{s.title}</b>
+           <span className={`status-badge ${s.status === 'IN_PROGRESS' ? 'green' : ''}`}>{SESSION_STATUS_LABEL[s.status]}</span>
+         </div>
+         <span className="small muted">
+           {s.location ? `${s.location} · ` : ''}참석 {s.attendeeCount}명{s.guestCount ? ` · 게스트 ${s.guestCount}명` : ''}
++          {s.teamCount ? ` · ${s.teamCount}팀` : ''}
+         </span>
+-        {s.teamCount ? <span className="small muted">{s.teamCount}팀</span> : null}
++        {s.status === 'CLOSED' ? <SessionResult sessionId={s.sessionId} /> : null}
+       </div>
+       <Icon name="chevron" />
+     </Link>
+   )
+ }
+ 
+-function ArticleCard({ a, slug, lead }: { a: Article; slug: string; lead: boolean }) {
++/** 마감된 일정의 결과 한 줄: 팀별 승·무·패 + 득점 1위 (일정 요약 API) */
++function SessionResult({ sessionId }: { sessionId: number }) {
++  const { api } = useClub()
++  const sum = useAsync(() => api.sessionSummary(sessionId), [api, sessionId])
++  if (!sum.data) return null
++  const teams = [...sum.data.teamRecords].sort((a, b) => a.teamCode.localeCompare(b.teamCode))
++  const best = sum.data.topScorers[0]?.count ?? 0
++  const scorers = sum.data.topScorers.filter((p) => p.count === best).map((p) => p.name)
+   return (
+-    <Link to={`/c/${slug}/articles/${a.articleId}`} className="card link stack" style={{ gap: 8 }}>
+-      <Tags tags={a.tags} />
+-      {lead ? (
+-        <div className="headline" style={{ fontSize: 22 }}>{a.title}</div>
+-      ) : (
+-        <div style={{ fontSize: 16, fontWeight: 700, lineHeight: 1.4 }}>{a.title}</div>
+-      )}
+-      {lead && a.summary ? <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55 }}>{a.summary}</p> : null}
+-      <span className="small muted">
+-        {fmtDateTime(a.publishedAt ?? a.createdAt)} · {a.articleType === 'PRE_MATCH' ? '프리뷰' : '마감 기사'}
+-      </span>
+-    </Link>
++    <span className="small" style={{ color: 'var(--ink-3)', lineHeight: 1.5 }}>
++      {teams.map((t) => `${t.teamCode} ${t.wins}승 ${t.draws}무 ${t.losses}패`).join(' · ')}
++      {best > 0 ? <><br />득점 1위 {scorers.join('·')} {best}골</> : null}
++    </span>
+   )
+ }
+diff --git a/frontend/src/pages/RecordsPage.tsx b/frontend/src/pages/RecordsPage.tsx
+index 040b75f..a2b2279 100644
+--- a/frontend/src/pages/RecordsPage.tsx
++++ b/frontend/src/pages/RecordsPage.tsx
+@@ -1,12 +1,21 @@
+-// S06 기록실: 개인 기록 / 수상 내역 탭
++// S06 기록실: 개인 기록 / 수상 내역 / 기사(지난 기사) 탭. 탭·태그는 주소(?tab=articles&tag=천적)에 둬서 기사 상세에서 돌아와도 유지
+ 
+-import { useMemo, useState } from 'react'
+-import { Link } from 'react-router-dom'
+-import type { Award, MemberStat } from '../api/types'
++import { useEffect, useMemo, useState } from 'react'
++import { Link, useSearchParams } from 'react-router-dom'
++import type { Article, Award, MemberStat } from '../api/types'
++import { ArticleCard } from '../components/ArticleCard'
+ import { AdminButton, Empty, ErrorBox, Loading } from '../components/ui'
+ import { useClub, useClubEvent } from '../lib/club'
+-import { fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
+-import { useAsync } from '../lib/hooks'
++import { fmtDate, fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
++import { useAction, useAsync } from '../lib/hooks'
++
++type RecordsTab = 'stats' | 'awards' | 'articles'
++const RECORDS_TABS: RecordsTab[] = ['stats', 'awards', 'articles']
++
++/** 기사 태그 칩(와이어에서 옮겨 옴) */
++const TAGS = ['전체', '마감', '프리뷰', '복귀', '연승', '결승골', '역전', '타이틀',
++  '듀오', '천적', '콤비', '무패', '철벽', '신기록', '레이스', '개근', '징크스', '데뷔']
++const ARTICLE_PAGE = 20
+ 
+ type SortKey = 'goals' | 'assists' | 'winRate' | 'games' | 'mvpCount'
+ const SORTS: { key: SortKey; label: string }[] = [
+@@ -19,7 +28,9 @@ const SORTS: { key: SortKey; label: string }[] = [
+ 
+ export function RecordsPage() {
+   const { api } = useClub()
+-  const [tab, setTab] = useState<'stats' | 'awards'>('stats')
++  const [params, setParams] = useSearchParams()
++  const tab: RecordsTab = RECORDS_TABS.find((t) => t === params.get('tab')) ?? 'stats'
++  const setTab = (t: RecordsTab) => setParams(t === 'stats' ? {} : { tab: t }, { replace: true })
+   const stats = useAsync(() => api.memberStats(), [api])
+   const awards = useAsync(() => api.awards({}), [api])
+   useClubEvent((m) => {
+@@ -38,12 +49,15 @@ export function RecordsPage() {
+       <div className="tabs" role="tablist" aria-label="기록 보기" style={{ margin: '0 16px' }}>
+         <button type="button" role="tab" aria-selected={tab === 'stats'} onClick={() => setTab('stats')}>개인 기록</button>
+         <button type="button" role="tab" aria-selected={tab === 'awards'} onClick={() => setTab('awards')}>수상 내역</button>
++        <button type="button" role="tab" aria-selected={tab === 'articles'} onClick={() => setTab('articles')}>기사</button>
+       </div>
+       <main className="page">
+         {tab === 'stats' ? (
+           <StatsTab stats={stats.data} awards={awards.data ?? []} error={stats.error} loading={stats.loading} reload={stats.reload} />
+-        ) : (
++        ) : tab === 'awards' ? (
+           <AwardsTab awards={awards.data} error={awards.error} reload={awards.reload} />
++        ) : (
++          <ArticlesTab />
+         )}
+       </main>
+     </>
+@@ -178,6 +192,78 @@ function AwardsTab({ awards, error, reload }: { awards: Award[] | undefined; err
+   )
+ }
+ 
++/** 지난 기사: 태그로 거르고, 일정 날짜별로 묶고, 20개씩 더 불러오기 */
++function ArticlesTab() {
++  const { api, slug } = useClub()
++  const [params, setParams] = useSearchParams()
++  const tag = TAGS.find((t) => t === params.get('tag')) ?? '전체'
++  const query = tag === '전체' ? {} : { tag }
++  const first = useAsync(() => api.articles({ ...query, limit: ARTICLE_PAGE }), [api, tag])
++  const [more, setMore] = useState<Article[]>([])
++  const [end, setEnd] = useState(false)
++  const { busy, run } = useAction()
++  useClubEvent((m) => {
++    if (m.type === 'ARTICLE_UPDATED') first.reload()
++  })
++  // 첫 페이지가 바뀌면(태그 변경·새 기사) 이어 붙인 페이지는 버리고 처음부터
++  useEffect(() => {
++    setMore([])
++    setEnd((first.data?.length ?? 0) < ARTICLE_PAGE)
++  }, [first.data])
++
++  const list = [...(first.data ?? []), ...more]
++  const loadMore = async () => {
++    const last = list[list.length - 1]
++    if (!last) return
++    const page = await run(() => api.articles({ ...query, limit: ARTICLE_PAGE, beforeId: last.articleId }))
++    if (!page) return
++    setMore((m) => [...m, ...page])
++    if (page.length < ARTICLE_PAGE) setEnd(true)
++  }
++  const from = { path: `/c/${slug}/records?${params.toString()}`, tab: 'records' as const }
++
++  return (
++    <>
++      <div className="chips" role="group" aria-label="기사 태그">
++        {TAGS.map((t) => (
++          <button key={t} type="button" className="chip" aria-pressed={tag === t}
++            onClick={() => setParams(t === '전체' ? { tab: 'articles' } : { tab: 'articles', tag: t }, { replace: true })}>
++            {t}
++          </button>
++        ))}
++      </div>
++      {first.error ? (
++        <ErrorBox error={first.error} onRetry={first.reload} />
++      ) : first.loading && !first.data ? (
++        <Loading />
++      ) : list.length === 0 ? (
++        <Empty>{tag === '전체' ? '아직 게시된 기사가 없어요.' : `'${tag}' 기사가 아직 없어요.`}</Empty>
++      ) : (
++        <>
++          {groupBySession(list).map(([date, items]) => (
++            <section key={date} className="section">
++              <h2 className="small muted" style={{ fontWeight: 700 }}>{date ? `${fmtDate(date)} 일정` : '일정 없음'}</h2>
++              {items.map((a) => <ArticleCard key={a.articleId} a={a} slug={slug} lead={false} from={from} />)}
++            </section>
++          ))}
++          {end ? (
++            <p className="small muted" style={{ textAlign: 'center' }}>마지막 기사예요</p>
++          ) : (
++            <button type="button" className="btn block" disabled={busy} onClick={loadMore}>더 불러오기</button>
++          )}
++        </>
++      )}
++    </>
++  )
++}
++
++/** 일정 날짜별 묶음(최근 일정 먼저, 묶음 안은 게시 순서 그대로) */
++function groupBySession(list: Article[]): [string, Article[]][] {
++  const groups = new Map<string, Article[]>()
++  list.forEach((a) => groups.set(a.sessionDate ?? '', [...(groups.get(a.sessionDate ?? '') ?? []), a]))
++  return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
++}
++
+ function awardNote(a: Award): string {
+   if (a.awardMethod === 'MANUAL') return '운영진 선정'
+   const unit = a.facts?.metric === 'assists' ? '도움' : a.facts?.metric === 'wins' ? '승' : '골'
+diff --git a/tests/test_frontend_apis.py b/tests/test_frontend_apis.py
+index 7196c6c..122e8c7 100644
+--- a/tests/test_frontend_apis.py
++++ b/tests/test_frontend_apis.py
+@@ -1,4 +1,9 @@
+-"""프론트 화면용 조회 API: LIVE 배너, 일정 목록 인원수, 일정 요약, 멤버별 수상 이력."""
++"""프론트 화면용 조회 API: LIVE 배너, 일정 목록 인원수, 일정 요약, 멤버별 수상 이력, 기사 목록 페이지."""
++from datetime import datetime
++
++from sqlalchemy import update
++
++from app.models import AiArticle
+ 
+ 
+ def test_live_summary_and_awards(make_club):
+@@ -33,3 +38,33 @@ def test_live_summary_and_awards(make_club):
+     api.ok(api.post("/titles/awards", {"titleCode": "MVP", "memberId": scorer, "sessionId": sid}), 201)
+     mine = api.ok(api.get("/titles/awards", params={"memberId": scorer}, admin=False))
+     assert mine[0]["titleCode"] == "MVP" and mine[0]["memberName"] == "F" + str(ids.index(scorer))
++
++
++def test_article_pages_follow_publish_order(make_club, db):
++    """기록 탭 지난 기사: 게시 순서(PUBLISHED_AT)와 ID 순서가 달라도 beforeId 페이지가 빠짐·중복 없이 이어진다."""
++    api = make_club("feed")
++    ids = [api.ok(api.post("/members", {"name": f"W{i}"}), 201)["memberId"] for i in range(4)]
++    arts = []
++    for day in ("2026-12-05", "2026-12-12", "2026-12-19"):
++        sid = api.ok(api.post("/sessions", {"sessionDate": day}), 201)["sessionId"]
++        api.ok(api.post(f"/sessions/{sid}/members", {"memberIds": ids}))
++        gen = api.ok(api.post(f"/sessions/{sid}/teams/generate", {"teamCount": 2}))
++        aid = api.ok(api.post(f"/sessions/{sid}/teams/confirm", {"generationId": gen["generationId"]}))["articleIds"][0]
++        api.ok(api.post(f"/articles/{aid}/publish"))
++        arts.append(aid)
++    # 가장 오래된 기사(ID 최소)를 맨 나중에 게시한 상황(검토 대기로 두었다가 늦게 게시)
++    db.execute(update(AiArticle).where(AiArticle.article_id == arts[0]).values(published_at=datetime(2027, 1, 1)))
++    db.commit()
++
++    seen, before = [], None
++    for _ in range(5):
++        page = api.ok(api.get("/articles", admin=False, params={"limit": 1, **({"beforeId": before} if before else {})}))
++        if not page:
++            break
++        seen.append(page[0]["articleId"])
++        before = page[0]["articleId"]
++    assert seen == [arts[0], arts[2], arts[1]]
++
++    # 와이어·기록 탭이 일정 날짜로 묶을 수 있도록 일정 날짜를 함께 준다
++    by_id = {a["articleId"]: a for a in api.ok(api.get("/articles", admin=False))}
++    assert by_id[arts[0]]["sessionDate"] == "2026-12-05" and by_id[arts[2]]["sessionDate"] == "2026-12-19"

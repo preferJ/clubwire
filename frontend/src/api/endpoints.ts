@@ -104,7 +104,7 @@ export const makeApi = (slug: string) => ({
   ratings: () => request<RatingRow[]>(slug, 'GET', '/admin/ratings'),
 
   // The Wire
-  articles: (query: { tag?: string; memberId?: number; sessionId?: number; all?: boolean; limit?: number } = {}) =>
+  articles: (query: { tag?: string; memberId?: number; sessionId?: number; all?: boolean; limit?: number; beforeId?: number } = {}) =>
     request<Article[]>(slug, 'GET', '/articles', { query }),
   article: (id: number) => request<ArticleDetail>(slug, 'GET', `/articles/${id}`),
   publishArticle: (id: number) => request<ArticleDetail>(slug, 'POST', `/articles/${id}/publish`),

@@ -294,6 +294,8 @@ export interface Article {
   articleId: number
   articleType: 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP'
   sessionId: number | null
+  /** 기사가 속한 일정 날짜(YYYY-MM-DD). 와이어·기록 탭에서 일정별로 묶을 때 사용 */
+  sessionDate: string | null
   title: string | null
   summary: string | null
   tags: string[]

@@ -2,7 +2,7 @@
 import logging
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -198,8 +198,10 @@ def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
 # ------------------------------------------------------------------ 조회
 def serialize_article(db: Session, a: AiArticle, *, detail: bool = False, admin: bool = False) -> dict:
     tags = list(db.scalars(select(ArticleTag.tag_name).where(ArticleTag.article_id == a.article_id).order_by(ArticleTag.tag_name)))
+    session = db.get(ClubSession, a.session_id) if a.session_id else None  # 화면에서 일정 날짜별로 묶기용
     data = {
         "articleId": a.article_id, "articleType": a.article_type, "sessionId": a.session_id,
+        "sessionDate": session.session_date.isoformat() if session else None,
         "title": a.title, "summary": a.summary, "tags": tags, "status": a.status,
         "publishedAt": to_iso(a.published_at), "createdAt": to_iso(a.created_at),
         "generationNo": a.generation_no, "parentArticleId": a.parent_article_id,
@@ -237,7 +239,14 @@ def list_articles(db: Session, club_id: int, *, published_only: bool = True, tag
             .join(InsightMember, InsightMember.insight_id == AiArticleInsight.insight_id)
             .where(InsightMember.member_id == member_id)))
     if before_id:
-        stmt = stmt.where(AiArticle.article_id < before_id)
+        # 커서는 정렬 기준과 같아야 한다: 게시본은 (PUBLISHED_AT, ARTICLE_ID), 관리자 전체는 ARTICLE_ID.
+        # (늦게 게시된 옛 기사가 있으면 ID만으로 자를 때 그 뒤 기사가 빠진다)
+        cursor = db.get(AiArticle, before_id) if published_only else None
+        if cursor is not None and cursor.published_at is not None:
+            stmt = stmt.where(tuple_(AiArticle.published_at, AiArticle.article_id)
+                              < tuple_(cursor.published_at, cursor.article_id))
+        else:
+            stmt = stmt.where(AiArticle.article_id < before_id)
     order = AiArticle.published_at.desc() if published_only else AiArticle.article_id.desc()
     return list(db.scalars(stmt.order_by(order, AiArticle.article_id.desc()).limit(min(limit, 100))))
 

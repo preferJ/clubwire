@@ -1,8 +1,8 @@
 // S02 기사 상세
 
-import { Link, useParams } from 'react-router-dom'
+import { Link, useLocation, useParams } from 'react-router-dom'
 import { Icon } from '../components/Icon'
-import { ErrorBox, Loading, Tags, TopBar } from '../components/ui'
+import { ErrorBox, Loading, Tags, TopBar, type FromState } from '../components/ui'
 import { useClub } from '../lib/club'
 import { fmtDateTime, initials } from '../lib/format'
 import { useAsync } from '../lib/hooks'
@@ -11,6 +11,7 @@ import { useToast } from '../lib/toast'
 export function ArticlePage() {
   const { articleId } = useParams()
   const { api, slug, isAdmin } = useClub()
+  const from = (useLocation().state as FromState | null)?.from  // 기록 탭 지난 기사에서 왔으면 그리로 돌아감
   const toast = useToast()
   const art = useAsync(() => api.article(Number(articleId)), [api, articleId])
   const sessionId = art.data?.sessionId
@@ -34,7 +35,7 @@ export function ArticlePage() {
 
   return (
     <>
-      <TopBar title={<span className="eyebrow">THE WIRE</span>} back={`/c/${slug}`}
+      <TopBar title={<span className="eyebrow">THE WIRE</span>} back={from?.path ?? `/c/${slug}`}
         right={<button type="button" className="icon-btn" aria-label="공유" onClick={share}><Icon name="share" /></button>} />
       {art.error ? (
         <ErrorBox error={art.error} onRetry={art.reload} />

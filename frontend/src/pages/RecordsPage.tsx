@@ -1,12 +1,21 @@
-// S06 기록실: 개인 기록 / 수상 내역 탭
+// S06 기록실: 개인 기록 / 수상 내역 / 기사(지난 기사) 탭. 탭·태그는 주소(?tab=articles&tag=천적)에 둬서 기사 상세에서 돌아와도 유지
 
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
-import type { Award, MemberStat } from '../api/types'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
+import type { Article, Award, MemberStat } from '../api/types'
+import { ArticleCard } from '../components/ArticleCard'
 import { AdminButton, Empty, ErrorBox, Loading } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
-import { fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
-import { useAsync } from '../lib/hooks'
+import { fmtDate, fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
+import { useAction, useAsync } from '../lib/hooks'
+
+type RecordsTab = 'stats' | 'awards' | 'articles'
+const RECORDS_TABS: RecordsTab[] = ['stats', 'awards', 'articles']
+
+/** 기사 태그 칩(와이어에서 옮겨 옴) */
+const TAGS = ['전체', '마감', '프리뷰', '복귀', '연승', '결승골', '역전', '타이틀',
+  '듀오', '천적', '콤비', '무패', '철벽', '신기록', '레이스', '개근', '징크스', '데뷔']
+const ARTICLE_PAGE = 20
 
 type SortKey = 'goals' | 'assists' | 'winRate' | 'games' | 'mvpCount'
 const SORTS: { key: SortKey; label: string }[] = [
@@ -19,7 +28,9 @@ const SORTS: { key: SortKey; label: string }[] = [
 
 export function RecordsPage() {
   const { api } = useClub()
-  const [tab, setTab] = useState<'stats' | 'awards'>('stats')
+  const [params, setParams] = useSearchParams()
+  const tab: RecordsTab = RECORDS_TABS.find((t) => t === params.get('tab')) ?? 'stats'
+  const setTab = (t: RecordsTab) => setParams(t === 'stats' ? {} : { tab: t }, { replace: true })
   const stats = useAsync(() => api.memberStats(), [api])
   const awards = useAsync(() => api.awards({}), [api])
   useClubEvent((m) => {
@@ -38,12 +49,15 @@ export function RecordsPage() {
       <div className="tabs" role="tablist" aria-label="기록 보기" style={{ margin: '0 16px' }}>
         <button type="button" role="tab" aria-selected={tab === 'stats'} onClick={() => setTab('stats')}>개인 기록</button>
         <button type="button" role="tab" aria-selected={tab === 'awards'} onClick={() => setTab('awards')}>수상 내역</button>
+        <button type="button" role="tab" aria-selected={tab === 'articles'} onClick={() => setTab('articles')}>기사</button>
       </div>
       <main className="page">
         {tab === 'stats' ? (
           <StatsTab stats={stats.data} awards={awards.data ?? []} error={stats.error} loading={stats.loading} reload={stats.reload} />
-        ) : (
+        ) : tab === 'awards' ? (
           <AwardsTab awards={awards.data} error={awards.error} reload={awards.reload} />
+        ) : (
+          <ArticlesTab />
         )}
       </main>
     </>
@@ -176,6 +190,78 @@ function AwardsTab({ awards, error, reload }: { awards: Award[] | undefined; err
       ))}
     </>
   )
+}
+
+/** 지난 기사: 태그로 거르고, 일정 날짜별로 묶고, 20개씩 더 불러오기 */
+function ArticlesTab() {
+  const { api, slug } = useClub()
+  const [params, setParams] = useSearchParams()
+  const tag = TAGS.find((t) => t === params.get('tag')) ?? '전체'
+  const query = tag === '전체' ? {} : { tag }
+  const first = useAsync(() => api.articles({ ...query, limit: ARTICLE_PAGE }), [api, tag])
+  const [more, setMore] = useState<Article[]>([])
+  const [end, setEnd] = useState(false)
+  const { busy, run } = useAction()
+  useClubEvent((m) => {
+    if (m.type === 'ARTICLE_UPDATED') first.reload()
+  })
+  // 첫 페이지가 바뀌면(태그 변경·새 기사) 이어 붙인 페이지는 버리고 처음부터
+  useEffect(() => {
+    setMore([])
+    setEnd((first.data?.length ?? 0) < ARTICLE_PAGE)
+  }, [first.data])
+
+  const list = [...(first.data ?? []), ...more]
+  const loadMore = async () => {
+    const last = list[list.length - 1]
+    if (!last) return
+    const page = await run(() => api.articles({ ...query, limit: ARTICLE_PAGE, beforeId: last.articleId }))
+    if (!page) return
+    setMore((m) => [...m, ...page])
+    if (page.length < ARTICLE_PAGE) setEnd(true)
+  }
+  const from = { path: `/c/${slug}/records?${params.toString()}`, tab: 'records' as const }
+
+  return (
+    <>
+      <div className="chips" role="group" aria-label="기사 태그">
+        {TAGS.map((t) => (
+          <button key={t} type="button" className="chip" aria-pressed={tag === t}
+            onClick={() => setParams(t === '전체' ? { tab: 'articles' } : { tab: 'articles', tag: t }, { replace: true })}>
+            {t}
+          </button>
+        ))}
+      </div>
+      {first.error ? (
+        <ErrorBox error={first.error} onRetry={first.reload} />
+      ) : first.loading && !first.data ? (
+        <Loading />
+      ) : list.length === 0 ? (
+        <Empty>{tag === '전체' ? '아직 게시된 기사가 없어요.' : `'${tag}' 기사가 아직 없어요.`}</Empty>
+      ) : (
+        <>
+          {groupBySession(list).map(([date, items]) => (
+            <section key={date} className="section">
+              <h2 className="small muted" style={{ fontWeight: 700 }}>{date ? `${fmtDate(date)} 일정` : '일정 없음'}</h2>
+              {items.map((a) => <ArticleCard key={a.articleId} a={a} slug={slug} lead={false} from={from} />)}
+            </section>
+          ))}
+          {end ? (
+            <p className="small muted" style={{ textAlign: 'center' }}>마지막 기사예요</p>
+          ) : (
+            <button type="button" className="btn block" disabled={busy} onClick={loadMore}>더 불러오기</button>
+          )}
+        </>
+      )}
+    </>
+  )
+}
+
+/** 일정 날짜별 묶음(최근 일정 먼저, 묶음 안은 게시 순서 그대로) */
+function groupBySession(list: Article[]): [string, Article[]][] {
+  const groups = new Map<string, Article[]>()
+  list.forEach((a) => groups.set(a.sessionDate ?? '', [...(groups.get(a.sessionDate ?? '') ?? []), a]))
+  return [...groups.entries()].sort(([a], [b]) => b.localeCompare(a))
 }
 
 function awardNote(a: Award): string {

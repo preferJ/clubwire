@@ -56,8 +56,15 @@ export function AdminButton({ onDark }: { onDark?: boolean }) {
   )
 }
 
+export type TabKey = 'home' | 'sessions' | 'records' | 'members'
+
+/** 목록 → 상세로 갈 때 Link state로 넘기는 출처. 상세 화면의 [뒤로]와 하단 탭 강조에 쓴다(예: 기록 탭의 지난 기사 → 기사 상세) */
+export interface FromState {
+  from?: { path: string; tab: TabKey }
+}
+
 /** 지금 주소가 어느 탭 소속인지: 기사→와이어, 경기→일정, 선수→멤버. 관리자 화면은 강조 없음 */
-export function tabOf(pathname: string, slug: string): 'home' | 'sessions' | 'records' | 'members' | null {
+export function tabOf(pathname: string, slug: string): TabKey | null {
   const base = `/c/${slug}`
   if (!pathname.startsWith(base)) return null
   const rest = pathname.slice(base.length)
@@ -70,8 +77,8 @@ export function tabOf(pathname: string, slug: string): 'home' | 'sessions' | 're
 
 export function BottomNav() {
   const { slug } = useClub()
-  const { pathname } = useLocation()
-  const current = tabOf(pathname, slug)
+  const { pathname, state } = useLocation()
+  const current = (state as FromState | null)?.from?.tab ?? tabOf(pathname, slug)
   const items = [
     { key: 'home', to: `/c/${slug}`, label: '와이어', icon: 'wire' },
     { key: 'sessions', to: `/c/${slug}/sessions`, label: '일정', icon: 'calendar' },

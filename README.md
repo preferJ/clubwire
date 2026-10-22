@@ -58,7 +58,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리�
 | `test_insight_rules_v2.py` | 듀오·징크스·천적 후보, 이달 득점 순위, 연속 출전, 팀 하루 전적, 도움→득점 조합, 하루 최다 골 계산 + 마감 시 콤비·무패·철벽·첫 골 Insight |
 | `test_concurrency.py` | 동시 골 20건(멱등키 중복 8건 포함) → 점수 = 이벤트 수 |
 | `test_regressions.py` | 한쪽 팀이 빈 경기 포함 시 증분=전체 재계산, 설정 버전 연속 증가, 마감 이전 날짜 일정 차단, 득점자 팀 이동 차단, 제외 멤버 참석자 목록 반영 |
-| `test_frontend_apis.py` | 홈 LIVE 배너, 일정 목록 인원수, 일정 요약, 멤버별 수상 이력 |
+| `test_frontend_apis.py` | 홈 LIVE 배너, 일정 목록 인원수, 일정 요약, 멤버별 수상 이력, 기사 목록 페이지(게시 순서 커서·일정 날짜) |
 | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
 
 ## 3. 운영 흐름 (API)
