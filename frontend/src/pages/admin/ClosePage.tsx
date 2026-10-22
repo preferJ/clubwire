@@ -1,6 +1,6 @@
-// A07 일정마감: 오늘 요약 → MVP 선정 → [일정마감](수정 잠금 + 마감 기사)
+// A07 일정마감: 오늘 요약 → [일정마감](수정 잠금 + 자동 타이틀 + 마감 기사). MVP 선정은 2026-10-22 제거
 
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Icon } from '../../components/Icon'
 import { ErrorBox, Loading, TopBar } from '../../components/ui'
@@ -17,26 +17,16 @@ export function ClosePage() {
   const summary = useAsync(() => api.sessionSummary(id), [api, id])
   const session = useAsync(() => api.session(id), [api, id])
   const titles = useAsync(() => api.titleTypes(), [api])
-  const [picks, setPicks] = useState<Record<string, number | ''>>({})
 
   const s = summary.data
   const d = session.data
   if (summary.error) return <ErrorBox error={summary.error} onRetry={summary.reload} />
   if (!s || !d) return <div className="page"><Loading /></div>
-  const manualTitles = (titles.data ?? []).filter((t) => t.awardMethod === 'MANUAL' && t.active)
   const autoTitles = (titles.data ?? []).filter((t) => t.awardMethod === 'AUTO' && t.active)
-  const players = [...d.teams.flatMap((t) => t.members), ...d.attendees.filter((a) => !d.teams.some((t) => t.members.some((m) => m.memberId === a.memberId)))]
-  const uniquePlayers = players.filter((p, i) => players.findIndex((x) => x.memberId === p.memberId) === i)
 
   const close = async () => {
     if (!window.confirm('일정을 마감할까요? 마감 후에는 이 일정의 기록을 고칠 수 없어요.')) return
-    const done = await run(async () => {
-      for (const t of manualTitles) {
-        const mid = picks[t.titleCode]
-        if (mid) await api.award({ titleCode: t.titleCode, memberId: mid, sessionId: id })
-      }
-      return api.closeSession(id)
-    }, '일정을 마감했어요. 마감 기사를 만들고 있어요')
+    const done = await run(() => api.closeSession(id), '일정을 마감했어요. 마감 기사를 만들고 있어요')
     if (done) nav(`/c/${slug}/admin/articles`)
   }
 
@@ -73,17 +63,6 @@ export function ClosePage() {
           {autoTitles.length ? <Check>이번 주 {autoTitles.map((t) => t.titleName.replace('이주의 ', '')).join(' · ')}을 다시 집계합니다</Check> : null}
           <Check>마감 기사를 작성합니다{' '}(게시 방식은 설정을 따름)</Check>
         </section>
-
-        {manualTitles.map((t) => (
-          <section key={t.titleCode} className="card flat stack" style={{ gap: 8 }}>
-            <label htmlFor={`title-${t.titleCode}`} style={{ fontSize: 15, fontWeight: 700 }}>{t.titleName}</label>
-            <select id={`title-${t.titleCode}`} className="select" value={picks[t.titleCode] ?? ''} disabled={closed}
-              onChange={(e) => setPicks((p) => ({ ...p, [t.titleCode]: e.target.value ? Number(e.target.value) : '' }))}>
-              <option value="">선정하지 않음</option>
-              {uniquePlayers.map((p) => <option key={p.memberId} value={p.memberId}>{p.name}</option>)}
-            </select>
-          </section>
-        ))}
 
         <div className="notice warn" role="note">
           <Icon name="warn" />

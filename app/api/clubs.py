@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import admin_dep, club_dep, optional_admin
 from app.core.database import get_db
 from app.core.security import AdminPrincipal
-from app.core.timeutil import to_iso
+from app.core.timeutil import local_today, to_iso
 from app.models import Club
 from app.schemas.requests import AdminAuthRequest, ChangePinRequest, ConfigUpdateRequest
 from app.services import club_service, config_service
@@ -17,6 +17,11 @@ router = APIRouter(tags=["clubs"])
 def get_club(club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depends(optional_admin)):
     return {"clubId": club.club_id, "clubSlug": club.club_slug, "clubName": club.club_name,
             "sportType": club.sport_type, "timezone": club.timezone, "isAdmin": admin is not None}
+
+
+@router.get("/summary", summary="클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수")
+def get_summary(club: Club = Depends(club_dep), db: Session = Depends(get_db)):
+    return club_service.club_summary(db, club, local_today(club.timezone))
 
 
 @router.post("/admin/auth", summary="관리자 모드 진입(PIN 입력 → 토큰)")

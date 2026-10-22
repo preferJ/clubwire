@@ -1,18 +1,19 @@
 import type { GameStatus, SessionStatus } from '../api/types'
 
+/** 팀(조끼) 색: 어두운 화면 위에서 보이고, 흰 글자가 읽히는 색(대비 4.5 이상) */
 const TEAM_COLORS: Record<string, string> = {
-  A: '#1d4ed8',
+  A: '#2563eb',
   B: '#c2410c',
-  C: '#3f3f46',
-  D: '#6d28d9',
-  E: '#0f766e',
-  F: '#be185d',
+  C: '#7c3aed',
+  D: '#0f766e',
+  E: '#be185d',
+  F: '#4d7c0f',
 }
 
-/** 팀 색(색만으로 구분하지 않도록 화면에는 항상 팀 글자도 같이 표시) */
+/** 팀 색(색만으로 구분하지 않도록 화면에는 항상 팀 글자도 같이 표시). 앱 전체가 어두운 테마라 onDark와 무관하게 같은 색 */
 export function teamColor(code: string | null | undefined, onDark = false): string {
-  if (code === 'C' && onDark) return '#52525b'
-  return TEAM_COLORS[code ?? ''] ?? '#3f3f46'
+  void onDark
+  return TEAM_COLORS[code ?? ''] ?? '#52525b'
 }
 
 const WEEKDAYS = ['일', '월', '화', '수', '목', '금', '토']
@@ -100,4 +101,18 @@ export function tagTone(tag: string): string {
 export function newIdempotencyKey(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+/** 'YYYY-MM-DD'까지 남은 날: D-3 / D-DAY / D+1 (기기 날짜 기준) */
+export function dday(d: string): string {
+  const [y, m, day] = d.split('-').map(Number)
+  const now = new Date()
+  const diff = Math.round((Date.UTC(y, m - 1, day) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86400000)
+  return diff === 0 ? 'D-DAY' : diff > 0 ? `D-${diff}` : `D+${-diff}`
+}
+
+/** 오늘 날짜 '2026.10.22 수' */
+export function fmtToday(): string {
+  const now = new Date()
+  return `${now.getFullYear()}.${String(now.getMonth() + 1).padStart(2, '0')}.${String(now.getDate()).padStart(2, '0')} ${WEEKDAYS[now.getDay()]}`
 }

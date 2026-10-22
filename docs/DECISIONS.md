@@ -18,7 +18,7 @@
 | 3.1 | 대진 | ~~밀어내기 규칙~~ → **매 경기 관리자가 두 팀을 지정**(10-14 스토리보드 메모로 변경). 시스템은 '가장 오래 쉰 두 팀'을 미리 채워 줄 뿐 | `strategies/match_order.py`, `NextMatchSheet` |
 | 3.2 | 경기 수 | 미리 정하지 않음. 다음 경기를 1건씩 생성, GAME_NO + 시작 시각만 기록 | `match_service.create_next_match` |
 | 3.3 | 종료 | 자동 종료(`MATCH_AUTO_END_YN`) + 관리자 END 둘 다. 조기 종료(`MATCH_EARLY_END_GOALS`) 설정 | `jobs/timer.py`, `match_service` |
-| 3.4 | MVP | MVP를 포함한 **타이틀** 체계(TITLE_TYPE + MEMBER_TITLE), 주 단위 | `title_service.py` |
+| 3.4 | MVP | MVP를 포함한 **타이틀** 체계(TITLE_TYPE + MEMBER_TITLE), 주 단위. ※ 2026-10-22 MVP 제거(3-7), 타이틀은 득점왕·도움왕 | `title_service.py` |
 | 3.5 | 게스트/자책골 | 게스트 = 인원 +1(Rating/통계 없음), 자책골 기록 | `SESSION_GUEST`, `OWN_GOAL_YN` |
 | 3.6 | 확정 후 변경 | 지각 추가/이동/제외 허용 + 이력 | `TEAM_ASSIGNMENT_LOG` |
 | 3.7 | A/B 평가 | 이번 개발 범위에서 **전부 제외** | (테이블 없음) |
@@ -69,6 +69,7 @@
 - **추가**: `TITLE_TYPE`(클럽별 정의) + `MEMBER_TITLE`(수여 이력)
   - 기본 3종: 이주의 MVP(수동), 이주의 득점왕/도움왕(마감 시 자동, 동점 공동 수여)
   - `MVP_COUNT` = `COUNTS_AS_MVP_YN` 타이틀 수
+  - ※ 2026-10-22 **MVP 제거**(3-7): 기본 타이틀은 득점왕/도움왕 2종. `MVP_COUNT` · `COUNTS_AS_MVP_YN` 컬럼은 남겨 두지만 화면·API에서 쓰지 않음
 - **이유**: 3.4 답변(주간 타이틀 관리). 자동 타이틀은 같은 주에 일정이 여러 번이면 마감 때마다 다시 계산.
 
 ### 2-6. 게스트 / 자책골 (신규)
@@ -106,7 +107,7 @@
 - 이유: 시작값을 `PLAYER_RATING.CURRENT_RATING`에만 넣으면, 확정 해제·전체 재계산 때 모두 설정값(1000)에서 다시 출발해 값이 틀어진다.
   재계산의 출발점을 멤버별 시작값으로 바꿔 증분 계산과 전체 재계산 결과가 항상 같게 했다(`tests/test_regressions.py`)
 - NULL이면 기존처럼 설정 `INITIAL_RATING`. 시작값이 있어도 Confidence는 0(경기 기록 기준)에서 시작
-- 등록: `POST /members {name, initialRating}`(관리자). 멤버 관리 화면에서 `손원일 1081`처럼 이름 뒤 숫자로 입력, 순위표를 붙여 넣어도 됨
+- 등록: `POST /members {name, initialRating}`(관리자). 멤버 관리 화면에서 `이영희 1081`처럼 이름 뒤 숫자로 입력, 순위표를 붙여 넣어도 됨
 - 등록 후 시작값 변경은 아직 없음(바꾸려면 재계산이 함께 필요)
 
 ### 2-11. 설정 (원문 §87~88)
@@ -250,6 +251,40 @@ SELECT H.CREATED_AT, ROUND(H.BEFORE_RATING, 1) AS BEFORE_R, ROUND(H.AFTER_RATING
 
 **설정 화면**: 설정 키(영문 변수명)를 화면에서 모두 지우고, 항목마다 이름 · 한 줄 설명 · 기본값 + **(?) 버튼**. (?)를 누르면 항목 바로 아래에 "이렇게 동작해요 / 올리면 / 내리면 / 참고"가 펼쳐진다. 문구는 `frontend/src/pages/admin/settingsHelp.ts` 한 곳에서 관리(새 설정이 생기면 여기에 추가, 없으면 서버 설명을 이름으로 쓰고 고급 묶음에 붙음). 묶음: 경기 / 기사 / 팀 자동 편성 / 실력 점수 계산(고급).
 
+## 3-7. 디자인 E(매니저 게임형) + MVP 제거 (2026-10-22)
+
+**디자인**: 시안 E(축구 매니저 게임 느낌)를 앱 전체에 적용. 어두운 바탕 + 클럽 빨강 + 숫자는 좁은 글꼴(Barlow Condensed).
+
+| 위치 | 변경 | 이유 |
+|---|---|---|
+| 색 · 글꼴 (`styles/global.css`, `index.html`) | 색 변수(`--bg` `--card` `--accent` …)를 다크로 바꾸고 화면은 변수만 쓰게 정리. 글꼴: 숫자·영문 머리 Barlow Condensed, 본문 Noto Sans KR, 시계 IBM Plex Mono | 화면마다 색을 따로 고치지 않고 변수 한 곳에서 테마 관리 |
+| 탭 첫 화면 머리 (`ClubBar`, `Crest`) | 빨강 세로 줄무늬 띠 + 방패 엠블럼(클럽 이름) + 제목 + 관리자 버튼. 와이어 · 일정 · 기록실 · 선수단 공통 | 흰/빨 줄무늬 유니폼을 앱에 맞게 띠로만 사용 |
+| 와이어(홈) | 클럽 바(오늘 날짜 · [다음 일정 D-n]) → 요약 줄(멤버 · 올해 일정 · 올해 기사) → LIVE → **NEXT FIXTURE**(상태 · 팀 편성 · 장소 · 참석 막대) → **LAST MATCHDAY**(팀별 경 · 승 · 무 · 패 · 득실 · 흐름, 득점 1위 · 도움 1위 · 총 골) → **INBOX**(최신 3건, 안 읽은 기사 점 + "새 소식 N", [소식 전체 보기] → 기록 탭 기사) | 3-5의 "이번·지난 일정만" 원칙은 유지하고 화면 구성만 매니저 게임처럼 |
+| 하단 탭 | '멤버' → **'선수단'** | 축구팀 용어 |
+| 팀 색 (`lib/format.ts`) | 어두운 바탕에서 구분되게 A 파랑 · B 주황 · C 보라 · D 청록 · E 분홍 · F 올리브 | 다크 대비 |
+
+- API 추가: `GET /summary` → `{year, activeMembers, sessions, articles}`(클럽 시간대 기준 올해, 취소 일정 제외, 게시 기사만). 와이어 요약 줄용
+- 읽음 표시: 기사 상세를 열면 브라우저 `localStorage`(`clubwire.read.{slug}`, 최근 300건)에 기록. 서버 저장 없음 → 기기마다 따로, 저장소가 막힌 브라우저는 새로고침 전까지만 기억
+- `app/core/timeutil.local_today(tz)`: 클럽 시간대 기준 오늘 날짜
+
+**MVP 제거**: 일정마감 화면의 MVP 선정을 없애고 MVP 자체를 쓰지 않는다.
+
+| 위치 | 변경 |
+|---|---|
+| 일정마감 화면 | MVP · 수동 타이틀 선택 삭제. [일정마감]은 `POST /sessions/{id}/close`만 호출 |
+| `alembic 0004` | 기존 클럽의 `TITLE_TYPE` 'MVP'를 `ACTIVE_YN = 0`으로(데이터만, 구조 변경 없음). 새 클럽 기본 타이틀에서도 제외 |
+| 지난 MVP 이력 | `MEMBER_TITLE`에서 지우지 않음. `GET /titles/awards`는 활성 타이틀만 보여 주므로 수상 내역 · 선수 화면에서 사라짐 |
+| 기록 | 개인 기록 표의 MVP 열 · 정렬, 선수단 MVP 배지, 응답의 `mvpCount` 삭제(DB 컬럼 `MVP_COUNT`는 유지) |
+| 샘플 데이터 | `scripts/gen_sample_data.py`에서 MVP 수여를 빼고 `ypr_sample_data.sql` 다시 생성 |
+
+- 되돌리기: `alembic downgrade 0003`이면 'MVP' 타이틀이 다시 활성화되고 지난 이력도 다시 보인다(화면의 선택 UI는 코드 되돌림 필요)
+- DB 확인
+
+```sql
+SELECT TITLE_CODE, TITLE_NAME, ACTIVE_YN FROM TITLE_TYPE
+ WHERE CLUB_ID = (SELECT CLUB_ID FROM CLUB WHERE CLUB_SLUG = 'sanha');
+```
+
 ## 4. 남은 이슈 / 다음 단계
 
 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
@@ -257,5 +292,5 @@ SELECT H.CREATED_AT, ROUND(H.BEFORE_RATING, 1) AS BEFORE_R, ROUND(H.AFTER_RATING
 3. **조기 종료 후 골 취소**: N골 조기 종료 뒤 골을 취소해도 경기를 자동으로 다시 열지 않음(관리자 판단)
 4. **Insight 파라미터 튜닝**: 임계값(복귀 30일, 연승 3 등)은 실제 데이터로 조정 필요(`INSIGHT_CONFIG_PARAM`)
 5. **A/B 평가(밸런스 게임)**: 제외. 다시 넣을 경우 Rating 초기값 보정용 별도 Strategy로 붙이면 됨(DB 영향은 AB_* 테이블 추가뿐)
-6. **프론트 폰트**: Google Fonts(Black Han Sans, IBM Plex Sans KR/Mono)를 외부에서 불러온다. 사내망 등에서 막히면 시스템 글꼴로 대체되므로 필요 시 폰트 파일을 `frontend/public`에 넣어 직접 서빙
+6. **프론트 폰트**: Google Fonts(Barlow Condensed, Noto Sans KR, IBM Plex Mono)를 외부에서 불러온다. 사내망 등에서 막히면 시스템 글꼴로 대체되므로 필요 시 폰트 파일을 `frontend/public`에 넣어 직접 서빙
 7. **스토리보드 캔버스**: 코드에는 메모를 반영했지만 디자인 캔버스(A06 남을 팀 선택, S06 탭)는 아직 초안 그대로

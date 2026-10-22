@@ -6,7 +6,7 @@ import { ErrorBox, Loading, Switch, TopBar } from '../../components/ui'
 import { useClub } from '../../lib/club'
 import { useAction, useAsync } from '../../lib/hooks'
 
-/** "손원일 1081", "1\t손원일\t1081", "김응철" 형태를 이름 + 시작 Rating으로 */
+/** "이영희 1081", "1\t이영희\t1081", "홍길동" 형태를 이름 + 시작 Rating으로 */
 export function parseMembers(text: string): { name: string; rating?: number }[] {
   return text.split(/[\n,]/).map((line) => line.trim()).filter(Boolean).map((line) => {
     const tokens = line.split(/\s+/)
@@ -43,11 +43,11 @@ export function MembersAdminPage() {
         <section className="card stack" style={{ gap: 10 }}>
           <label className="field">새 멤버(여러 명은 쉼표나 줄바꿈으로)
             <textarea className="input" style={{ height: 84, padding: 10, resize: 'vertical' }} value={names}
-              onChange={(e) => setNames(e.target.value)} placeholder={'김응철, 박민선\n손원일 1081'} />
+              onChange={(e) => setNames(e.target.value)} placeholder={'홍길동, 김철수\n이영희 1081'} />
           </label>
           <button type="button" className="btn primary" disabled={busy || !names.trim()} onClick={add}>추가</button>
           <p className="small muted">
-            이름 뒤에 숫자를 붙이면 그 값이 시작 Rating이 돼요(예: 손원일 1081). 순위표를 그대로 붙여 넣어도 앞의 순위 숫자는 무시해요.
+            이름 뒤에 숫자를 붙이면 그 값이 시작 Rating이 돼요(예: 이영희 1081). 순위표를 그대로 붙여 넣어도 앞의 순위 숫자는 무시해요.
             숫자가 없으면 기본 Rating에서 시작해요.
           </p>
         </section>
@@ -71,7 +71,7 @@ function MemberRow({ m, onSaved }: { m: Member; onSaved: () => void }) {
   return (
     <div className="list-row" style={{ minHeight: 60, opacity: m.active ? 1 : 0.6 }}>
       <input className="input" aria-label={`${m.name} 이름`} value={name} onChange={(e) => setName(e.target.value)}
-        style={{ height: 40, flex: 1, border: dirty ? '1px solid var(--green)' : '1px solid transparent', background: 'transparent' }} />
+        style={{ height: 40, flex: 1, border: dirty ? '1px solid var(--accent)' : '1px solid transparent', background: 'transparent' }} />
       {dirty ? (
         <button type="button" className="btn sm primary" disabled={busy}
           onClick={async () => { if (await run(() => api.updateMember(m.memberId, { name: name.trim() }), '저장했어요')) onSaved() }}>저장</button>

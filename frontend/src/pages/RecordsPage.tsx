@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { Article, Award, MemberStat } from '../api/types'
 import { ArticleCard } from '../components/ArticleCard'
-import { AdminButton, Empty, ErrorBox, Loading } from '../components/ui'
+import { ClubBar, Empty, ErrorBox, Loading } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
 import { fmtDate, fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
 import { useAction, useAsync } from '../lib/hooks'
@@ -17,13 +17,12 @@ const TAGS = ['전체', '마감', '프리뷰', '복귀', '연승', '결승골', 
   '듀오', '천적', '콤비', '무패', '철벽', '신기록', '레이스', '개근', '징크스', '데뷔']
 const ARTICLE_PAGE = 20
 
-type SortKey = 'goals' | 'assists' | 'winRate' | 'games' | 'mvpCount'
+type SortKey = 'goals' | 'assists' | 'winRate' | 'games'
 const SORTS: { key: SortKey; label: string }[] = [
   { key: 'goals', label: '골' },
   { key: 'assists', label: '도움' },
   { key: 'winRate', label: '승률' },
   { key: 'games', label: '경기' },
-  { key: 'mvpCount', label: 'MVP' },
 ]
 
 export function RecordsPage() {
@@ -42,10 +41,7 @@ export function RecordsPage() {
 
   return (
     <>
-      <header className="home-head">
-        <h1 className="club-name">기록실</h1>
-        <AdminButton />
-      </header>
+      <ClubBar title="기록실" />
       <div className="tabs" role="tablist" aria-label="기록 보기" style={{ margin: '0 16px' }}>
         <button type="button" role="tab" aria-selected={tab === 'stats'} onClick={() => setTab('stats')}>개인 기록</button>
         <button type="button" role="tab" aria-selected={tab === 'awards'} onClick={() => setTab('awards')}>수상 내역</button>
@@ -74,7 +70,7 @@ function ThisWeek({ awards }: { awards: Award[] }) {
   const items = awards.filter((a) => a.periodStart === weekStart)
   const end = items[0]?.periodEnd ?? to
   return (
-    <section className="stack" style={{ gap: 10, padding: 14, borderRadius: 16, background: 'var(--night)', color: '#fff' }}>
+    <section className="stack" style={{ gap: 10, padding: 14, borderRadius: 'var(--radius-s)', background: 'var(--night)', border: '1px solid var(--line)', color: '#fff' }}>
       <div className="row between">
         <h2 style={{ fontSize: 15, fontWeight: 700 }}>{weekStart === from ? '이번 주 타이틀' : '최근 타이틀'}</h2>
         <span className="small" style={{ color: 'var(--night-muted)' }}>{fmtShortDate(weekStart)} – {fmtShortDate(end)}</span>
@@ -128,7 +124,6 @@ function StatsTab({ stats, awards, error, loading, reload }: {
                 <th scope="col" className={sort === 'winRate' ? 'sorted' : ''}>승-무-패</th>
                 <th scope="col" className={sort === 'goals' ? 'sorted' : ''}>골</th>
                 <th scope="col" className={sort === 'assists' ? 'sorted' : ''}>도움</th>
-                <th scope="col" className={sort === 'mvpCount' ? 'sorted' : ''}>MVP</th>
               </tr>
             </thead>
             <tbody>
@@ -140,7 +135,6 @@ function StatsTab({ stats, awards, error, loading, reload }: {
                   <td className="muted">{r.wins}-{r.draws}-{r.losses}{sort === 'winRate' ? ` (${pct(r.winRate)})` : ''}</td>
                   <td style={{ fontWeight: sort === 'goals' ? 700 : 400 }}>{r.goals}</td>
                   <td style={{ fontWeight: sort === 'assists' ? 700 : 400 }}>{r.assists}</td>
-                  <td>{r.mvpCount}</td>
                 </tr>
               ))}
             </tbody>

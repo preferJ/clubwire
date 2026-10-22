@@ -159,7 +159,7 @@ def _summary_dict(m: Member, s: MemberStatSummary | None) -> dict:
         "games": g, "wins": s.wins if s else 0, "draws": s.draws if s else 0, "losses": s.losses if s else 0,
         "winRate": _rate(s.wins, g) if s else None,
         "goals": s.goals if s else 0, "assists": s.assists if s else 0, "ownGoals": s.own_goals if s else 0,
-        "mvpCount": s.mvp_count if s else 0, "titleCount": s.title_count if s else 0,
+        "titleCount": s.title_count if s else 0,
         "sessionsAttended": s.sessions_attended if s else 0,
         "lastPlayedDate": s.last_played_date if s else None,
     }

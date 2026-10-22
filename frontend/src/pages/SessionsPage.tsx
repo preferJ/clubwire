@@ -2,7 +2,7 @@
 
 import { Link } from 'react-router-dom'
 import { Icon } from '../components/Icon'
-import { AdminButton, Empty, ErrorBox, Loading } from '../components/ui'
+import { ClubBar, Empty, ErrorBox, Loading } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
 import { fmtDate, SESSION_STATUS_LABEL } from '../lib/format'
 import { useAsync } from '../lib/hooks'
@@ -16,10 +16,7 @@ export function SessionsPage() {
 
   return (
     <>
-      <header className="home-head">
-        <h1 className="club-name">일정</h1>
-        <AdminButton />
-      </header>
+      <ClubBar title="일정" />
       <main className="page tight">
         {isAdmin ? (
           <Link to={`/c/${slug}/admin/sessions/new`} className="btn primary block">

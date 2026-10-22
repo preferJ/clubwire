@@ -43,7 +43,7 @@ export function PinSheet() {
   return (
     <Sheet open={pinOpen} onClose={close} labelledBy="pin-title">
       <div className="stack" style={{ alignItems: 'center', gap: 6 }}>
-        <span className="avatar" style={{ width: 48, height: 48, background: 'var(--green-soft)', color: 'var(--green)' }}>
+        <span className="avatar" style={{ width: 48, height: 48, background: 'var(--accent-soft)', color: 'var(--accent-ink)' }}>
           <Icon name="lock" size={22} />
         </span>
         <h2 id="pin-title">관리자 모드</h2>

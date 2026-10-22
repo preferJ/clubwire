@@ -11,7 +11,7 @@ INSERT문을 손으로 쓰면 정합성이 깨진다. 실제 서비스 로직을
 - 선수 23명: ROSTER의 값을 시작 Rating(MEMBER.INITIAL_RATING)으로 등록
 - 일정 13회(7/5 ~ 9/27 일요일), 3팀, 15~21명, 하루 7~9경기(10분), 가끔 게스트 1~2명·지각 합류
 - 대진은 밀어내기(이긴 팀 잔류, 최대 2연속, 무승부면 오래 뛴 팀이 빠짐)를 관리자가 매번 지정
-- 득점/도움/자책골/게스트 골/골 취소(입력 정정) 포함, 일정확정→프리뷰 기사, 일정마감→MVP·마감 기사
+- 득점/도움/자책골/게스트 골/골 취소(입력 정정) 포함, 일정확정→프리뷰 기사, 일정마감→자동 타이틀·마감 기사
 - 기사는 OpenAI 대신 이 파일의 SampleArticleWriter(템플릿)가 Insight 사실로 작성
 """
 from __future__ import annotations
@@ -548,13 +548,10 @@ class Sim:
             on, waiting = [stay, waiting], out
             clock = start + timedelta(minutes=rng.randint(13, 15))
 
-        # 마감: MVP 수동 수여 → [일정마감](자동 타이틀·마감 기사) → 게시(마지막 주는 검토 대기로 둠)
+        # 마감: [일정마감](자동 타이틀·마감 기사) → 게시(마지막 주는 검토 대기로 둠). MVP는 2026-10-22 제거
         end = clock + timedelta(minutes=10)
         self.now(end)
         self.login()
-        mvp = max(perf, key=lambda x: (perf[x]["goals"] * 3 + perf[x]["assists"] * 2 + perf[x]["wins"] * 1.5
-                                        + rng.random()))
-        self.call("POST", "/titles/awards", {"titleCode": "MVP", "memberId": mvp, "sessionId": sid})
         self.now(end + timedelta(minutes=2))
         self.call("POST", f"/sessions/{sid}/close")
         if not last:

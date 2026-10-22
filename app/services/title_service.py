@@ -1,4 +1,4 @@
-"""타이틀(이주의 MVP / 득점왕 / 도움왕 …) 정의와 수여 이력."""
+"""타이틀(이주의 득점왕 / 도움왕 …) 정의와 수여 이력. 비활성 타이틀(예: 제거된 MVP)의 지난 이력은 조회에서 제외."""
 from datetime import date
 
 from sqlalchemy import select
@@ -151,7 +151,7 @@ def compute_auto_titles(db: Session, club_id: int, anchor: ClubSession) -> list[
 def list_awards(db: Session, club_id: int, *, member_id: int | None = None, date_from: date | None = None,
                 date_to: date | None = None, include_cancelled: bool = False, limit: int = 100) -> list[dict]:
     stmt = (select(MemberTitle, TitleType).join(TitleType, TitleType.title_type_id == MemberTitle.title_type_id)
-            .where(MemberTitle.club_id == club_id))
+            .where(MemberTitle.club_id == club_id, TitleType.active_yn.is_(True)))  # 비활성 타이틀 이력은 숨김
     if member_id:
         stmt = stmt.where(MemberTitle.member_id == member_id)
     if date_from:

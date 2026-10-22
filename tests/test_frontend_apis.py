@@ -1,9 +1,9 @@
 """프론트 화면용 조회 API: LIVE 배너, 일정 목록 인원수, 일정 요약, 멤버별 수상 이력, 기사 목록 페이지."""
 from datetime import datetime
 
-from sqlalchemy import update
+from sqlalchemy import func, select, update
 
-from app.models import AiArticle
+from app.models import AiArticle, MemberTitle
 
 
 def test_live_summary_and_awards(make_club):
@@ -14,6 +14,10 @@ def test_live_summary_and_awards(make_club):
     api.ok(api.post(f"/sessions/{sid}/guests", {"count": 1}))
     lst = api.ok(api.get("/sessions", admin=False))
     assert lst[0]["attendeeCount"] == 6 and lst[0]["guestCount"] == 1
+    # 와이어 상단 요약 줄: 활동 멤버 · 올해(클럽 현지 날짜 기준) 일정 · 올해 게시 기사
+    summary = api.ok(api.get("/summary", admin=False))
+    assert summary["activeMembers"] == 6 and summary["articles"] == 0
+    assert summary["sessions"] == (1 if summary["year"] == 2026 else 0)
 
     gen = api.ok(api.post(f"/sessions/{sid}/teams/generate", {"teamCount": 2}))
     api.ok(api.post(f"/sessions/{sid}/teams/confirm", {"generationId": gen["generationId"]}))
@@ -35,9 +39,24 @@ def test_live_summary_and_awards(make_club):
     rec = {r["sessionTeamId"]: r for r in s["teamRecords"]}
     assert rec[m["teamA"]["sessionTeamId"]]["wins"] == 1
 
-    api.ok(api.post("/titles/awards", {"titleCode": "MVP", "memberId": scorer, "sessionId": sid}), 201)
+    # 수동 타이틀(클럽이 직접 만든 것)은 여전히 수여·조회 가능
+    api.ok(api.post("/titles/types", {"titleCode": "BEST_GK", "titleName": "이주의 수문장"}), 201)
+    api.ok(api.post("/titles/awards", {"titleCode": "BEST_GK", "memberId": scorer, "sessionId": sid}), 201)
     mine = api.ok(api.get("/titles/awards", params={"memberId": scorer}, admin=False))
-    assert mine[0]["titleCode"] == "MVP" and mine[0]["memberName"] == "F" + str(ids.index(scorer))
+    assert mine[0]["titleCode"] == "BEST_GK" and mine[0]["memberName"] == "F" + str(ids.index(scorer))
+
+
+def test_inactive_title_history_is_hidden(make_club, db):
+    """비활성 타이틀(제거된 MVP 등)의 지난 수여 이력은 조회에서 빠진다(DB에는 남음)."""
+    api = make_club("oldmvp")
+    mid = api.ok(api.post("/members", {"name": "G0"}), 201)["memberId"]
+    t = api.ok(api.post("/titles/types", {"titleCode": "MVP", "titleName": "이주의 MVP"}), 201)
+    api.ok(api.post("/titles/awards", {"titleCode": "MVP", "memberId": mid, "awardDate": "2026-12-06"}), 201)
+    assert [a["titleCode"] for a in api.ok(api.get("/titles/awards", admin=False))] == ["MVP"]
+    api.ok(api.patch(f"/titles/types/{t['titleTypeId']}", {"active": False}))  # = alembic 0004
+    assert api.ok(api.get("/titles/awards", admin=False)) == []
+    assert db.scalar(select(func.count()).select_from(MemberTitle)
+                     .where(MemberTitle.member_id == mid, MemberTitle.cancelled_yn.is_(False))) == 1
 
 
 def test_article_pages_follow_publish_order(make_club, db):

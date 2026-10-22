@@ -55,7 +55,7 @@ export function MatchPage() {
           </Link>
           <div className="row">
             {d.status === 'RUNNING' ? <span className="live-badge">LIVE</span>
-              : <span className="status-badge" style={{ background: d.status === 'PAUSED' ? 'var(--gold)' : '#2e3238', color: d.status === 'PAUSED' ? 'var(--ink)' : '#fff' }}>
+              : <span className="status-badge" style={{ background: d.status === 'PAUSED' ? 'var(--gold)' : '#2e3238', color: d.status === 'PAUSED' ? 'var(--on-light)' : '#fff' }}>
                 {d.finalized ? '확정' : GAME_STATUS_LABEL[d.status]}
               </span>}
             <span className="small" style={{ color: 'var(--night-muted)' }}>{d.gameNo}경기</span>
@@ -95,7 +95,7 @@ export function MatchPage() {
       </section>
 
       <div className="row small muted" style={{ padding: '10px 16px', background: 'var(--card)', borderBottom: '1px solid var(--line)' }}>
-        <span style={{ width: 8, height: 8, borderRadius: 4, background: connected ? 'var(--green)' : '#b9bdb7' }} />
+        <span style={{ width: 8, height: 8, borderRadius: 4, background: connected ? 'var(--green)' : 'var(--line-strong)' }} />
         {connected ? '실시간 연결됨' : '연결 중…'}{!isAdmin ? ' · 경기 조작은 관리자만 할 수 있어요' : ''}
       </div>
 
@@ -223,13 +223,13 @@ function GoalRow({ e, team, other, canCancel, onCancel }: {
   return (
     <div className={`timeline-item ${e.cancelled ? 'cancelled' : ''}`}>
       <time>{fmtClock(e.elapsedSec ?? 0)}</time>
-      <span className="mini-badge" style={{ background: e.cancelled ? '#d5d8d3' : teamColor(team.teamCode) }}>{team.teamCode}</span>
+      <span className="mini-badge" style={{ background: e.cancelled ? 'var(--line-strong)' : teamColor(team.teamCode) }}>{team.teamCode}</span>
       <div className="stack" style={{ flex: 1, gap: 0 }}>
         <span className="who" style={{ fontWeight: 700 }}>{e.ownGoal ? `자책골 · ${who}` : `골 · ${who}`}</span>
         <span className="small muted">{e.cancelled ? '취소됨' : e.assistName ? `도움 ${e.assistName}` : '도움 없음'}</span>
       </div>
       {canCancel ? (
-        <button type="button" className="btn sm" style={{ border: 0, background: 'var(--bg)', color: 'var(--warn-ink)' }} onClick={onCancel}>취소</button>
+        <button type="button" className="btn sm" style={{ border: 0, background: 'var(--soft)', color: 'var(--warn-ink)' }} onClick={onCancel}>취소</button>
       ) : null}
     </div>
   )

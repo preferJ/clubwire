@@ -80,7 +80,7 @@ export function SessionFormPage() {
 
         <section className="section">
           <div className="row between">
-            <h2 style={{ fontSize: 15, fontWeight: 700 }}>참석 <span style={{ color: 'var(--green)' }}>{picked.size}</span><span className="muted" style={{ fontWeight: 500 }}> / {members.data.length}명</span></h2>
+            <h2 style={{ fontSize: 15, fontWeight: 700 }}>참석 <span style={{ color: 'var(--accent-ink)' }}>{picked.size}</span><span className="muted" style={{ fontWeight: 500 }}> / {members.data.length}명</span></h2>
             <button type="button" className="btn sm" onClick={() => setPicked(picked.size === members.data!.length ? new Set() : new Set(members.data!.map((m) => m.memberId)))}>
               {picked.size === members.data.length ? '전체 해제' : '전체 선택'}
             </button>

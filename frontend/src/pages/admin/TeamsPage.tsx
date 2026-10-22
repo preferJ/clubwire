@@ -140,7 +140,7 @@ function ManualEdit({ d, reload }: { d: SessionDetail; reload: () => void }) {
             <div className="row wrap" style={{ gap: 6 }}>
               {t.members.map((m) => (
                 <button key={m.memberId} type="button" className="name-chip"
-                  style={m.assignType === 'MANUAL' ? { outline: '1px dashed var(--green)' } : undefined}
+                  style={m.assignType === 'MANUAL' ? { outline: '1px dashed var(--accent-ink)' } : undefined}
                   onClick={() => setTarget({ kind: 'member', id: m.memberId, name: m.name, teamId: t.sessionTeamId })}>
                   {m.name}
                 </button>

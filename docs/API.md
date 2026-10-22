@@ -12,6 +12,7 @@
 | 🔑 | GET | `/admin/config/history` | 설정 변경 이력 |
 | 🔑 | GET | `/admin/me` | 관리자 모드 확인 |
 | 🔑 | POST | `/admin/pin` | 관리자 암호 변경 |
+| 🔓 | GET | `/summary` | 클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수 |
 | 🔓 | GET | `/members` | 멤버 목록(공개) |
 | 🔑 | POST | `/members` | 멤버 등록 |
 | 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 삭제는 하지 않음 |
@@ -51,7 +52,7 @@
 | 🔓 | GET | `/stats/members/{member_id}` | 개인 상세 통계: 최근 폼, 자주 같은 팀, 자주 만난 상대(공개) |
 | 🔓 | GET | `/stats/pairs` | 두 선수 관계(같이 뛴 기록 / 상대 전적, 공개) |
 | 🔓 | GET | `/titles/awards` | 타이틀 수여 이력(공개) |
-| 🔑 | POST | `/titles/awards` | 타이틀 수여(MVP 등 수동 타이틀) |
+| 🔑 | POST | `/titles/awards` | 타이틀 수여(수동 타이틀. 기본 타이틀은 모두 자동 집계) |
 | 🔑 | POST | `/titles/awards/{member_title_id}/cancel` | 타이틀 수여 취소 |
 | 🔓 | GET | `/titles/types` | 타이틀 종류(공개) |
 | 🔑 | POST | `/titles/types` | 타이틀 종류 추가 |

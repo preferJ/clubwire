@@ -48,7 +48,7 @@ def list_awards(member_id: int | None = Query(None, alias="memberId"), date_from
     return title_service.list_awards(db, club.club_id, member_id=member_id, date_from=date_from, date_to=date_to)
 
 
-@router.post("/awards", status_code=201, summary="타이틀 수여(MVP 등 수동 타이틀)")
+@router.post("/awards", status_code=201, summary="타이틀 수여(수동 타이틀. 기본 타이틀은 모두 자동 집계)")
 def award(body: TitleAwardRequest, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
           db: Session = Depends(get_db)):
     mt = title_service.award_title(db, club.club_id, admin.admin_id, title_code=body.title_code,

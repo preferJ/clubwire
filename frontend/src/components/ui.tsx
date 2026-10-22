@@ -38,13 +38,51 @@ export function TopBar({ title, sub, back, right, dark }: {
   )
 }
 
+const SHIELD = 'M20 2 L37 7 V22 C37 33 30 40 20 44 C10 40 3 33 3 22 V7 Z'
+
+/** 클럽 엠블럼: 흰 방패 + 클럽 색 세로 줄무늬 + 이름 띠 */
+export function Crest({ name, size = 44 }: { name: string; size?: number }) {
+  const short = name.trim()
+  const label = (short.length <= 4 ? short : short.slice(0, 3)).toUpperCase()
+  return (
+    <svg width={size} height={(size * 46) / 40} viewBox="0 0 40 46" role="img" aria-label={`${short} 엠블럼`} style={{ flex: 'none' }}>
+      <path d={SHIELD} fill="#fff" />
+      <rect x="7" y="8" width="5" height="26" style={{ fill: 'var(--accent)' }} />
+      <rect x="17.5" y="4" width="5" height="38" style={{ fill: 'var(--accent)' }} />
+      <rect x="28" y="8" width="5" height="26" style={{ fill: 'var(--accent)' }} />
+      <rect x="3" y="15" width="34" height="11" style={{ fill: 'var(--bg)' }} />
+      <text x="20" y="23.8" textAnchor="middle" fontFamily="Barlow Condensed, sans-serif" fontWeight={800}
+        fontSize={label.length > 3 ? 8 : 10} fill="#fff">{label}</text>
+      <path d={SHIELD} fill="none" strokeWidth={1.5} style={{ stroke: 'var(--bg)' }} />
+    </svg>
+  )
+}
+
+/** 탭 첫 화면 머리: 클럽 색 줄무늬 띠 + 엠블럼 + 제목(+ 작은 글씨: 없으면 클럽 이름) + 관리자 버튼. children은 둘째 줄(와이어의 날짜·다음 일정) */
+export function ClubBar({ title, sub, children }: { title: ReactNode; sub?: ReactNode; children?: ReactNode }) {
+  const { club, slug } = useClub()
+  return (
+    <header className="club-bar">
+      <div className="club-row">
+        <Crest name={club?.clubName ?? slug} />
+        <div className="club-title">
+          <h1>{title}</h1>
+          <span>{sub ?? club?.clubName ?? ''}</span>
+        </div>
+        <AdminButton onDark />
+      </div>
+      {children}
+    </header>
+  )
+}
+
 /** 관리자 모드 표시(누르면 관리자 메뉴) / 관리자 아니면 자물쇠(누르면 PIN) */
 export function AdminButton({ onDark }: { onDark?: boolean }) {
   const { isAdmin, setPinOpen } = useClub()
   const { slug } = useClub()
   if (isAdmin) {
     return (
-      <Link to={`/c/${slug}/admin`} className="admin-pill" style={onDark ? { background: '#24282d', color: '#9fd9be' } : undefined}>
+      <Link to={`/c/${slug}/admin`} className="admin-pill">
         <Icon name="lock" size={13} stroke={2} />관리자
       </Link>
     )
@@ -63,7 +101,7 @@ export interface FromState {
   from?: { path: string; tab: TabKey }
 }
 
-/** 지금 주소가 어느 탭 소속인지: 기사→와이어, 경기→일정, 선수→멤버. 관리자 화면은 강조 없음 */
+/** 지금 주소가 어느 탭 소속인지: 기사→와이어, 경기→일정, 선수→선수단. 관리자 화면은 강조 없음 */
 export function tabOf(pathname: string, slug: string): TabKey | null {
   const base = `/c/${slug}`
   if (!pathname.startsWith(base)) return null
@@ -83,7 +121,7 @@ export function BottomNav() {
     { key: 'home', to: `/c/${slug}`, label: '와이어', icon: 'wire' },
     { key: 'sessions', to: `/c/${slug}/sessions`, label: '일정', icon: 'calendar' },
     { key: 'records', to: `/c/${slug}/records`, label: '기록', icon: 'trophy' },
-    { key: 'members', to: `/c/${slug}/members`, label: '멤버', icon: 'users' },
+    { key: 'members', to: `/c/${slug}/members`, label: '선수단', icon: 'users' },
   ]
   return (
     <nav className="bottom-nav" aria-label="주요 메뉴">

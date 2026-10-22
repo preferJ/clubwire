@@ -136,8 +136,10 @@ def test_full_loop(make_club, client, db):
     m2, _, _ = _play(api, sid, 0, 2, teams=(teams["A"], teams["C"]))  # 관리자가 A vs C 지정, C 승
     m3, _, _ = _play(api, sid, 1, 1, finalize=False)  # 추천(B vs C) 그대로, 무승부, 확정 안 함
     assert {m3["teamA"]["sessionTeamId"], m3["teamB"]["sessionTeamId"]} == {teams["B"], teams["C"]}
-    # 수동 MVP 수여
-    api.ok(api.post("/titles/awards", {"titleCode": "MVP", "memberId": a_ids[0], "sessionId": sid}), 201)
+    # MVP는 제거된 기능(2026-10-22): 기본 타이틀에 없어 수여할 수 없다
+    assert "MVP" not in {t["titleCode"] for t in api.ok(api.get("/titles/types", admin=False))}
+    r = api.post("/titles/awards", {"titleCode": "MVP", "memberId": a_ids[0], "sessionId": sid})
+    assert r.status_code == 404 and r.json()["error"]["code"] == "TITLE_NOT_FOUND"
 
     # --- [일정마감]: 미확정 경기 자동 확정 → 자동 타이틀 → 마감 기사
     closed = api.ok(api.post(f"/sessions/{sid}/close"))
@@ -147,9 +149,9 @@ def test_full_loop(make_club, client, db):
     assert recap["articleType"] == "SESSION_RECAP" and recap["status"] == "GENERATED" and "마감" in recap["tags"]
     awards = api.ok(api.get("/titles/awards", admin=False))
     codes = {a["titleCode"] for a in awards}
-    assert {"MVP", "TOP_SCORER"} <= codes
-    assert api.ok(api.get("/stats/members", admin=False))[0] is not None
-    assert {x["memberId"]: x for x in api.ok(api.get("/stats/members"))}[a_ids[0]]["mvpCount"] == 1
+    assert "TOP_SCORER" in codes and "MVP" not in codes
+    stats = api.ok(api.get("/stats/members", admin=False))
+    assert stats[0] is not None and "mvpCount" not in stats[0]
     insights = api.ok(api.get("/admin/insights", params={"sessionId": sid}))
     assert any(i["phase"] == "POST" for i in insights)
     # 마감 후 수정 불가

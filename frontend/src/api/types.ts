@@ -13,6 +13,14 @@ export interface Club {
   isAdmin: boolean
 }
 
+/** 와이어 상단 요약 줄 */
+export interface ClubSummary {
+  year: number
+  activeMembers: number
+  sessions: number
+  articles: number
+}
+
 export interface AuthResponse {
   accessToken: string
   tokenType: string
@@ -239,7 +247,6 @@ export interface MemberStat {
   goals: number
   assists: number
   ownGoals: number
-  mvpCount: number
   titleCount: number
   sessionsAttended: number
   lastPlayedDate: string | null

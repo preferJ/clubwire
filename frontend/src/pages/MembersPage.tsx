@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '../components/Icon'
-import { AdminButton, Empty, ErrorBox, Loading } from '../components/ui'
+import { ClubBar, Empty, ErrorBox, Loading } from '../components/ui'
 import { useClub } from '../lib/club'
 import { initials, pct } from '../lib/format'
 import { useAsync } from '../lib/hooks'
@@ -16,10 +16,7 @@ export function MembersPage() {
 
   return (
     <>
-      <header className="home-head">
-        <h1 className="club-name">멤버</h1>
-        <AdminButton />
-      </header>
+      <ClubBar title="선수단" />
       <main className="page tight">
         <label className="check" style={{ gap: 8 }}>
           <Icon name="search" size={18} />
@@ -43,7 +40,7 @@ export function MembersPage() {
                   <span className="small muted">{m.games}경기 · 승률 {pct(m.winRate)} · {m.goals}골 {m.assists}도움</span>
                 </div>
               </div>
-              {m.mvpCount ? <span className="tag gold">MVP ×{m.mvpCount}</span> : <Icon name="chevron" />}
+              <Icon name="chevron" />
             </Link>
           ))
         )}

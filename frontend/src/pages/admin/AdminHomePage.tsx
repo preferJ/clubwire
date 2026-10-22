@@ -27,7 +27,7 @@ export function AdminHomePage() {
         {items.map((it) => (
           <Link key={it.to + it.label} to={it.to} className="list-row" style={{ minHeight: 64 }}>
             <span className="row" style={{ gap: 12 }}>
-              <span className="avatar" style={{ width: 40, height: 40, background: 'var(--green-soft)', color: 'var(--green)' }}><Icon name={it.icon} /></span>
+              <span className="avatar" style={{ width: 40, height: 40, background: 'var(--accent-soft)', color: 'var(--accent-ink)' }}><Icon name={it.icon} /></span>
               <span className="stack" style={{ gap: 0 }}><b>{it.label}</b><span className="small muted">{it.sub}</span></span>
             </span>
             <Icon name="chevron" />

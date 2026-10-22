@@ -8,6 +8,7 @@ import type {
   AuthResponse,
   Award,
   Club,
+  ClubSummary,
   ConfigItem,
   Generation,
   LiveMatch,
@@ -27,6 +28,7 @@ import type {
 export const makeApi = (slug: string) => ({
   // 클럽 / 관리자
   club: () => request<Club>(slug, 'GET', ''),
+  clubSummary: () => request<ClubSummary>(slug, 'GET', '/summary'),
   adminAuth: (password: string) => request<AuthResponse>(slug, 'POST', '/admin/auth', { body: { password } }),
   changePin: (newPassword: string) => request<{ ok: boolean }>(slug, 'POST', '/admin/pin', { body: { newPassword } }),
   config: () => request<{ configVersion: number; items: ConfigItem[] }>(slug, 'GET', '/admin/config'),

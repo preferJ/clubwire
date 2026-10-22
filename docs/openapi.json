@@ -53,6 +53,48 @@
         }
       }
     },
+    "/api/clubs/{club_slug}/summary": {
+      "get": {
+        "tags": [
+          "clubs"
+        ],
+        "summary": "클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수",
+        "operationId": "get_summary_api_clubs__club_slug__summary_get",
+        "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/clubs/{club_slug}/admin/auth": {
       "post": {
         "tags": [
@@ -2858,7 +2900,7 @@
         "tags": [
           "titles"
         ],
-        "summary": "타이틀 수여(MVP 등 수동 타이틀)",
+        "summary": "타이틀 수여(수동 타이틀. 기본 타이틀은 모두 자동 집계)",
         "operationId": "award_api_clubs__club_slug__titles_awards_post",
         "security": [
           {

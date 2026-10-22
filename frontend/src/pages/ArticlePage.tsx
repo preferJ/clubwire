@@ -1,11 +1,13 @@
 // S02 기사 상세
 
+import { useEffect } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { Icon } from '../components/Icon'
 import { ErrorBox, Loading, Tags, TopBar, type FromState } from '../components/ui'
 import { useClub } from '../lib/club'
 import { fmtDateTime, initials } from '../lib/format'
 import { useAsync } from '../lib/hooks'
+import { markArticleRead } from '../lib/readStore'
 import { useToast } from '../lib/toast'
 
 export function ArticlePage() {
@@ -16,6 +18,10 @@ export function ArticlePage() {
   const art = useAsync(() => api.article(Number(articleId)), [api, articleId])
   const sessionId = art.data?.sessionId
   const session = useAsync(() => (sessionId ? api.session(sessionId) : Promise.resolve(null)), [api, sessionId])
+  const loadedId = art.data?.articleId
+  useEffect(() => {
+    if (loadedId) markArticleRead(slug, loadedId)  // 와이어 소식함의 새 소식 점을 끈다
+  }, [slug, loadedId])
 
   const share = async () => {
     const url = window.location.href
