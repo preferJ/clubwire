@@ -57,11 +57,15 @@ export function HomePage() {
         </div>
       </ClubBar>
 
-      <div className="stat-ribbon" aria-label="클럽 요약">
-        <div><b>{summary.data?.activeMembers ?? '–'}</b><span>멤버</span></div>
-        <div><b>{summary.data?.sessions ?? '–'}</b><span>올해 일정</span></div>
-        <div><b>{summary.data?.articles ?? '–'}</b><span>올해 기사</span></div>
-      </div>
+      {/* 요약 줄: 누르면 해당 탭으로(멤버 → 선수단, 일정 → 일정, 기사 → 기록 탭 [기사]) */}
+      <nav className="stat-ribbon" aria-label="클럽 요약">
+        <Link to={`/c/${slug}/members`}><b>{summary.data?.activeMembers ?? '–'}</b><span>멤버</span></Link>
+        <Link to={`/c/${slug}/sessions`}><b>{summary.data?.sessions ?? '–'}</b><span>올해 일정</span></Link>
+        <Link to={`/c/${slug}/records?tab=articles`}><b>{summary.data?.articles ?? '–'}</b><span>올해 기사</span></Link>
+      </nav>
+      {summary.error ? (
+        <button type="button" className="ribbon-retry" onClick={summary.reload}>요약을 불러오지 못했어요 · 다시 시도</button>
+      ) : null}
 
       <main className="page" style={{ gap: 12, padding: '12px 12px 24px' }}>
         {(live.data ?? []).map((m) => (

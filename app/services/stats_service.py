@@ -196,6 +196,7 @@ def member_detail(db: Session, club_id: int, member: Member, recent_n: int = 5, 
 
     return {
         "summary": _summary_dict(member, s),
+        "profile": {"joinedAt": member.joined_at, "birthYear": member.birth_year},  # 관리자가 입력한 선수 정보(공개)
         "recentForm": recent,
         "frequentTeammates": [
             {"memberId": other(p), "name": names.get(other(p)), "matches": p.same_team_match_count,

@@ -32,6 +32,7 @@ export interface Member {
   name: string
   active: boolean
   joinedAt: string | null
+  birthYear: number | null
   profileImageUrl: string | null
   displayOrder: number | null
 }
@@ -252,8 +253,15 @@ export interface MemberStat {
   lastPlayedDate: string | null
 }
 
+/** 관리자가 입력하는 선수 정보(프로필에 공개) */
+export interface MemberProfile {
+  joinedAt: string | null
+  birthYear: number | null
+}
+
 export interface MemberDetail {
   summary: MemberStat
+  profile: MemberProfile
   recentForm: {
     matchId: number
     sessionDate: string

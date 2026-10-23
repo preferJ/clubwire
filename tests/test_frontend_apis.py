@@ -87,3 +87,42 @@ def test_article_pages_follow_publish_order(make_club, db):
     # 와이어·기록 탭이 일정 날짜로 묶을 수 있도록 일정 날짜를 함께 준다
     by_id = {a["articleId"]: a for a in api.ok(api.get("/articles", admin=False))}
     assert by_id[arts[0]]["sessionDate"] == "2026-12-05" and by_id[arts[2]]["sessionDate"] == "2026-12-19"
+
+
+def test_member_profile_joined_and_birth_year(make_club):
+    """선수 프로필: 관리자가 가입일 · 출생연도 입력 → 선수 기록(공개)에 표시. null은 지움, 안 보내면 그대로."""
+    api = make_club("profile")
+    mid = api.ok(api.post("/members", {"name": "홍길동"}), 201)["memberId"]
+    m = api.ok(api.patch(f"/members/{mid}", {"joinedAt": "2021-03-14", "birthYear": 1992}))
+    assert m["joinedAt"] == "2021-03-14" and m["birthYear"] == 1992
+    assert api.ok(api.get(f"/stats/members/{mid}", admin=False))["profile"] == {"joinedAt": "2021-03-14", "birthYear": 1992}
+
+    # 이름만 바꾸면 가입일 · 출생연도는 그대로
+    m = api.ok(api.patch(f"/members/{mid}", {"name": "홍길동A"}))
+    assert m["joinedAt"] == "2021-03-14" and m["birthYear"] == 1992
+    # null = 지움
+    m = api.ok(api.patch(f"/members/{mid}", {"birthYear": None}))
+    assert m["birthYear"] is None and m["joinedAt"] == "2021-03-14"
+
+    # 범위 밖 · 미래 값 · 비관리자
+    assert api.patch(f"/members/{mid}", {"birthYear": 1800}).status_code == 422
+    assert api.patch(f"/members/{mid}", {"birthYear": 2099}).status_code == 400
+    assert api.patch(f"/members/{mid}", {"joinedAt": "2099-01-01"}).status_code == 400
+    assert api.patch(f"/members/{mid}", {"birthYear": 1990}, admin=False).status_code == 401
+
+
+def test_summary_without_tzdata(make_club, monkeypatch):
+    """Windows 기본 Python처럼 시간대 DB가 없어도 /summary가 동작(Asia/Seoul은 UTC+9 고정값으로 대체)."""
+    from datetime import timedelta, timezone
+    from zoneinfo import ZoneInfoNotFoundError
+
+    from app.core import timeutil
+
+    def no_tz(key):
+        raise ZoneInfoNotFoundError(key)
+
+    monkeypatch.setattr(timeutil, "ZoneInfo", no_tz)
+    kst = timeutil.utcnow().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=9))).date()
+    assert timeutil.local_today("Asia/Seoul") == kst
+    api = make_club("notz")
+    assert api.ok(api.get("/summary", admin=False))["year"] == kst.year

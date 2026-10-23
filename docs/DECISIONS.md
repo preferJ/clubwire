@@ -290,6 +290,27 @@ SELECT TITLE_CODE, TITLE_NAME, ACTIVE_YN FROM TITLE_TYPE
 - `global.css` `.sheet`: `overscroll-behavior: contain`(시트 끝에서 뒤 화면으로 스크롤이 넘어가지 않음), `max-height: 92dvh`(모바일 주소창 높이 반영), 내용은 줄어들지 않고 시트가 스크롤
 - 같은 컴포넌트를 쓰는 시트 5개(다음 경기 · 관리자 PIN · 골 기록 · 출전 명단 · 팀 이동)에 함께 적용
 
+## 3-8. 요약 줄 링크 + 선수 프로필(가입일 · 출생연도) (2026-10-23)
+
+| 위치 | 변경 | 이유 |
+|---|---|---|
+| 와이어 요약 줄 | 숫자가 `–`로만 보이던 버그 수정. 칸을 누르면 이동: 멤버 → 선수단, 올해 일정 → 일정, 올해 기사 → 기록 탭 [기사] | 원인: `/summary`가 `ZoneInfo('Asia/Seoul')`을 쓰는데 Windows Python에는 시간대 DB가 없어 500 |
+| `app/core/timeutil.py` | `club_tz()`: ZoneInfo를 못 찾으면 고정 오프셋(Asia/Seoul = UTC+9, 서머타임 없음), 그것도 없으면 UTC | tzdata 설치 전에도 동작 |
+| `requirements.txt` | `tzdata` 추가 | Windows에서도 정식 시간대 DB 사용 |
+| 와이어 요약 줄 | 불러오기 실패 시 줄 아래 [다시 시도] | 실패를 `–`로만 숨기지 않음 |
+| `MEMBER.BIRTH_YEAR`(alembic 0005) | 출생연도 SMALLINT(NULL 허용). 가입일은 기존 `JOINED_AT` 사용 | 나이 대신 연도만 저장(해가 바뀌어도 그대로) |
+| `PATCH /members/{id}` | `joinedAt` · `birthYear` 추가. 보낸 항목만 반영, `null`을 보내면 지움(이름 등 다른 항목은 기존처럼 null = 변경 없음). 출생연도 1900~올해, 가입일은 미래 불가(서버 UTC 차이로 하루 여유) | 이름만 고칠 때 프로필 값이 지워지지 않게 |
+| `GET /stats/members/{id}` | `profile: {joinedAt, birthYear}` 추가(공개) | 선수 화면 표시용. 목록 API(`/stats/members`)에는 넣지 않음 |
+| 선수 화면 | 이름 아래 `2021.03.14 가입 · 1992년생`(있는 것만). 관리자 모드면 [선수 정보] 칸(가입일 날짜 · 출생연도 숫자 4자리, 비우고 저장하면 지움) | 관리자가 선수 화면에서 바로 입력, 결과는 모두에게 보임 |
+
+- 테스트: `test_member_profile_joined_and_birth_year`, `test_summary_without_tzdata`
+- DB 확인
+
+```sql
+SELECT NAME, JOINED_AT, BIRTH_YEAR FROM MEMBER
+ WHERE CLUB_ID = (SELECT CLUB_ID FROM CLUB WHERE CLUB_SLUG = 'sanha') ORDER BY NAME;
+```
+
 ## 4. 남은 이슈 / 다음 단계
 
 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)

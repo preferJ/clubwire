@@ -26,6 +26,13 @@ export function fmtDate(d: string | null | undefined, withWeekday = true): strin
   return `${m}월 ${day}일${withWeekday ? ` (${WEEKDAYS[dt.getDay()]})` : ''}`
 }
 
+/** 'YYYY-MM-DD' → '2021.03.14' */
+export function fmtFullDate(d: string | null | undefined): string {
+  if (!d) return ''
+  const [y, m, day] = d.split('-')
+  return `${y}.${m}.${day}`
+}
+
 export function fmtShortDate(d: string | null | undefined): string {
   if (!d) return ''
   const [, m, day] = d.split('-').map(Number)

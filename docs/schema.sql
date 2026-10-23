@@ -63,6 +63,7 @@ CREATE TABLE `MEMBER` (
 	`DISPLAY_ORDER` INTEGER COMMENT '표시 순서', 
 	`ACTIVE_YN` BOOL NOT NULL COMMENT '사용 여부(false=비활성, 삭제 대신 사용)', 
 	`JOINED_AT` DATE COMMENT '가입일', 
+	`BIRTH_YEAR` SMALLINT COMMENT '출생연도(예: 1992). 선수 프로필에 ''n년생''으로 표시', 
 	`INITIAL_RATING` DOUBLE COMMENT '시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작', 
 	`UPDATED_AT` DATETIME(3) NOT NULL COMMENT '수정 일시(UTC)', 
 	`CREATED_AT` DATETIME(3) NOT NULL COMMENT '생성 일시(UTC)', 

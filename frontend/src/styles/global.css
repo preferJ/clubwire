@@ -356,10 +356,12 @@ details.card[open] summary { margin-bottom: 8px; }
 .club-bar .go-btn:hover { color: #fff; background: #000; }
 
 .stat-ribbon { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--night-2); border-bottom: 1px solid var(--line); }
-.stat-ribbon > div { display: flex; flex-direction: column; align-items: center; padding: 10px 0; }
-.stat-ribbon > div + div { border-left: 1px solid var(--line); }
+.stat-ribbon > * { display: flex; flex-direction: column; align-items: center; padding: 10px 0; color: var(--ink); }
+.stat-ribbon > * + * { border-left: 1px solid var(--line); }
+.stat-ribbon > a:hover, .stat-ribbon > a:active { color: #fff; background: var(--soft); }
 .stat-ribbon b { font-family: var(--display); font-size: 24px; font-weight: 700; line-height: 1.1; }
 .stat-ribbon span { font-size: 11px; color: var(--muted); }
+.ribbon-retry { width: 100%; min-height: 36px; border: 0; border-bottom: 1px solid var(--line); background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; font-weight: 700; }
 
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; }
 .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: var(--panel-head); padding: 8px 12px; }

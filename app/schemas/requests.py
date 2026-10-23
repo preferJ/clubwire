@@ -21,6 +21,7 @@ class ChangePinRequest(CamelModel):
 class MemberCreate(CamelModel):
     name: str = Field(min_length=1, max_length=50)
     joined_at: date | None = None
+    birth_year: int | None = Field(default=None, ge=1900, le=2100, description="출생연도(예: 1992)")
     profile_image_url: str | None = Field(default=None, max_length=500)
     display_order: int | None = None
     initial_rating: float | None = Field(default=None, gt=0, le=5000,
@@ -29,7 +30,9 @@ class MemberCreate(CamelModel):
 
 class MemberUpdate(CamelModel):
     name: str | None = Field(default=None, max_length=50)
-    joined_at: date | None = None
+    joined_at: date | None = Field(default=None, description="가입일. null을 보내면 지움(안 보내면 그대로)")
+    birth_year: int | None = Field(default=None, ge=1900, le=2100,
+                                   description="출생연도(예: 1992). null을 보내면 지움(안 보내면 그대로)")
     profile_image_url: str | None = Field(default=None, max_length=500)
     display_order: int | None = None
     active: bool | None = None

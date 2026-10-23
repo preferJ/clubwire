@@ -1,0 +1,659 @@
+diff --git a/README.md b/README.md
+index 637c968..29b6c86 100644
+--- a/README.md
++++ b/README.md
+@@ -58,7 +58,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리
+ | `test_insight_rules_v2.py` | 듀오·징크스·천적 후보, 이달 득점 순위, 연속 출전, 팀 하루 전적, 도움→득점 조합, 하루 최다 골 계산 + 마감 시 콤비·무패·철벽·첫 골 Insight |
+ | `test_concurrency.py` | 동시 골 20건(멱등키 중복 8건 포함) → 점수 = 이벤트 수 |
+ | `test_regressions.py` | 한쪽 팀이 빈 경기 포함 시 증분=전체 재계산, 설정 버전 연속 증가, 마감 이전 날짜 일정 차단, 득점자 팀 이동 차단, 제외 멤버 참석자 목록 반영 |
+-| `test_frontend_apis.py` | 홈 LIVE 배너, 일정 목록 인원수, 일정 요약, 멤버별 수상 이력, 기사 목록 페이지(게시 순서 커서·일정 날짜) |
++| `test_frontend_apis.py` | 홈 LIVE 배너 · 요약 줄(tzdata 없는 환경 포함), 일정 목록 인원수, 일정 요약, 멤버별 수상 이력, 기사 목록 페이지(게시 순서 커서·일정 날짜), 선수 프로필(가입일 · 출생연도 입력 · 지우기) |
+ | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
+ 
+ ## 3. 운영 흐름 (API)
+diff --git a/alembic/versions/0005_member_birth_year.py b/alembic/versions/0005_member_birth_year.py
+new file mode 100644
+index 0000000..2cfc551
+--- /dev/null
++++ b/alembic/versions/0005_member_birth_year.py
+@@ -0,0 +1,29 @@
++"""member birth year
++
++선수 프로필 정보: 출생연도 추가(가입일 JOINED_AT은 이미 있음).
++- MEMBER.BIRTH_YEAR 추가(SMALLINT, NULL 허용). 관리자가 선수 화면에서 입력, 프로필에 'n년생'으로 표시
++- 기존 데이터는 NULL이라 동작 변화 없음
++
++Revision ID: 0005
++Revises: 0004
++Create Date: 2026-10-23 10:00:00.000000
++"""
++from typing import Sequence, Union
++
++from alembic import op
++import sqlalchemy as sa
++
++
++revision: str = '0005'
++down_revision: Union[str, None] = '0004'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    op.add_column('MEMBER', sa.Column('BIRTH_YEAR', sa.SmallInteger(), nullable=True,
++                                      comment="출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시"))
++
++
++def downgrade() -> None:
++    op.drop_column('MEMBER', 'BIRTH_YEAR')
+diff --git a/app/api/members.py b/app/api/members.py
+index 6712077..1c25a91 100644
+--- a/app/api/members.py
++++ b/app/api/members.py
+@@ -13,7 +13,7 @@ router = APIRouter(prefix="/members", tags=["members"])
+ 
+ def _m(m: Member) -> dict:
+     return {"memberId": m.member_id, "name": m.name, "active": m.active_yn, "joinedAt": m.joined_at,
+-            "profileImageUrl": m.profile_image_url, "displayOrder": m.display_order}
++            "birthYear": m.birth_year, "profileImageUrl": m.profile_image_url, "displayOrder": m.display_order}
+ 
+ 
+ @router.get("", summary="멤버 목록(공개)")
+@@ -26,12 +26,16 @@ def list_members(include_inactive: bool = Query(False, alias="includeInactive"),
+ def create_member(body: MemberCreate, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
+                   db: Session = Depends(get_db)):
+     return _m(member_service.create_member(db, club.club_id, body.name, body.joined_at, body.profile_image_url,
+-                                           body.display_order, body.initial_rating))
++                                           body.display_order, body.initial_rating, body.birth_year))
+ 
+ 
+-@router.patch("/{member_id}", summary="멤버 수정/비활성화(active=false). 삭제는 하지 않음")
++@router.patch("/{member_id}", summary="멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음")
+ def update_member(member_id: int, body: MemberUpdate, club: Club = Depends(club_dep),
+                   admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
+-    return _m(member_service.update_member(db, club.club_id, member_id, name=body.name, joined_at=body.joined_at,
+-                                           profile_image_url=body.profile_image_url,
+-                                           display_order=body.display_order, active_yn=body.active))
++    fields = dict(name=body.name, profile_image_url=body.profile_image_url, display_order=body.display_order,
++                  active_yn=body.active)
++    # 가입일·출생연도: 보낸 항목만 반영(null = 지움). 안 보낸 항목은 그대로
++    for k in member_service.CLEARABLE:
++        if k in body.model_fields_set:
++            fields[k] = getattr(body, k)
++    return _m(member_service.update_member(db, club.club_id, member_id, **fields))
+diff --git a/app/core/timeutil.py b/app/core/timeutil.py
+index 61bb506..1f96d8b 100644
+--- a/app/core/timeutil.py
++++ b/app/core/timeutil.py
+@@ -5,7 +5,7 @@
+ - API 응답은 ISO-8601 + 'Z'로 내보낸다. 화면 변환(Asia/Seoul)은 클라이언트 몫.
+ """
+ from datetime import date, datetime, timedelta, timezone
+-from zoneinfo import ZoneInfo
++from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+ 
+ 
+ def utcnow() -> datetime:
+@@ -24,6 +24,18 @@ def week_range(d: date) -> tuple[date, date]:
+     return start, start + timedelta(days=6)
+ 
+ 
++# 시간대 DB(tzdata)가 없는 환경(Windows 기본 Python)용 대체값. 서머타임 없는 시간대만 둔다
++_FIXED_OFFSETS = {"Asia/Seoul": 9, "Asia/Tokyo": 9, "UTC": 0}
++
++
++def club_tz(tz: str):
++    """클럽 시간대. ZoneInfo를 못 찾으면(tzdata 미설치) 고정 오프셋, 그것도 없으면 UTC."""
++    try:
++        return ZoneInfo(tz)
++    except (ZoneInfoNotFoundError, ValueError):
++        return timezone(timedelta(hours=_FIXED_OFFSETS.get(tz, 0)))
++
++
+ def local_today(tz: str) -> date:
+     """클럽 현지 날짜(예: Asia/Seoul). 서버 시각은 UTC라 자정 무렵 날짜가 다를 수 있어 구분한다."""
+-    return utcnow().replace(tzinfo=timezone.utc).astimezone(ZoneInfo(tz)).date()
++    return utcnow().replace(tzinfo=timezone.utc).astimezone(club_tz(tz)).date()
+diff --git a/app/models/club.py b/app/models/club.py
+index 7484299..f8a3c89 100644
+--- a/app/models/club.py
++++ b/app/models/club.py
+@@ -1,6 +1,6 @@
+ from datetime import date, datetime
+ 
+-from sqlalchemy import Boolean, Date, Double, ForeignKey, Index, Integer, String
++from sqlalchemy import Boolean, Date, Double, ForeignKey, Index, Integer, SmallInteger, String
+ from sqlalchemy.orm import Mapped, mapped_column
+ 
+ from app.models.base import Base, Id, TimestampMixin, UtcDateTime
+@@ -47,6 +47,7 @@ class Member(TimestampMixin, Base):
+     display_order: Mapped[int | None] = mapped_column("DISPLAY_ORDER", Integer)
+     active_yn: Mapped[bool] = mapped_column("ACTIVE_YN", Boolean, nullable=False, default=True)
+     joined_at: Mapped[date | None] = mapped_column("JOINED_AT", Date)
++    birth_year: Mapped[int | None] = mapped_column("BIRTH_YEAR", SmallInteger)
+     # 시작 Rating(이관·수동 지정). NULL이면 클럽 설정 INITIAL_RATING에서 시작. 재계산(rebuild)도 이 값에서 출발한다.
+     initial_rating: Mapped[float | None] = mapped_column("INITIAL_RATING", Double)
+ 
+diff --git a/app/models/comments.py b/app/models/comments.py
+index 1d96cfe..74f681c 100644
+--- a/app/models/comments.py
++++ b/app/models/comments.py
+@@ -39,6 +39,7 @@ COMMENTS: dict[str, dict[str, str]] = {
+         "PROFILE_IMAGE_URL": "프로필 이미지 URL",
+         "DISPLAY_ORDER": "표시 순서",
+         "JOINED_AT": "가입일",
++        "BIRTH_YEAR": "출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시",
+         "INITIAL_RATING": "시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작",
+     },
+     "SYSTEM_CONFIG": {
+diff --git a/app/schemas/requests.py b/app/schemas/requests.py
+index fa9cb1d..6966f5f 100644
+--- a/app/schemas/requests.py
++++ b/app/schemas/requests.py
+@@ -21,6 +21,7 @@ class ChangePinRequest(CamelModel):
+ class MemberCreate(CamelModel):
+     name: str = Field(min_length=1, max_length=50)
+     joined_at: date | None = None
++    birth_year: int | None = Field(default=None, ge=1900, le=2100, description="출생연도(예: 1992)")
+     profile_image_url: str | None = Field(default=None, max_length=500)
+     display_order: int | None = None
+     initial_rating: float | None = Field(default=None, gt=0, le=5000,
+@@ -29,7 +30,9 @@ class MemberCreate(CamelModel):
+ 
+ class MemberUpdate(CamelModel):
+     name: str | None = Field(default=None, max_length=50)
+-    joined_at: date | None = None
++    joined_at: date | None = Field(default=None, description="가입일. null을 보내면 지움(안 보내면 그대로)")
++    birth_year: int | None = Field(default=None, ge=1900, le=2100,
++                                   description="출생연도(예: 1992). null을 보내면 지움(안 보내면 그대로)")
+     profile_image_url: str | None = Field(default=None, max_length=500)
+     display_order: int | None = None
+     active: bool | None = None
+diff --git a/app/services/member_service.py b/app/services/member_service.py
+index ec1b406..1f0f373 100644
+--- a/app/services/member_service.py
++++ b/app/services/member_service.py
+@@ -1,4 +1,4 @@
+-from datetime import date
++from datetime import date, timedelta
+ 
+ from sqlalchemy import select
+ from sqlalchemy.orm import Session
+@@ -19,12 +19,13 @@ def list_members(db: Session, club_id: int, include_inactive: bool = False) -> l
+ 
+ def create_member(db: Session, club_id: int, name: str, joined_at: date | None = None,
+                   profile_image_url: str | None = None, display_order: int | None = None,
+-                  initial_rating: float | None = None) -> Member:
++                  initial_rating: float | None = None, birth_year: int | None = None) -> Member:
+     name = (name or "").strip()
+     if not name:
+         raise BadRequest("이름은 필수입니다.")
++    _check_profile(joined_at, birth_year)
+     m = Member(club_id=club_id, name=name, joined_at=joined_at, profile_image_url=profile_image_url,
+-               display_order=display_order, active_yn=True, initial_rating=initial_rating)
++               display_order=display_order, active_yn=True, initial_rating=initial_rating, birth_year=birth_year)
+     db.add(m)
+     db.flush()
+     # 신규: 시작 Rating(지정값 또는 설정 INITIAL_RATING), Confidence 0
+@@ -33,10 +34,15 @@ def create_member(db: Session, club_id: int, name: str, joined_at: date | None =
+     return m
+ 
+ 
++# None을 넘기면 값을 지우는 항목(나머지는 None = 변경 없음)
++CLEARABLE = ("joined_at", "birth_year")
++
++
+ def update_member(db: Session, club_id: int, member_id: int, **fields) -> Member:
+     m = get_member(db, club_id, member_id)
+-    for k in ("name", "joined_at", "profile_image_url", "display_order", "active_yn"):
+-        if k in fields and fields[k] is not None:
++    _check_profile(fields.get("joined_at"), fields.get("birth_year"))
++    for k in ("name", "joined_at", "birth_year", "profile_image_url", "display_order", "active_yn"):
++        if k in fields and (fields[k] is not None or k in CLEARABLE):
+             v = fields[k]
+             if k == "name":
+                 v = v.strip()
+@@ -45,3 +51,12 @@ def update_member(db: Session, club_id: int, member_id: int, **fields) -> Member
+             setattr(m, k, v)
+     db.commit()
+     return m
++
++
++def _check_profile(joined_at: date | None, birth_year: int | None) -> None:
++    """가입일 · 출생연도 범위 확인(미래 날짜 · 미래 연도 불가). 서버(UTC)와 클럽 현지 날짜 차이로 하루 여유를 둔다."""
++    today = date.today()
++    if joined_at is not None and joined_at > today + timedelta(days=1):
++        raise BadRequest("가입일은 오늘 이후로 정할 수 없어요.")
++    if birth_year is not None and not (1900 <= birth_year <= today.year):
++        raise BadRequest(f"출생연도는 1900~{today.year} 사이로 입력하세요.")
+diff --git a/app/services/stats_service.py b/app/services/stats_service.py
+index c1f6f52..ba5387a 100644
+--- a/app/services/stats_service.py
++++ b/app/services/stats_service.py
+@@ -196,6 +196,7 @@ def member_detail(db: Session, club_id: int, member: Member, recent_n: int = 5,
+ 
+     return {
+         "summary": _summary_dict(member, s),
++        "profile": {"joinedAt": member.joined_at, "birthYear": member.birth_year},  # 관리자가 입력한 선수 정보(공개)
+         "recentForm": recent,
+         "frequentTeammates": [
+             {"memberId": other(p), "name": names.get(other(p)), "matches": p.same_team_match_count,
+diff --git a/docs/API.md b/docs/API.md
+index dd5e853..16f2b68 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -15,7 +15,7 @@
+ | 🔓 | GET | `/summary` | 클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수 |
+ | 🔓 | GET | `/members` | 멤버 목록(공개) |
+ | 🔑 | POST | `/members` | 멤버 등록 |
+-| 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 삭제는 하지 않음 |
++| 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음 |
+ | 🔓 | GET | `/sessions` | 일정 목록(공개) |
+ | 🔑 | POST | `/sessions` | 일정 생성 |
+ | 🔓 | GET | `/sessions/{session_id}` | 일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함 |
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index 3d8edfa..8edd151 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -290,6 +290,27 @@ SELECT TITLE_CODE, TITLE_NAME, ACTIVE_YN FROM TITLE_TYPE
+ - `global.css` `.sheet`: `overscroll-behavior: contain`(시트 끝에서 뒤 화면으로 스크롤이 넘어가지 않음), `max-height: 92dvh`(모바일 주소창 높이 반영), 내용은 줄어들지 않고 시트가 스크롤
+ - 같은 컴포넌트를 쓰는 시트 5개(다음 경기 · 관리자 PIN · 골 기록 · 출전 명단 · 팀 이동)에 함께 적용
+ 
++## 3-8. 요약 줄 링크 + 선수 프로필(가입일 · 출생연도) (2026-10-23)
++
++| 위치 | 변경 | 이유 |
++|---|---|---|
++| 와이어 요약 줄 | 숫자가 `–`로만 보이던 버그 수정. 칸을 누르면 이동: 멤버 → 선수단, 올해 일정 → 일정, 올해 기사 → 기록 탭 [기사] | 원인: `/summary`가 `ZoneInfo('Asia/Seoul')`을 쓰는데 Windows Python에는 시간대 DB가 없어 500 |
++| `app/core/timeutil.py` | `club_tz()`: ZoneInfo를 못 찾으면 고정 오프셋(Asia/Seoul = UTC+9, 서머타임 없음), 그것도 없으면 UTC | tzdata 설치 전에도 동작 |
++| `requirements.txt` | `tzdata` 추가 | Windows에서도 정식 시간대 DB 사용 |
++| 와이어 요약 줄 | 불러오기 실패 시 줄 아래 [다시 시도] | 실패를 `–`로만 숨기지 않음 |
++| `MEMBER.BIRTH_YEAR`(alembic 0005) | 출생연도 SMALLINT(NULL 허용). 가입일은 기존 `JOINED_AT` 사용 | 나이 대신 연도만 저장(해가 바뀌어도 그대로) |
++| `PATCH /members/{id}` | `joinedAt` · `birthYear` 추가. 보낸 항목만 반영, `null`을 보내면 지움(이름 등 다른 항목은 기존처럼 null = 변경 없음). 출생연도 1900~올해, 가입일은 미래 불가(서버 UTC 차이로 하루 여유) | 이름만 고칠 때 프로필 값이 지워지지 않게 |
++| `GET /stats/members/{id}` | `profile: {joinedAt, birthYear}` 추가(공개) | 선수 화면 표시용. 목록 API(`/stats/members`)에는 넣지 않음 |
++| 선수 화면 | 이름 아래 `2021.03.14 가입 · 1992년생`(있는 것만). 관리자 모드면 [선수 정보] 칸(가입일 날짜 · 출생연도 숫자 4자리, 비우고 저장하면 지움) | 관리자가 선수 화면에서 바로 입력, 결과는 모두에게 보임 |
++
++- 테스트: `test_member_profile_joined_and_birth_year`, `test_summary_without_tzdata`
++- DB 확인
++
++```sql
++SELECT NAME, JOINED_AT, BIRTH_YEAR FROM MEMBER
++ WHERE CLUB_ID = (SELECT CLUB_ID FROM CLUB WHERE CLUB_SLUG = 'sanha') ORDER BY NAME;
++```
++
+ ## 4. 남은 이슈 / 다음 단계
+ 
+ 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
+diff --git a/docs/ERD.md b/docs/ERD.md
+index 29bb6b0..d15d604 100644
+--- a/docs/ERD.md
++++ b/docs/ERD.md
+@@ -35,6 +35,7 @@ erDiagram
+         INTEGER DISPLAY_ORDER
+         BOOL ACTIVE_YN
+         DATE JOINED_AT
++        SMALLINT BIRTH_YEAR
+         DOUBLE INITIAL_RATING
+         DATETIME UPDATED_AT
+         DATETIME CREATED_AT
+diff --git a/docs/TABLES.md b/docs/TABLES.md
+index 3efe517..9ac0163 100644
+--- a/docs/TABLES.md
++++ b/docs/TABLES.md
+@@ -61,9 +61,10 @@
+ | 5 | `DISPLAY_ORDER` | INTEGER | Y |  | 표시 순서 |
+ | 6 | `ACTIVE_YN` | BOOL | N |  | 사용 여부(false=비활성, 삭제 대신 사용) |
+ | 7 | `JOINED_AT` | DATE | Y |  | 가입일 |
+-| 8 | `INITIAL_RATING` | DOUBLE | Y |  | 시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작 |
+-| 9 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+-| 10 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
++| 8 | `BIRTH_YEAR` | SMALLINT | Y |  | 출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시 |
++| 9 | `INITIAL_RATING` | DOUBLE | Y |  | 시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작 |
++| 10 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
++| 11 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+ 
+ 제약/인덱스
+ 
+diff --git a/docs/openapi.json b/docs/openapi.json
+index e42d730..00cd4d8 100644
+--- a/docs/openapi.json
++++ b/docs/openapi.json
+@@ -517,7 +517,7 @@
+         "tags": [
+           "members"
+         ],
+-        "summary": "멤버 수정/비활성화(active=false). 삭제는 하지 않음",
++        "summary": "멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음",
+         "operationId": "update_member_api_clubs__club_slug__members__member_id__patch",
+         "security": [
+           {
+@@ -3800,6 +3800,20 @@
+             ],
+             "title": "Joinedat"
+           },
++          "birthYear": {
++            "anyOf": [
++              {
++                "type": "integer",
++                "maximum": 2100.0,
++                "minimum": 1900.0
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Birthyear",
++            "description": "출생연도(예: 1992)"
++          },
+           "profileImageUrl": {
+             "anyOf": [
+               {
+@@ -3869,7 +3883,22 @@
+                 "type": "null"
+               }
+             ],
+-            "title": "Joinedat"
++            "title": "Joinedat",
++            "description": "가입일. null을 보내면 지움(안 보내면 그대로)"
++          },
++          "birthYear": {
++            "anyOf": [
++              {
++                "type": "integer",
++                "maximum": 2100.0,
++                "minimum": 1900.0
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Birthyear",
++            "description": "출생연도(예: 1992). null을 보내면 지움(안 보내면 그대로)"
+           },
+           "profileImageUrl": {
+             "anyOf": [
+diff --git a/docs/schema.sql b/docs/schema.sql
+index eac1e05..d03f9ac 100644
+--- a/docs/schema.sql
++++ b/docs/schema.sql
+@@ -63,6 +63,7 @@ CREATE TABLE `MEMBER` (
+ 	`DISPLAY_ORDER` INTEGER COMMENT '표시 순서', 
+ 	`ACTIVE_YN` BOOL NOT NULL COMMENT '사용 여부(false=비활성, 삭제 대신 사용)', 
+ 	`JOINED_AT` DATE COMMENT '가입일', 
++	`BIRTH_YEAR` SMALLINT COMMENT '출생연도(예: 1992). 선수 프로필에 ''n년생''으로 표시', 
+ 	`INITIAL_RATING` DOUBLE COMMENT '시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작', 
+ 	`UPDATED_AT` DATETIME(3) NOT NULL COMMENT '수정 일시(UTC)', 
+ 	`CREATED_AT` DATETIME(3) NOT NULL COMMENT '생성 일시(UTC)', 
+diff --git a/frontend/src/api/endpoints.ts b/frontend/src/api/endpoints.ts
+index afb3897..b6010a9 100644
+--- a/frontend/src/api/endpoints.ts
++++ b/frontend/src/api/endpoints.ts
+@@ -17,6 +17,7 @@ import type {
+   MatchState,
+   Member,
+   MemberDetail,
++  MemberProfile,
+   MemberStat,
+   NextSuggestion,
+   SessionDetail,
+@@ -39,7 +40,7 @@ export const makeApi = (slug: string) => ({
+   members: (includeInactive = false) => request<Member[]>(slug, 'GET', '/members', { query: { includeInactive } }),
+   createMember: (name: string, initialRating?: number) =>
+     request<Member>(slug, 'POST', '/members', { body: { name, initialRating } }),
+-  updateMember: (memberId: number, body: Partial<{ name: string; active: boolean; displayOrder: number }>) =>
++  updateMember: (memberId: number, body: Partial<{ name: string; active: boolean; displayOrder: number } & MemberProfile>) =>
+     request<Member>(slug, 'PATCH', `/members/${memberId}`, { body }),
+ 
+   // 일정
+diff --git a/frontend/src/api/types.ts b/frontend/src/api/types.ts
+index 65b8765..a744a33 100644
+--- a/frontend/src/api/types.ts
++++ b/frontend/src/api/types.ts
+@@ -32,6 +32,7 @@ export interface Member {
+   name: string
+   active: boolean
+   joinedAt: string | null
++  birthYear: number | null
+   profileImageUrl: string | null
+   displayOrder: number | null
+ }
+@@ -252,8 +253,15 @@ export interface MemberStat {
+   lastPlayedDate: string | null
+ }
+ 
++/** 관리자가 입력하는 선수 정보(프로필에 공개) */
++export interface MemberProfile {
++  joinedAt: string | null
++  birthYear: number | null
++}
++
+ export interface MemberDetail {
+   summary: MemberStat
++  profile: MemberProfile
+   recentForm: {
+     matchId: number
+     sessionDate: string
+diff --git a/frontend/src/lib/format.ts b/frontend/src/lib/format.ts
+index fda20f7..910a6ea 100644
+--- a/frontend/src/lib/format.ts
++++ b/frontend/src/lib/format.ts
+@@ -26,6 +26,13 @@ export function fmtDate(d: string | null | undefined, withWeekday = true): strin
+   return `${m}월 ${day}일${withWeekday ? ` (${WEEKDAYS[dt.getDay()]})` : ''}`
+ }
+ 
++/** 'YYYY-MM-DD' → '2021.03.14' */
++export function fmtFullDate(d: string | null | undefined): string {
++  if (!d) return ''
++  const [y, m, day] = d.split('-')
++  return `${y}.${m}.${day}`
++}
++
+ export function fmtShortDate(d: string | null | undefined): string {
+   if (!d) return ''
+   const [, m, day] = d.split('-').map(Number)
+diff --git a/frontend/src/pages/HomePage.tsx b/frontend/src/pages/HomePage.tsx
+index 094eacd..eb4120c 100644
+--- a/frontend/src/pages/HomePage.tsx
++++ b/frontend/src/pages/HomePage.tsx
+@@ -57,11 +57,15 @@ export function HomePage() {
+         </div>
+       </ClubBar>
+ 
+-      <div className="stat-ribbon" aria-label="클럽 요약">
+-        <div><b>{summary.data?.activeMembers ?? '–'}</b><span>멤버</span></div>
+-        <div><b>{summary.data?.sessions ?? '–'}</b><span>올해 일정</span></div>
+-        <div><b>{summary.data?.articles ?? '–'}</b><span>올해 기사</span></div>
+-      </div>
++      {/* 요약 줄: 누르면 해당 탭으로(멤버 → 선수단, 일정 → 일정, 기사 → 기록 탭 [기사]) */}
++      <nav className="stat-ribbon" aria-label="클럽 요약">
++        <Link to={`/c/${slug}/members`}><b>{summary.data?.activeMembers ?? '–'}</b><span>멤버</span></Link>
++        <Link to={`/c/${slug}/sessions`}><b>{summary.data?.sessions ?? '–'}</b><span>올해 일정</span></Link>
++        <Link to={`/c/${slug}/records?tab=articles`}><b>{summary.data?.articles ?? '–'}</b><span>올해 기사</span></Link>
++      </nav>
++      {summary.error ? (
++        <button type="button" className="ribbon-retry" onClick={summary.reload}>요약을 불러오지 못했어요 · 다시 시도</button>
++      ) : null}
+ 
+       <main className="page" style={{ gap: 12, padding: '12px 12px 24px' }}>
+         {(live.data ?? []).map((m) => (
+diff --git a/frontend/src/pages/PlayerPage.tsx b/frontend/src/pages/PlayerPage.tsx
+index 32af88e..2287309 100644
+--- a/frontend/src/pages/PlayerPage.tsx
++++ b/frontend/src/pages/PlayerPage.tsx
+@@ -1,16 +1,19 @@
+-// S05 선수 기록 (+ 수상 이력)
++// S05 선수 기록 (+ 수상 이력) · 프로필(가입일 · 출생연도, 관리자 모드에서 입력)
+ 
++import { useState } from 'react'
+ import { Link, useParams } from 'react-router-dom'
+-import type { Award } from '../api/types'
++import type { Award, MemberProfile } from '../api/types'
+ import { ErrorBox, Loading, TopBar } from '../components/ui'
+ import { useClub } from '../lib/club'
+-import { fmtShortDate, initials, pct, RESULT_LABEL } from '../lib/format'
+-import { useAsync } from '../lib/hooks'
++import { fmtFullDate, fmtShortDate, initials, pct, RESULT_LABEL } from '../lib/format'
++import { useAction, useAsync } from '../lib/hooks'
++
++const EMPTY_PROFILE: MemberProfile = { joinedAt: null, birthYear: null }
+ 
+ export function PlayerPage() {
+   const { memberId } = useParams()
+   const id = Number(memberId)
+-  const { api, slug } = useClub()
++  const { api, slug, isAdmin } = useClub()
+   const detail = useAsync(() => api.memberDetail(id), [api, id])
+   const awards = useAsync(() => api.awards({ memberId: id }), [api, id])
+ 
+@@ -18,6 +21,9 @@ export function PlayerPage() {
+   const d = detail.data
+   if (!d) return <><TopBar title="선수 기록" back /><div className="page"><Loading /></div></>
+   const s = d.summary
++  const profile = d.profile ?? EMPTY_PROFILE
++  const meta = [profile.joinedAt ? `${fmtFullDate(profile.joinedAt)} 가입` : '', profile.birthYear ? `${profile.birthYear}년생` : '']
++    .filter(Boolean).join(' · ')
+   const streak = leadingWins(d.recentForm.map((r) => r.result))
+   const titleCounts = countTitles(awards.data ?? [])
+ 
+@@ -29,6 +35,7 @@ export function PlayerPage() {
+           <span className="avatar" style={{ width: 64, height: 64, fontSize: 18 }}>{initials(s.name)}</span>
+           <div className="stack" style={{ gap: 6 }}>
+             <h1 className="club-name">{s.name}</h1>
++            {meta ? <span className="small muted">{meta}</span> : null}
+             <div className="tags">
+               {titleCounts.map(([name, n]) => <span key={name} className="tag gold">{name} ×{n}</span>)}
+               {streak >= 2 ? <span className="tag green">{streak}연승 중</span> : null}
+@@ -39,6 +46,8 @@ export function PlayerPage() {
+       </header>
+ 
+       <main className="page">
++        {isAdmin ? <ProfileEditor key={`${id}-${profile.joinedAt}-${profile.birthYear}`} memberId={id} profile={profile} onSaved={detail.reload} /> : null}
++
+         <div className="grid3">
+           <Stat label="경기" value={s.games} />
+           <Stat label="승률" value={pct(s.winRate)} />
+@@ -100,6 +109,47 @@ export function PlayerPage() {
+   )
+ }
+ 
++/** 관리자 모드: 가입일 · 출생연도 입력. 비우고 저장하면 지운다 */
++function ProfileEditor({ memberId, profile, onSaved }: { memberId: number; profile: MemberProfile; onSaved: () => void }) {
++  const { api } = useClub()
++  const { busy, run } = useAction()
++  const [joined, setJoined] = useState(profile.joinedAt ?? '')
++  const [birth, setBirth] = useState(profile.birthYear ? String(profile.birthYear) : '')
++  const thisYear = new Date().getFullYear()
++  const birthYear = birth ? Number(birth) : null
++  const birthBad = birthYear !== null && (birth.length !== 4 || birthYear < 1900 || birthYear > thisYear)
++  const dirty = joined !== (profile.joinedAt ?? '') || birthYear !== profile.birthYear
++
++  const save = async () => {
++    const done = await run(() => api.updateMember(memberId, { joinedAt: joined || null, birthYear }), '선수 정보를 저장했어요')
++    if (done) onSaved()
++  }
++
++  return (
++    <section className="card stack" style={{ gap: 10 }} aria-label="선수 정보 입력">
++      <div className="row between">
++        <h2 style={{ fontSize: 15, fontWeight: 700 }}>선수 정보</h2>
++        <span className="admin-pill">관리자</span>
++      </div>
++      <div className="grid2">
++        <label className="field">가입일
++          <input className="input" type="date" value={joined} onChange={(e) => setJoined(e.target.value)} />
++        </label>
++        <label className="field">출생연도
++          <input className="input" inputMode="numeric" placeholder="예: 1992" value={birth} aria-invalid={birthBad}
++            onChange={(e) => setBirth(e.target.value.replace(/\D/g, '').slice(0, 4))} />
++        </label>
++      </div>
++      {birthBad
++        ? <span className="small" style={{ color: 'var(--loss)' }}>출생연도는 1900~{thisYear} 사이 4자리로 입력하세요.</span>
++        : <span className="small muted">저장하면 프로필에 '가입일 · n년생'으로 보여요. 칸을 비우고 저장하면 지워져요.</span>}
++      <button type="button" className="btn primary block" disabled={busy || !dirty || birthBad} onClick={save}>
++        {busy ? '저장 중…' : '저장'}
++      </button>
++    </section>
++  )
++}
++
+ function Stat({ label, value }: { label: string; value: string | number }) {
+   return (
+     <div className="stat">
+diff --git a/frontend/src/styles/global.css b/frontend/src/styles/global.css
+index 3b76a2b..f79643b 100644
+--- a/frontend/src/styles/global.css
++++ b/frontend/src/styles/global.css
+@@ -356,10 +356,12 @@ details.card[open] summary { margin-bottom: 8px; }
+ .club-bar .go-btn:hover { color: #fff; background: #000; }
+ 
+ .stat-ribbon { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); background: var(--night-2); border-bottom: 1px solid var(--line); }
+-.stat-ribbon > div { display: flex; flex-direction: column; align-items: center; padding: 10px 0; }
+-.stat-ribbon > div + div { border-left: 1px solid var(--line); }
++.stat-ribbon > * { display: flex; flex-direction: column; align-items: center; padding: 10px 0; color: var(--ink); }
++.stat-ribbon > * + * { border-left: 1px solid var(--line); }
++.stat-ribbon > a:hover, .stat-ribbon > a:active { color: #fff; background: var(--soft); }
+ .stat-ribbon b { font-family: var(--display); font-size: 24px; font-weight: 700; line-height: 1.1; }
+ .stat-ribbon span { font-size: 11px; color: var(--muted); }
++.ribbon-retry { width: 100%; min-height: 36px; border: 0; border-bottom: 1px solid var(--line); background: var(--accent-soft); color: var(--accent-ink); font-size: 12px; font-weight: 700; }
+ 
+ .panel { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; }
+ .panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; background: var(--panel-head); padding: 8px 12px; }
+diff --git a/requirements.txt b/requirements.txt
+index b13ffe3..47ef2d7 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -6,6 +6,7 @@ pymysql>=1.1
+ cryptography>=42
+ pydantic>=2.7
+ pydantic-settings>=2.3
++tzdata>=2024.1
+ argon2-cffi>=23.1
+ pyjwt>=2.8
+ openai>=1.40
+diff --git a/tests/test_frontend_apis.py b/tests/test_frontend_apis.py
+index e0a26c1..b4e7736 100644
+--- a/tests/test_frontend_apis.py
++++ b/tests/test_frontend_apis.py
+@@ -87,3 +87,42 @@ def test_article_pages_follow_publish_order(make_club, db):
+     # 와이어·기록 탭이 일정 날짜로 묶을 수 있도록 일정 날짜를 함께 준다
+     by_id = {a["articleId"]: a for a in api.ok(api.get("/articles", admin=False))}
+     assert by_id[arts[0]]["sessionDate"] == "2026-12-05" and by_id[arts[2]]["sessionDate"] == "2026-12-19"
++
++
++def test_member_profile_joined_and_birth_year(make_club):
++    """선수 프로필: 관리자가 가입일 · 출생연도 입력 → 선수 기록(공개)에 표시. null은 지움, 안 보내면 그대로."""
++    api = make_club("profile")
++    mid = api.ok(api.post("/members", {"name": "홍길동"}), 201)["memberId"]
++    m = api.ok(api.patch(f"/members/{mid}", {"joinedAt": "2021-03-14", "birthYear": 1992}))
++    assert m["joinedAt"] == "2021-03-14" and m["birthYear"] == 1992
++    assert api.ok(api.get(f"/stats/members/{mid}", admin=False))["profile"] == {"joinedAt": "2021-03-14", "birthYear": 1992}
++
++    # 이름만 바꾸면 가입일 · 출생연도는 그대로
++    m = api.ok(api.patch(f"/members/{mid}", {"name": "홍길동A"}))
++    assert m["joinedAt"] == "2021-03-14" and m["birthYear"] == 1992
++    # null = 지움
++    m = api.ok(api.patch(f"/members/{mid}", {"birthYear": None}))
++    assert m["birthYear"] is None and m["joinedAt"] == "2021-03-14"
++
++    # 범위 밖 · 미래 값 · 비관리자
++    assert api.patch(f"/members/{mid}", {"birthYear": 1800}).status_code == 422
++    assert api.patch(f"/members/{mid}", {"birthYear": 2099}).status_code == 400
++    assert api.patch(f"/members/{mid}", {"joinedAt": "2099-01-01"}).status_code == 400
++    assert api.patch(f"/members/{mid}", {"birthYear": 1990}, admin=False).status_code == 401
++
++
++def test_summary_without_tzdata(make_club, monkeypatch):
++    """Windows 기본 Python처럼 시간대 DB가 없어도 /summary가 동작(Asia/Seoul은 UTC+9 고정값으로 대체)."""
++    from datetime import timedelta, timezone
++    from zoneinfo import ZoneInfoNotFoundError
++
++    from app.core import timeutil
++
++    def no_tz(key):
++        raise ZoneInfoNotFoundError(key)
++
++    monkeypatch.setattr(timeutil, "ZoneInfo", no_tz)
++    kst = timeutil.utcnow().replace(tzinfo=timezone.utc).astimezone(timezone(timedelta(hours=9))).date()
++    assert timeutil.local_today("Asia/Seoul") == kst
++    api = make_club("notz")
++    assert api.ok(api.get("/summary", admin=False))["year"] == kst.year

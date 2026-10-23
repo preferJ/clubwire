@@ -39,6 +39,7 @@ COMMENTS: dict[str, dict[str, str]] = {
         "PROFILE_IMAGE_URL": "프로필 이미지 URL",
         "DISPLAY_ORDER": "표시 순서",
         "JOINED_AT": "가입일",
+        "BIRTH_YEAR": "출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시",
         "INITIAL_RATING": "시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작",
     },
     "SYSTEM_CONFIG": {

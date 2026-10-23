@@ -517,7 +517,7 @@
         "tags": [
           "members"
         ],
-        "summary": "멤버 수정/비활성화(active=false). 삭제는 하지 않음",
+        "summary": "멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음",
         "operationId": "update_member_api_clubs__club_slug__members__member_id__patch",
         "security": [
           {
@@ -3800,6 +3800,20 @@
             ],
             "title": "Joinedat"
           },
+          "birthYear": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 1900.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Birthyear",
+            "description": "출생연도(예: 1992)"
+          },
           "profileImageUrl": {
             "anyOf": [
               {
@@ -3869,7 +3883,22 @@
                 "type": "null"
               }
             ],
-            "title": "Joinedat"
+            "title": "Joinedat",
+            "description": "가입일. null을 보내면 지움(안 보내면 그대로)"
+          },
+          "birthYear": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 1900.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Birthyear",
+            "description": "출생연도(예: 1992). null을 보내면 지움(안 보내면 그대로)"
           },
           "profileImageUrl": {
             "anyOf": [
