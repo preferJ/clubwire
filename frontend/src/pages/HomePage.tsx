@@ -1,5 +1,6 @@
 // S01 홈 · 와이어(E 시안: 매니저 게임형)
-// 클럽 바(엠블럼 · 날짜 · 다음 일정) → 요약 줄 → LIVE → NEXT FIXTURE → LAST MATCHDAY → MVP RACE → INBOX(이번·지난 일정 기사)
+// 클럽 바(엠블럼 · 날짜 · 다음 일정) → 요약 한 줄 → LIVE → NEXT FIXTURE → THE WIRE(기사: 헤드라인 + 목록)
+// → MVP 한 줄 → LAST MATCHDAY(맨 아래). 2026-10-23: 기사가 주인공이 되게 순서 · 크기 조정
 
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
@@ -75,17 +76,14 @@ export function HomePage() {
           <LiveBanner key={m.matchId} m={m} slug={slug} />
         ))}
 
-        {sessionsLoading ? <Loading rows={2} /> : (
-          <>
-            <NextFixture s={next} slug={slug} members={summary.data?.activeMembers} isAdmin={isAdmin} />
-            {last ? <LastMatchday s={last} slug={slug} /> : null}
-          </>
-        )}
+        {sessionsLoading ? <Loading rows={1} /> : <NextFixture s={next} slug={slug} members={summary.data?.activeMembers} isAdmin={isAdmin} />}
 
-        <MvpRacePanel slug={slug} race={race.data} error={race.error} onRetry={race.reload} />
-
-        <Inbox slug={slug} loading={articlesLoading} error={articles.error} onRetry={articles.reload}
+        <WireFeed slug={slug} loading={articlesLoading} error={articles.error} onRetry={articles.reload}
           items={(articles.data ?? []).slice(0, WIRE_ARTICLES)} />
+
+        <MvpStrip slug={slug} race={race.data} />
+
+        {last ? <LastMatchday s={last} slug={slug} /> : null}
       </main>
     </>
   )
@@ -130,14 +128,11 @@ function PanelHead({ en, ko, right }: { en: string; ko: string; right?: ReactNod
 
 /** NEXT FIXTURE: 이번 일정의 상태 · 팀 편성 · 참석 인원 */
 function NextFixture({ s, slug, members, isAdmin }: { s: SessionListItem | null; slug: string; members?: number; isAdmin: boolean }) {
-  if (!s) {
+  if (!s) {  // 예정 일정이 없으면 한 줄만(기사 자리를 뺏지 않게)
     return (
-      <section className="panel" aria-label="다음 일정">
-        <PanelHead en="NEXT FIXTURE" ko="다음 일정" />
-        <div className="panel-body row between" style={{ flexDirection: 'row' }}>
-          <span className="muted" style={{ fontSize: 14 }}>예정된 일정이 없어요</span>
-          {isAdmin ? <Link className="btn sm primary" to={`/c/${slug}/admin/sessions/new`}>새 일정</Link> : null}
-        </div>
+      <section className="panel slim-row" aria-label="다음 일정">
+        <span className="label"><span className="en">NEXT FIXTURE</span><span className="ko">예정된 일정이 없어요</span></span>
+        {isAdmin ? <Link className="btn sm primary" to={`/c/${slug}/admin/sessions/new`}>새 일정</Link> : null}
       </section>
     )
   }
@@ -250,8 +245,8 @@ function LastMatchday({ s, slug }: { s: SessionListItem; slug: string }) {
   )
 }
 
-/** INBOX: 이번·지난 일정 기사(최신 3건). 안 읽은 기사에 점, 첫 기사는 요약까지 */
-function Inbox({ slug, items, loading, error, onRetry }: {
+/** THE WIRE: 이번·지난 일정 기사(최신 3건). 첫 기사는 헤드라인(큰 제목 + 요약 + 태그), 나머지는 제목 줄. 안 읽은 기사엔 점 */
+function WireFeed({ slug, items, loading, error, onRetry }: {
   slug: string
   items: Article[]
   loading: boolean
@@ -260,28 +255,39 @@ function Inbox({ slug, items, loading, error, onRetry }: {
 }) {
   const read = readArticleIds(slug)
   const unread = items.filter((a) => !read.has(a.articleId)).length
+  const [lead, ...rest] = items
   return (
-    <section className="panel" aria-label="소식함">
-      <PanelHead en="INBOX" ko="소식함 · The Wire" right={unread ? <span className="badge" style={{ fontFamily: 'var(--body)', fontSize: 11 }}>새 소식 {unread}</span> : null} />
-      {error ? <ErrorBox error={error} onRetry={onRetry} /> : loading ? <div className="panel-body"><Loading rows={2} /></div> : items.length === 0 ? (
+    <section className="wire-feed" aria-label="소식함">
+      <div className="wire-feed-head">
+        <span className="wire-eyebrow">THE WIRE</span>
+        {unread ? <span className="badge">새 소식 {unread}</span> : null}
+      </div>
+      {error ? <ErrorBox error={error} onRetry={onRetry} /> : loading ? <div className="panel-body"><Loading rows={2} /></div> : !lead ? (
         <p className="panel-body muted" style={{ fontSize: 14 }}>아직 게시된 기사가 없어요. [일정확정] 때 프리뷰, [일정마감] 때 마감 기사가 들어와요.</p>
-      ) : items.map((a, i) => {
-        const isRead = read.has(a.articleId)
-        const topic = a.tags.find((t) => !['마감', '프리뷰', '이달의 MVP'].includes(t))
-        return (
-          <Link key={a.articleId} to={`/c/${slug}/articles/${a.articleId}`} className={`inbox-row${i === 0 ? ' open' : ''}${isRead ? ' read' : ''}`}>
-            {isRead ? <span className="dot" aria-hidden="true" /> : <span className="dot on" role="img" aria-label="새 소식" />}
-            <span className="stack" style={{ flex: 1, gap: 4, minWidth: 0 }}>
-              <span className="meta">
-                <span>The Wire · {ARTICLE_TYPE_LABEL[a.articleType]}{topic ? ` · ${topic}` : ''}</span>
-                <span>{fmtShortDate(a.sessionDate)}</span>
-              </span>
-              <span className="subject">{a.title}</span>
-              {i === 0 && a.summary ? <span className="preview">{a.summary}</span> : null}
+      ) : (
+        <>
+          <Link to={`/c/${slug}/articles/${lead.articleId}`} className={`wire-lead${read.has(lead.articleId) ? ' read' : ''}`}>
+            <span className="wire-meta">
+              {read.has(lead.articleId) ? null : <span className="wire-dot" role="img" aria-label="새 소식" />}
+              {ARTICLE_TYPE_LABEL[lead.articleType]}{topicOf(lead) ? ` · ${topicOf(lead)}` : ''} · {fmtShortDate(lead.sessionDate)}
             </span>
+            <h2 className="headline">{lead.title}</h2>
+            {lead.summary ? <p>{lead.summary}</p> : null}
           </Link>
-        )
-      })}
+          {rest.map((a) => {
+            const isRead = read.has(a.articleId)
+            return (
+              <Link key={a.articleId} to={`/c/${slug}/articles/${a.articleId}`} className={`wire-item${isRead ? ' read' : ''}`}>
+                {isRead ? <span className="wire-dot off" aria-hidden="true" /> : <span className="wire-dot" role="img" aria-label="새 소식" />}
+                <span className="stack" style={{ flex: 1, gap: 2, minWidth: 0 }}>
+                  <span className="t">{a.title}</span>
+                  <span className="m">{ARTICLE_TYPE_LABEL[a.articleType]}{topicOf(a) ? ` · ${topicOf(a)}` : ''} · {fmtShortDate(a.sessionDate)}</span>
+                </span>
+              </Link>
+            )
+          })}
+        </>
+      )}
       <Link to={`/c/${slug}/records?tab=articles`} className="panel-foot">
         소식 전체 보기 <span style={{ color: 'var(--accent-ink)', display: 'inline-flex' }}><Icon name="play" size={12} /></span>
       </Link>
@@ -289,46 +295,30 @@ function Inbox({ slug, items, loading, error, onRetry }: {
   )
 }
 
-/** MVP RACE: 이번 달 이달의 MVP 후보 1~3위(실력 점수 상승률 %만) + 지난달 MVP 발표 기사로 가는 줄 */
-function MvpRacePanel({ slug, race, error, onRetry }: { slug: string; race?: MvpRace | null; error: unknown; onRetry: () => void }) {
-  const month = race ? Number(race.month.slice(5, 7)) : new Date().getMonth() + 1
-  const last = race?.lastMonth
+/** 기사 종류 말고 대표 주제 태그 하나(예: 복귀, 연승) */
+function topicOf(a: Article): string | undefined {
+  return a.tags.find((t) => !['마감', '프리뷰', '이달의 MVP'].includes(t))
+}
+
+/** MVP 한 줄: 이번 달 후보 1~3위(실력 점수 상승률 %만). 후보가 없으면 지난달 MVP를 대신 보여 줌 */
+function MvpStrip({ slug, race }: { slug: string; race?: MvpRace | null }) {
+  if (!race) return null
+  const month = Number(race.month.slice(5, 7))
+  const last = race.lastMonth
+  const rule = `이번 달 일정 ${race.minSessions}회 이상 나온 선수 중 실력 점수 상승률 순, 다음 달 1일 확정`
   return (
-    <section className="panel" aria-label="이달의 MVP 후보">
-      <PanelHead en="MVP RACE" ko={`${month}월 MVP 후보`}
-        right={<span className="small muted">실력 점수 상승률</span>} />
-      {error ? <ErrorBox error={error} onRetry={onRetry} /> : !race ? <div className="panel-body"><Loading rows={1} /></div> : (
-        <>
-          {race.candidates.length === 0 ? (
-            <p className="panel-body muted" style={{ fontSize: 14 }}>
-              아직 후보가 없어요. 이번 달 일정에 {race.minSessions}번 이상 나오고 실력 점수가 오르면 후보가 돼요.
-            </p>
-          ) : (
-            <ol className="race">
-              {race.candidates.map((c) => (
-                <li key={c.memberId}>
-                  <Link to={`/c/${slug}/members/${c.memberId}`} className="race-row">
-                    <span className={`race-rank r${c.rank}`} aria-label={`${c.rank}위`}>{c.rank}</span>
-                    <span className="stack" style={{ gap: 2, flex: 1, minWidth: 0 }}>
-                      <b style={{ fontSize: 15 }}>{c.name}</b>
-                      <span className="small muted">일정 {c.sessions}회 · {c.games}경기</span>
-                    </span>
-                    <span className="race-rise">{fmtRise(c.risePercent)}</span>
-                  </Link>
-                </li>
-              ))}
-            </ol>
-          )}
-          <p className="panel-note">이번 달 일정 {race.minSessions}회 이상 나온 선수 중 상승률 순 · 다음 달 1일 확정</p>
-          {last ? (
-            <Link to={last.articleId ? `/c/${slug}/articles/${last.articleId}` : `/c/${slug}/records?tab=awards`} className="panel-foot">
-              <span className="tag gold">{Number(last.month.slice(5, 7))}월 MVP</span>
-              {last.winners.map((w) => w.name).join(' · ')} {fmtRise(last.winners[0]?.risePercent)}
-              <span style={{ color: 'var(--accent-ink)', display: 'inline-flex' }}><Icon name="play" size={12} /></span>
-            </Link>
-          ) : null}
-        </>
-      )}
+    <section className="mvp-strip" aria-label={`${month}월 MVP 후보 · ${rule}`} title={rule}>
+      <span className="lbl">MVP<small>{month}월</small></span>
+      {race.candidates.length ? race.candidates.map((c) => (
+        <Link key={c.memberId} to={`/c/${slug}/members/${c.memberId}`} aria-label={`${c.rank}위 ${c.name} ${fmtRise(c.risePercent)}`}>
+          <span className={`rk r${c.rank}`}>{c.rank}</span>{c.name}<span className="up">{fmtRise(c.risePercent)}</span>
+        </Link>
+      )) : last ? (
+        <Link to={last.articleId ? `/c/${slug}/articles/${last.articleId}` : `/c/${slug}/records?tab=awards`}>
+          후보 아직 없음 · {Number(last.month.slice(5, 7))}월 MVP {last.winners.map((w) => w.name).join(' · ')}
+          <span className="up">{fmtRise(last.winners[0]?.risePercent)}</span>
+        </Link>
+      ) : <span className="muted">후보 아직 없음</span>}
     </section>
   )
 }

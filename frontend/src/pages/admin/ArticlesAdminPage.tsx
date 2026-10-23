@@ -6,7 +6,7 @@ import type { Article, ArticleStatus, InsightPayload } from '../../api/types'
 import { Icon } from '../../components/Icon'
 import { Empty, ErrorBox, Loading, Switch, Tags, TopBar } from '../../components/ui'
 import { useClub, useClubEvent } from '../../lib/club'
-import { ARTICLE_TYPE_LABEL, fmtDateTime } from '../../lib/format'
+import { ARTICLE_TYPE_LABEL, fmtAwardValue, fmtDateTime } from '../../lib/format'
 import { useAction, useAsync } from '../../lib/hooks'
 
 const TABS: { key: string; label: string; statuses: ArticleStatus[] }[] = [
@@ -93,6 +93,7 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction }: {
         <span className="row">
           <span className={`status-badge ${a.status === 'PUBLISHED' ? 'green' : a.status === 'GENERATED' ? 'gold' : ''}`}>{STATUS_LABEL[a.status]}</span>
           <span className="small muted">{ARTICLE_TYPE_LABEL[a.articleType]} · {a.generationNo}차</span>
+          {a.basic ? <span className="status-badge">기본형</span> : null}
         </span>
         <span className="small muted">{fmtDateTime(a.createdAt)}</span>
       </div>
@@ -102,7 +103,11 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction }: {
         <div className="headline" style={{ fontSize: 20 }}>{a.title ?? (a.status === 'PENDING' ? 'AI가 기사를 쓰는 중…' : '(제목 없음)')}</div>
         {a.summary ? <p style={{ fontSize: 14, fontWeight: 600, marginTop: 6 }}>{a.summary}</p> : null}
       </button>
-      {a.status === 'FAILED' && a.errorMessage ? <div className="notice warn small">{a.errorMessage}</div> : null}
+      {a.errorMessage && (a.status === 'FAILED' || a.basic) ? (
+        <div className="notice warn small">
+          {a.errorMessage}{a.basic ? ' · [다시 쓰기]를 누르면 AI로 다시 써 봐요.' : ''}
+        </div>
+      ) : null}
 
       {open ? (
         !d ? <Loading rows={1} /> : (
@@ -184,7 +189,7 @@ function describeInsight(i: InsightPayload): string {
     case 'FIRST_GOAL': return `${name}, 첫 골${f.debutDay ? ' (데뷔전)' : ''}`
     case 'FIRST_ASSIST': return `${name}, 첫 도움${f.debutDay ? ' (데뷔전)' : ''}`
     case 'PERSONAL_BEST_GOALS': return `${name}, 하루 ${f.goalsToday}골 (이전 최다 ${f.previousBest})`
-    case 'TITLE_AWARDED': return `${name}, ${f.titleName}${f.value ? ` (${f.value}${f.metric === 'assists' ? '도움' : f.metric === 'wins' ? '승' : '골'})` : ''}`
+    case 'TITLE_AWARDED': return `${name}, ${f.titleName}${fmtAwardValue(f) ? ` (${fmtAwardValue(f)})` : ''}`
     default: return name
   }
 }

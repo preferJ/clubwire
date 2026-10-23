@@ -463,7 +463,7 @@ Rating 변경 이력(감사 목적 보존, 재계산 시 VOIDED 처리)
 
 ### TITLE_TYPE
 
-타이틀 정의(이주의 득점왕/도움왕, 이달의 MVP …)  
+타이틀 정의(이주의 · 이달의 득점왕/도움왕, 이달의 MVP, 연속 참가 n회 …)  
 구분: **Config/Reference**
 
 | No | 컬럼 | 타입 | NULL | 키 | 설명 |
@@ -474,7 +474,7 @@ Rating 변경 이력(감사 목적 보존, 재계산 시 VOIDED 처리)
 | 4 | `TITLE_NAME` | VARCHAR(50) | N |  | 타이틀명 |
 | 5 | `PERIOD_TYPE` | VARCHAR(10) | N |  | WEEKLY(월~일)/SESSION/MONTHLY(1일~말일) |
 | 6 | `AWARD_METHOD` | VARCHAR(10) | N |  | MANUAL(관리자)/AUTO(주간: 일정마감 시, 월간: 월 마감 시 자동 집계) |
-| 7 | `AUTO_RULE` | VARCHAR(30) | Y |  | 자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP 전용) |
+| 7 | `AUTO_RULE` | VARCHAR(30) | Y |  | 자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP), ATTENDANCE_STREAK(연속 참가, 코드 끝 숫자 = 횟수) |
 | 8 | `COUNTS_AS_MVP_YN` | BOOL | N |  | MVP 횟수(MVP_COUNT) 집계 대상 여부. 이달의 MVP = 1 |
 | 9 | `ACTIVE_YN` | BOOL | N |  | 사용 여부(false=비활성, 삭제 대신 사용) |
 | 10 | `DISPLAY_ORDER` | INTEGER | N |  | 표시 순서 |
@@ -604,7 +604,7 @@ AI 기사(재생성은 새 행, 기존 보존)
 | 6 | `TITLE` | VARCHAR(200) | Y |  | 제목 |
 | 7 | `SUMMARY` | VARCHAR(500) | Y |  | 요약 |
 | 8 | `CONTENT` | TEXT | Y |  | 본문 |
-| 9 | `MODEL_NAME` | VARCHAR(100) | N |  | 사용 모델(stub=개발용) |
+| 9 | `MODEL_NAME` | VARCHAR(100) | N |  | 사용 모델. template = 기본형 기사(AI 키 없음 · AI 실패), sample-template = 샘플 데이터 |
 | 10 | `PROMPT_VERSION` | VARCHAR(40) | N |  | 프롬프트 버전 |
 | 11 | `INSIGHT_RULE_VERSION` | VARCHAR(1000) | Y |  | 사용 Insight 규칙 버전 목록 |
 | 12 | `STATUS` | VARCHAR(20) | N |  | PENDING/GENERATED/PUBLISHED/REJECTED/FAILED/SUPERSEDED |
@@ -614,7 +614,7 @@ AI 기사(재생성은 새 행, 기존 보존)
 | 16 | `GENERATION_NO` | INTEGER | N |  | 생성 차수 |
 | 17 | `REQUEST_JSON` | JSON | Y |  | AI 입력 DTO(사실 근거) |
 | 18 | `RESPONSE_JSON` | JSON | Y |  | AI 응답 원문(JSON) |
-| 19 | `ERROR_MESSAGE` | TEXT | Y |  | 실패 사유 |
+| 19 | `ERROR_MESSAGE` | TEXT | Y |  | 실패 사유 또는 기본형으로 쓴 이유('기본형으로 작성: …') |
 | 20 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
 | 21 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 

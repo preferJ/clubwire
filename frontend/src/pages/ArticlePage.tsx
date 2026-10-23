@@ -93,7 +93,9 @@ export function ArticlePage() {
 
           <div className="row small muted">
             <Icon name="info" size={14} />
-            {monthly ? '월 마감 때 경기 기록을 바탕으로 AI가 작성해 자동 게시했습니다.' : '경기 기록을 바탕으로 AI가 작성하고 운영진이 게시했습니다.'}
+            {a.basic ? '경기 기록으로 자동 작성한 기본형 기사입니다.'
+              : monthly ? '월 마감 때 경기 기록을 바탕으로 AI가 작성해 자동 게시했습니다.'
+                : '경기 기록을 바탕으로 AI가 작성하고 운영진이 게시했습니다.'}
           </div>
           {isAdmin ? <Link className="btn sm" to={`/c/${slug}/admin/articles`}>기사 검토로</Link> : null}
         </article>

@@ -98,10 +98,10 @@ export const makeApi = (slug: string) => ({
 
   // 통계 / 타이틀
   memberStats: () => request<MemberStat[]>(slug, 'GET', '/stats/members'),
-  memberDetail: (id: number) => request<MemberDetail>(slug, 'GET', `/stats/members/${id}`),
+  memberDetail: (id: number, top = 5) => request<MemberDetail>(slug, 'GET', `/stats/members/${id}`, { query: { top } }),
   mvpRace: () => request<MvpRace>(slug, 'GET', '/stats/mvp-race'),
   titleTypes: () => request<TitleType[]>(slug, 'GET', '/titles/types'),
-  awards: (query: { memberId?: number; from?: string; to?: string } = {}) =>
+  awards: (query: { memberId?: number; from?: string; to?: string; titleCode?: string; limit?: number } = {}) =>
     request<Award[]>(slug, 'GET', '/titles/awards', { query }),
   award: (body: { titleCode: string; memberId: number; sessionId?: number; note?: string }) =>
     request(slug, 'POST', '/titles/awards', { body }),

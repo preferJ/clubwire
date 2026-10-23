@@ -2511,6 +2511,20 @@
               "title": "Club Slug"
             },
             "description": "클럽 주소(slug)"
+          },
+          {
+            "name": "top",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 20,
+              "minimum": 1,
+              "description": "자주 같은 팀 · 맞붙은 선수 몇 명까지",
+              "default": 5,
+              "title": "Top"
+            },
+            "description": "자주 같은 팀 · 맞붙은 선수 몇 명까지"
           }
         ],
         "responses": {
@@ -2914,6 +2928,36 @@
                 }
               ],
               "title": "To"
+            }
+          },
+          {
+            "name": "titleCode",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "타이틀 코드. 'ATTEND_STREAK_'처럼 _로 끝나면 앞부분 일치",
+              "title": "Titlecode"
+            },
+            "description": "타이틀 코드. 'ATTEND_STREAK_'처럼 _로 끝나면 앞부분 일치"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
             }
           }
         ],

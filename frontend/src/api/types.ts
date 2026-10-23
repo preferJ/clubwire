@@ -340,6 +340,8 @@ export interface Article {
   createdAt: string
   generationNo: number
   parentArticleId: number | null
+  /** 기본형 기사(AI 대신 템플릿으로 작성: 키 없음 · AI 실패) */
+  basic: boolean
   modelName?: string
   errorMessage?: string | null
 }

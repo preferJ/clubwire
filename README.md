@@ -38,7 +38,7 @@ cd frontend && npm install && npm run dev      # http://localhost:5173/c/sanha
 배포할 때는 `cd frontend && npm run build` 후 백엔드만 띄우면 `frontend/dist`를 같은 서버에서 서빙한다
 (`http://서버/c/sanha`). 관리자 모드는 화면 오른쪽 위 자물쇠 → PIN 입력.
 
-`OPENAI_API_KEY`가 없으면 기사는 **stub 작성기**(템플릿)로 만들어진다. 키를 넣으면 자동으로 OpenAI를 쓴다.
+`OPENAI_API_KEY`가 없으면 기사는 **기본형 기사**(템플릿, `app/integrations/openai/template_writer.py`)로 만들어진다. 키를 넣으면 자동으로 OpenAI를 쓰고, AI 호출이 실패해도(크레딧 · 한도 초과, 연결 오류, 응답 검증 실패) 기본형으로 대신 쓴다. AI 창의성 · 답변 최대 길이는 관리자 설정 화면 '기사' 묶음.
 
 > 테이블명이 대문자라 MySQL `lower_case_table_names=0`(Linux 기본)을 전제로 한다. Windows/macOS 로컬 MySQL은 이 설정이 달라 대소문자가 섞일 수 있으니 Docker(Linux) MySQL 사용을 권장.
 
@@ -59,6 +59,8 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리�
 | `test_concurrency.py` | 동시 골 20건(멱등키 중복 8건 포함) → 점수 = 이벤트 수 |
 | `test_regressions.py` | 한쪽 팀이 빈 경기 포함 시 증분=전체 재계산, 설정 버전 연속 증가, 마감 이전 날짜 일정 차단, 득점자 팀 이동 차단, 제외 멤버 참석자 목록 반영 |
 | `test_frontend_apis.py` | 홈 LIVE 배너 · 요약 줄(tzdata 없는 환경 포함), 일정 목록 인원수, 일정 요약, 멤버별 수상 이력, 기사 목록 페이지(게시 순서 커서·일정 날짜), 선수 프로필(가입일 · 출생연도 입력 · 지우기) |
+| `test_titles_v2.py` | 이달의 득점왕 · 도움왕(월 마감, 동점 공동, MVP 기사 한 줄, MVP만 발표된 달 보충), 연속 참가 10 · 20회(참석 명단 기준, 취소 일정 무시, 결석하면 끊김, 다시 쌓으면 다시 수여), 수상 내역 조회 조건(`titleCode` 정확 · 앞부분, 기간, `limit`)과 선수 상세 `top` |
+| `test_article_writer.py` | AI 창의성 · 답변 최대 길이가 요청에 실림, temperature 미지원 모델 재요청, 연결 실패 · 크레딧 초과 · 키 오류 · 답변 잘림 → 기본형 기사(게시 규칙 그대로) + 원인 표시, [다시 쓰기]로 AI 복귀, 키 없음 |
 | `test_monthly_mvp.py` | 이달의 MVP: 상승률 계산(DB 이력과 일치) · 자격(일정 2회) · 열린 일정 있으면 대기 · 마지막 일정 마감 시 타이틀 + 기사 바로 게시 · 점수 비노출 · 한 달 한 번 · 후보 1~3위 |
 | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
 
@@ -104,7 +106,7 @@ app/
                   match_order      다음 경기 추천 대진(가장 오래 쉰 두 팀)
                   importance       Insight 중요도
   wire/           Insight 엔진, 기사 서비스, Insight Type 기준 데이터
-  integrations/openai/  AI 작성기(OpenAI Structured Output / Stub)
+  integrations/openai/  AI 작성기(OpenAI Structured Output) / 기본형 기사 템플릿(template_writer)
   jobs/           LIVE 타이머 자동 종료 루프
 alembic/          마이그레이션(0001 initial)
 frontend/         React + TypeScript (화면 ↔ 스토리보드 매핑은 docs/DECISIONS.md 3-2)
@@ -129,7 +131,7 @@ scripts/gen_docs.py   문서 재생성
 
 ## 6. 샘플 데이터
 
-`ypr_sample_data.sql`(별도 전달): 2026년 7~9월 일요일 13회 경기 기록. 모든 테이블을 비우고 다시 넣는다.
+`ypr_sample_data.sql`(별도 전달): 2026년 7/4 ~ 10/17 토요일 16회 경기 기록(7 · 8 · 9월 이달의 MVP · 득점왕 · 도움왕, 연속 참가 10회 포함, 10월은 진행 중). 모든 테이블을 비우고 다시 넣는다.
 
 ```
 # 0) 최신 코드로 테이블 준비

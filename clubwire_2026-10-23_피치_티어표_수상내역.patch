@@ -1,0 +1,885 @@
+diff --git a/README.md b/README.md
+index f20488d..ba13c6a 100644
+--- a/README.md
++++ b/README.md
+@@ -59,7 +59,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리
+ | `test_concurrency.py` | 동시 골 20건(멱등키 중복 8건 포함) → 점수 = 이벤트 수 |
+ | `test_regressions.py` | 한쪽 팀이 빈 경기 포함 시 증분=전체 재계산, 설정 버전 연속 증가, 마감 이전 날짜 일정 차단, 득점자 팀 이동 차단, 제외 멤버 참석자 목록 반영 |
+ | `test_frontend_apis.py` | 홈 LIVE 배너 · 요약 줄(tzdata 없는 환경 포함), 일정 목록 인원수, 일정 요약, 멤버별 수상 이력, 기사 목록 페이지(게시 순서 커서·일정 날짜), 선수 프로필(가입일 · 출생연도 입력 · 지우기) |
+-| `test_titles_v2.py` | 이달의 득점왕 · 도움왕(월 마감, 동점 공동, MVP 기사 한 줄, MVP만 발표된 달 보충), 연속 참가 10 · 20회(참석 명단 기준, 취소 일정 무시, 결석하면 끊김, 다시 쌓으면 다시 수여) |
++| `test_titles_v2.py` | 이달의 득점왕 · 도움왕(월 마감, 동점 공동, MVP 기사 한 줄, MVP만 발표된 달 보충), 연속 참가 10 · 20회(참석 명단 기준, 취소 일정 무시, 결석하면 끊김, 다시 쌓으면 다시 수여), 수상 내역 조회 조건(`titleCode` 정확 · 앞부분, 기간, `limit`)과 선수 상세 `top` |
+ | `test_article_writer.py` | AI 창의성 · 답변 최대 길이가 요청에 실림, temperature 미지원 모델 재요청, 연결 실패 · 크레딧 초과 · 키 오류 · 답변 잘림 → 기본형 기사(게시 규칙 그대로) + 원인 표시, [다시 쓰기]로 AI 복귀, 키 없음 |
+ | `test_monthly_mvp.py` | 이달의 MVP: 상승률 계산(DB 이력과 일치) · 자격(일정 2회) · 열린 일정 있으면 대기 · 마지막 일정 마감 시 타이틀 + 기사 바로 게시 · 점수 비노출 · 한 달 한 번 · 후보 1~3위 |
+ | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
+diff --git a/app/api/stats.py b/app/api/stats.py
+index 7c40cbf..c4d610f 100644
+--- a/app/api/stats.py
++++ b/app/api/stats.py
+@@ -21,9 +21,10 @@ def member_stats(club: Club = Depends(club_dep), db: Session = Depends(get_db)):
+ 
+ 
+ @router.get("/stats/members/{member_id}", summary="개인 상세 통계: 최근 폼, 자주 같은 팀, 자주 만난 상대(공개)")
+-def member_detail(member_id: int, club: Club = Depends(club_dep), db: Session = Depends(get_db)):
++def member_detail(member_id: int, top: int = Query(5, ge=1, le=20, description="자주 같은 팀 · 맞붙은 선수 몇 명까지"),
++                  club: Club = Depends(club_dep), db: Session = Depends(get_db)):
+     m = get_member(db, club.club_id, member_id)
+-    return stats_service.member_detail(db, club.club_id, m)
++    return stats_service.member_detail(db, club.club_id, m, top_n=top)
+ 
+ 
+ @router.get("/stats/mvp-race", summary="이달의 MVP 후보 1~3위(실력 점수 상승률 %만, 점수 자체는 비공개) + 지난달 MVP(공개)")
+diff --git a/app/api/titles.py b/app/api/titles.py
+index d516a69..a9be523 100644
+--- a/app/api/titles.py
++++ b/app/api/titles.py
+@@ -43,9 +43,11 @@ def update_type(title_type_id: int, body: TitleTypeUpdate, club: Club = Depends(
+ 
+ @router.get("/awards", summary="타이틀 수여 이력(공개)")
+ def list_awards(member_id: int | None = Query(None, alias="memberId"), date_from: date | None = Query(None, alias="from"),
+-                date_to: date | None = Query(None, alias="to"), club: Club = Depends(club_dep),
+-                db: Session = Depends(get_db)):
+-    return title_service.list_awards(db, club.club_id, member_id=member_id, date_from=date_from, date_to=date_to)
++                date_to: date | None = Query(None, alias="to"),
++                title_code: str | None = Query(None, alias="titleCode", description="타이틀 코드. 'ATTEND_STREAK_'처럼 _로 끝나면 앞부분 일치"),
++                limit: int = Query(100, ge=1, le=1000), club: Club = Depends(club_dep), db: Session = Depends(get_db)):
++    return title_service.list_awards(db, club.club_id, member_id=member_id, date_from=date_from, date_to=date_to,
++                                     title_code=title_code, limit=limit)
+ 
+ 
+ @router.post("/awards", status_code=201, summary="타이틀 수여(수동 타이틀. 기본 타이틀은 모두 자동 집계)")
+diff --git a/app/services/title_service.py b/app/services/title_service.py
+index 43850bd..8ca4949 100644
+--- a/app/services/title_service.py
++++ b/app/services/title_service.py
+@@ -223,11 +223,15 @@ def compute_attendance_titles(db: Session, club_id: int, anchor: ClubSession) ->
+ 
+ 
+ def list_awards(db: Session, club_id: int, *, member_id: int | None = None, date_from: date | None = None,
+-                date_to: date | None = None, include_cancelled: bool = False, limit: int = 100) -> list[dict]:
++                date_to: date | None = None, title_code: str | None = None, include_cancelled: bool = False,
++                limit: int = 100) -> list[dict]:
+     stmt = (select(MemberTitle, TitleType).join(TitleType, TitleType.title_type_id == MemberTitle.title_type_id)
+             .where(MemberTitle.club_id == club_id, TitleType.active_yn.is_(True)))  # 비활성 타이틀 이력은 숨김
+     if member_id:
+         stmt = stmt.where(MemberTitle.member_id == member_id)
++    if title_code:  # 'ATTEND_STREAK_'처럼 _로 끝나면 묶음(연속 참가 10~50회 전부)
++        stmt = stmt.where(TitleType.title_code.startswith(title_code) if title_code.endswith("_")
++                          else TitleType.title_code == title_code)
+     if date_from:
+         stmt = stmt.where(MemberTitle.period_end >= date_from)
+     if date_to:
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index cab5433..db9693a 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -389,6 +389,24 @@ DELETE MT FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_T
+ - alembic 0008: `TITLE_TYPE` 설명 · `AUTO_RULE` 설명만 변경
+ - 샘플 데이터 다시 생성: 7 · 8 · 9월 이달의 득점왕 · 도움왕, 연속 참가 10회(4명) 포함
+ - 테스트 `tests/test_titles_v2.py`
++- 방사형 케미 맵은 3-13에서 [풋살 피치 | 궁합 티어표]로 교체
++
++## 3-13. 케미 = 풋살 피치 | 궁합 티어표 + 수상 내역 기간 · 상 별 조회 (2026-10-23)
++
++| 항목 | 결정 | 이유 |
++|---|---|---|
++| 케미 화면 | 방사형 맵 → `components/Chemistry.tsx`. 위 토글 [풋살 피치 \| 궁합 티어표], 기본 = 풋살 피치. [목록으로 보기] 제거 | 요청(시안 4개 중 피치 · 티어표 채택) |
++| 풋살 피치 | 세로 코트, 가운데 원 = 나. 위 진영 = 자주 같은 팀 5명, 아래 진영 = 자주 맞붙은 5명. 경기 수 1 · 2위는 가운데 가까운 공격 자리, 3 · 4위는 수비 자리, 5위는 골키퍼 자리. 원 크기 = 경기 수, 색 = 승률 3단계(3-12와 같은 파랑 · 회색 · 주황), 이름 아래 'n경기 · 승률', 누르면 그 선수 | 많이 함께한 사람이 나와 가까이 보이게. 5명 = 풋살 한 팀 |
++| 궁합 티어표 | 같은 팀: 찰떡(같이 뛴 승률 50%↑) · 보통 · 상극(30%↓). 맞대결: 먹잇감(내 승률 50%↑) · 호각 · 천적(30%↓). 칸 안은 경기 수 순 칩, 누르면 그 선수. 없으면 '없음' | 피치는 5명만 보이므로 나머지까지 한 번에. 기준값은 피치 색과 같게 |
++| 몇 명까지 | 선수 화면은 `GET /stats/members/{id}?top=10`(기본 5, 1~20). 피치는 상위 5명, 티어표는 받은 10명 전부 | 기존 호출(기본 5)은 그대로 |
++| 수상 내역(기록 탭) | 기간 조회가 기본: [◀ n월 ▶] + [올해] [전체], 기본 = 이번 달. 다음 달 버튼은 이번 달에서 막힘 | 요청 |
++| 상 별 조회 | 기간 아래 상 칩([전체] + 타이틀 종류). 연속 참가 10~50회는 칩 하나 '연속 참가'로 묶음. 기간과 함께 걸림 | 요청(상 칩 + 기간 함께) |
++| 화면 구성 | '{기간} · 수상 n건 · m명' 한 줄, 많이 받은 선수 5명, 아래 수상 목록(기간 묶음). 선수 이름 누르면 그 선수 화면 | 요청 |
++| 주소 | `?tab=awards&period=2026-10\|year\|all&title=코드` → 새로고침 · 뒤로가기에도 조건 유지 | |
++| 수상 API | `GET /titles/awards`에 `titleCode`(끝이 `_`면 앞부분 일치: `ATTEND_STREAK_` = 연속 참가 전부) · `limit`(기본 100, 최대 1000) 추가. 기존 `memberId` · `from` · `to` 그대로 | 기간 '전체'를 한 번에 받기 위해 limit 상향 허용 |
++
++- DB · alembic 변경 없음(0008 그대로), 샘플 데이터 그대로
++- 테스트 `tests/test_titles_v2.py`에 `titleCode`(정확 · 앞부분) · 기간 · `limit` · `top` 확인 추가
+ 
+ ## 4. 남은 이슈 / 다음 단계
+ 
+diff --git a/docs/openapi.json b/docs/openapi.json
+index a00bb30..c712268 100644
+--- a/docs/openapi.json
++++ b/docs/openapi.json
+@@ -2511,6 +2511,20 @@
+               "title": "Club Slug"
+             },
+             "description": "클럽 주소(slug)"
++          },
++          {
++            "name": "top",
++            "in": "query",
++            "required": false,
++            "schema": {
++              "type": "integer",
++              "maximum": 20,
++              "minimum": 1,
++              "description": "자주 같은 팀 · 맞붙은 선수 몇 명까지",
++              "default": 5,
++              "title": "Top"
++            },
++            "description": "자주 같은 팀 · 맞붙은 선수 몇 명까지"
+           }
+         ],
+         "responses": {
+@@ -2915,6 +2929,36 @@
+               ],
+               "title": "To"
+             }
++          },
++          {
++            "name": "titleCode",
++            "in": "query",
++            "required": false,
++            "schema": {
++              "anyOf": [
++                {
++                  "type": "string"
++                },
++                {
++                  "type": "null"
++                }
++              ],
++              "description": "타이틀 코드. 'ATTEND_STREAK_'처럼 _로 끝나면 앞부분 일치",
++              "title": "Titlecode"
++            },
++            "description": "타이틀 코드. 'ATTEND_STREAK_'처럼 _로 끝나면 앞부분 일치"
++          },
++          {
++            "name": "limit",
++            "in": "query",
++            "required": false,
++            "schema": {
++              "type": "integer",
++              "maximum": 1000,
++              "minimum": 1,
++              "default": 100,
++              "title": "Limit"
++            }
+           }
+         ],
+         "responses": {
+diff --git a/frontend/src/api/endpoints.ts b/frontend/src/api/endpoints.ts
+index c5cd1d9..d5b599c 100644
+--- a/frontend/src/api/endpoints.ts
++++ b/frontend/src/api/endpoints.ts
+@@ -98,10 +98,10 @@ export const makeApi = (slug: string) => ({
+ 
+   // 통계 / 타이틀
+   memberStats: () => request<MemberStat[]>(slug, 'GET', '/stats/members'),
+-  memberDetail: (id: number) => request<MemberDetail>(slug, 'GET', `/stats/members/${id}`),
++  memberDetail: (id: number, top = 5) => request<MemberDetail>(slug, 'GET', `/stats/members/${id}`, { query: { top } }),
+   mvpRace: () => request<MvpRace>(slug, 'GET', '/stats/mvp-race'),
+   titleTypes: () => request<TitleType[]>(slug, 'GET', '/titles/types'),
+-  awards: (query: { memberId?: number; from?: string; to?: string } = {}) =>
++  awards: (query: { memberId?: number; from?: string; to?: string; titleCode?: string; limit?: number } = {}) =>
+     request<Award[]>(slug, 'GET', '/titles/awards', { query }),
+   award: (body: { titleCode: string; memberId: number; sessionId?: number; note?: string }) =>
+     request(slug, 'POST', '/titles/awards', { body }),
+diff --git a/frontend/src/components/Chemistry.tsx b/frontend/src/components/Chemistry.tsx
+new file mode 100644
+index 0000000..8130524
+--- /dev/null
++++ b/frontend/src/components/Chemistry.tsx
+@@ -0,0 +1,196 @@
++// 케미: 자주 같은 팀이 된 선수 · 자주 맞붙은 선수를 [풋살 피치 | 궁합 티어표] 두 가지로 보여 준다(기본 = 피치).
++// - 풋살 피치: 우리 반쪽 = 자주 같은 팀 5명, 상대 반쪽 = 자주 맞붙은 5명. 경기 수가 많을수록 나(가운데)와 가까운 자리,
++//   원 크기 = 경기 수, 테두리 색 = 승률 3단계. 이름 아래에 숫자(경기 · 승률 / 승 무 패)를 같이 써서 색만으로 읽지 않게
++// - 궁합 티어표: 같은 팀은 찰떡 / 보통 / 상극, 상대는 먹잇감 / 호각 / 천적 칸에 나눠 담기
++// 색: 파랑(50%↑) · 회색(30~50%) · 주황(30%↓) — 빨강/초록과 달리 색약에도 구분되는 짝. 선수를 누르면 그 선수 화면
++
++import { useState } from 'react'
++import { Link } from 'react-router-dom'
++import { initials } from '../lib/format'
++
++export interface MateLink {
++  memberId: number
++  name: string | null
++  matches: number
++  wins: number
++  draws: number
++  winRate: number | null
++}
++
++export interface RivalLink {
++  memberId: number
++  name: string | null
++  matches: number
++  wins: number
++  draws: number
++  losses: number
++}
++
++type Tier = 'hi' | 'mid' | 'lo'
++/** 승률 3단계: 50% 이상 / 30% 미만(3팀 풋살은 무승부가 많아 평균 승률이 35~40%대) */
++const HI = 0.5
++const LO = 0.3
++const PITCH_PLAYERS = 5
++
++function tierOf(wins: number, matches: number): Tier {
++  if (!matches) return 'mid'
++  const r = wins / matches
++  return r >= HI ? 'hi' : r < LO ? 'lo' : 'mid'
++}
++
++const pctText = (wins: number, matches: number) => (matches ? `${Math.round((wins / matches) * 100)}%` : '-')
++
++type View = 'pitch' | 'tiers'
++
++export function Chemistry({ slug, me, teammates, opponents }: {
++  slug: string
++  me: string
++  teammates: MateLink[]
++  opponents: RivalLink[]
++}) {
++  const [view, setView] = useState<View>('pitch')
++  if (!teammates.length && !opponents.length) return <p className="small muted">기록이 쌓이면 보여요.</p>
++  return (
++    <>
++      <div className="seg" role="group" aria-label="케미 보기 방식">
++        <button type="button" aria-pressed={view === 'pitch'} onClick={() => setView('pitch')}>풋살 피치</button>
++        <button type="button" aria-pressed={view === 'tiers'} onClick={() => setView('tiers')}>궁합 티어표</button>
++      </div>
++      {view === 'pitch'
++        ? <Pitch slug={slug} me={me} teammates={teammates.slice(0, PITCH_PLAYERS)} opponents={opponents.slice(0, PITCH_PLAYERS)} />
++        : <Tiers slug={slug} teammates={teammates} opponents={opponents} />}
++      <div className="chem-legend">
++        {view === 'pitch' ? <span className="chem-key"><i className="size" />원 크기 = 경기 수</span> : null}
++        <span className="chem-key"><i className="c hi" />승률 50%↑</span>
++        <span className="chem-key"><i className="c mid" />30~50%</span>
++        <span className="chem-key"><i className="c lo" />30%↓</span>
++      </div>
++    </>
++  )
++}
++
++// ------------------------------------------------------------------ 풋살 피치
++const W = 362
++const H = 548
++const MID = H / 2
++/** 경기 수 순위 → 자리(1·2위 = 하프라인 쪽 공격수, 3·4위 = 수비, 5위 = 골키퍼). 이름 · 숫자는 원 아래에 쓰므로
++ *  아래쪽 반은 거울 위치보다 조금 위로 올려 둔다 */
++const TOP_SLOTS: [number, number][] = [[104, 208], [W - 104, 208], [68, 124], [W - 68, 124], [W / 2, 52]]
++const BOTTOM_SLOTS: [number, number][] = [[104, 330], [W - 104, 330], [68, 408], [W - 68, 408], [W / 2, 478]]
++
++interface Spot {
++  id: number
++  name: string
++  x: number
++  y: number
++  r: number
++  tier: Tier
++  stat: string
++  title: string
++}
++
++function Pitch({ slug, me, teammates, opponents }: { slug: string; me: string; teammates: MateLink[]; opponents: RivalLink[] }) {
++  const maxM = Math.max(1, ...teammates.map((m) => m.matches), ...opponents.map((m) => m.matches))
++  const radius = (m: number) => 13 + 8 * (m / maxM)
++  const spots: Spot[] = [
++    ...teammates.map((m, i): Spot => {
++      const losses = m.matches - m.wins - m.draws
++      return {
++        id: m.memberId, name: m.name ?? '', x: TOP_SLOTS[i][0], y: TOP_SLOTS[i][1], r: radius(m.matches),
++        tier: tierOf(m.wins, m.matches), stat: `${m.matches}경기 · ${pctText(m.wins, m.matches)}`,
++        title: `${m.name}: 같은 팀 ${m.matches}경기 ${m.wins}승 ${m.draws}무 ${losses}패`,
++      }
++    }),
++    ...opponents.map((m, i): Spot => ({
++      id: m.memberId, name: m.name ?? '', x: BOTTOM_SLOTS[i][0], y: BOTTOM_SLOTS[i][1], r: radius(m.matches),
++      tier: tierOf(m.wins, m.matches), stat: `${m.wins}승 ${m.draws}무 ${m.losses}패`,
++      title: `${m.name} 상대로 ${m.matches}경기 ${m.wins}승 ${m.draws}무 ${m.losses}패`,
++    })),
++  ]
++  const summary = `${me}의 케미 피치. 우리 팀(자주 같은 팀): ${teammates.map((m) => `${m.name} ${m.matches}경기`).join(', ') || '없음'}. `
++    + `상대(자주 맞붙은): ${opponents.map((m) => `${m.name} ${m.wins}승 ${m.draws}무 ${m.losses}패`).join(', ') || '없음'}.`
++
++  return (
++    <figure className="chem-pitch">
++      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={summary}>
++        <rect x={1} y={1} width={W - 2} height={H - 2} rx={14} className="pitch-turf" />
++        <line x1={1} y1={MID} x2={W - 1} y2={MID} className="pitch-line" />
++        <circle cx={W / 2} cy={MID} r={44} className="pitch-line" />
++        <path d={`M${W / 2 - 70} 1 v36 a70 30 0 0 0 140 0 v-36`} className="pitch-line" />
++        <path d={`M${W / 2 - 70} ${H - 1} v-36 a70 30 0 0 1 140 0 v36`} className="pitch-line" />
++        <text x={12} y={22} className="pitch-side">우리 팀</text>
++        <text x={12} y={36} className="pitch-side sub">자주 같은 팀</text>
++        <text x={12} y={H - 26} className="pitch-side">상대</text>
++        <text x={12} y={H - 12} className="pitch-side sub">자주 맞붙은</text>
++
++        <circle cx={W / 2} cy={MID} r={24} className="pitch-me" />
++        <text x={W / 2} y={MID + 5} textAnchor="middle" className="pitch-me-text">{initials(me)}</text>
++
++        {spots.map((p) => (
++          <Link key={`${p.y < MID ? 't' : 'b'}${p.id}`} to={`/c/${slug}/members/${p.id}`} className="pitch-node" aria-label={p.title}>
++            <title>{p.title}</title>
++            <circle cx={p.x} cy={p.y} r={p.r} className={`pitch-dot ${p.tier}`} />
++            <text x={p.x} y={p.y + 4} textAnchor="middle" className="pitch-ini">{initials(p.name)}</text>
++            <text x={p.x} y={p.y + p.r + 15} textAnchor="middle" className="pitch-name">{p.name}</text>
++            <text x={p.x} y={p.y + p.r + 30} textAnchor="middle" className="pitch-stat">{p.stat}</text>
++          </Link>
++        ))}
++      </svg>
++    </figure>
++  )
++}
++
++// ------------------------------------------------------------------ 궁합 티어표
++const MATE_TIERS: { tier: Tier; title: string; note: string }[] = [
++  { tier: 'hi', title: '찰떡', note: '승률 50%↑' },
++  { tier: 'mid', title: '보통', note: '30~50%' },
++  { tier: 'lo', title: '상극', note: '30%↓' },
++]
++const RIVAL_TIERS: { tier: Tier; title: string; note: string }[] = [
++  { tier: 'hi', title: '먹잇감', note: '내 승률 50%↑' },
++  { tier: 'mid', title: '호각', note: '30~50%' },
++  { tier: 'lo', title: '천적', note: '30%↓' },
++]
++
++function Tiers({ slug, teammates, opponents }: { slug: string; teammates: MateLink[]; opponents: RivalLink[] }) {
++  return (
++    <>
++      <h3 className="tier-head">같은 팀 궁합</h3>
++      <TierTable slug={slug} rows={MATE_TIERS} items={teammates.map((m) => ({
++        id: m.memberId, name: m.name ?? '', tier: tierOf(m.wins, m.matches), matches: m.matches,
++        stat: `${m.matches}경기 ${pctText(m.wins, m.matches)}`,
++      }))} />
++      <h3 className="tier-head">맞대결 상성</h3>
++      <TierTable slug={slug} rows={RIVAL_TIERS} items={opponents.map((m) => ({
++        id: m.memberId, name: m.name ?? '', tier: tierOf(m.wins, m.matches), matches: m.matches,
++        stat: `${m.wins}-${m.draws}-${m.losses}`,
++      }))} />
++    </>
++  )
++}
++
++function TierTable({ slug, rows, items }: {
++  slug: string
++  rows: { tier: Tier; title: string; note: string }[]
++  items: { id: number; name: string; tier: Tier; matches: number; stat: string }[]
++}) {
++  return (
++    <div className="tier-table">
++      {rows.map((r) => {
++        const inTier = items.filter((x) => x.tier === r.tier).sort((a, b) => b.matches - a.matches)
++        return (
++          <div key={r.tier} className="tier-row">
++            <div className="tier-name">{r.title}<small>{r.note}</small></div>
++            <div className="tier-chips">
++              {inTier.length ? inTier.map((x) => (
++                <Link key={x.id} to={`/c/${slug}/members/${x.id}`} className={`tier-chip ${x.tier}`}>
++                  <b>{initials(x.name)}</b>{x.name}<span>{x.stat}</span>
++                </Link>
++              )) : <span className="tier-empty">없음</span>}
++            </div>
++          </div>
++        )
++      })}
++    </div>
++  )
++}
+diff --git a/frontend/src/components/ChemistryMap.tsx b/frontend/src/components/ChemistryMap.tsx
+deleted file mode 100644
+index 8a10c38..0000000
+--- a/frontend/src/components/ChemistryMap.tsx
++++ /dev/null
+@@ -1,142 +0,0 @@
+-// 케미 맵: 나를 가운데 두고 위쪽 반원 = 자주 같은 팀이 된 선수, 아래쪽 반원 = 자주 맞붙은 선수(각 최대 5명).
+-// 선 굵기 = 함께 · 맞붙은 경기 수, 색 = 승률 3단계(파랑 높음 · 회색 보통 · 주황 낮음 — 색약에도 구분되는 짝).
+-// 색만으로 읽지 않게 이름 아래에 숫자(경기 수 · 승률 / 승 무 패)를 같이 쓰고, 정확한 값은 아래 [목록으로 보기]에 둔다.
+-
+-import { Link } from 'react-router-dom'
+-import { initials } from '../lib/format'
+-
+-export interface MateLink {
+-  memberId: number
+-  name: string | null
+-  matches: number
+-  wins: number
+-  draws: number
+-  winRate: number | null
+-}
+-
+-export interface RivalLink {
+-  memberId: number
+-  name: string | null
+-  matches: number
+-  wins: number
+-  draws: number
+-  losses: number
+-}
+-
+-type Tier = 'hi' | 'mid' | 'lo'
+-/** 승률 3단계: 50% 이상 높음, 30% 미만 낮음(3팀 풋살은 무승부가 많아 평균 승률이 35~40%대) */
+-const HI = 0.5
+-const LO = 0.3
+-const TIER_LABEL: Record<Tier, string> = { hi: '승률 50%↑', mid: '30~50%', lo: '30%↓' }
+-
+-const W = 360
+-const H = 400
+-const CX = 180
+-const CY = 200
+-const R = 130
+-const NODE = 19
+-const MAX = 5
+-
+-function tierOf(rate: number | null): Tier {
+-  if (rate === null) return 'mid'
+-  return rate >= HI ? 'hi' : rate < LO ? 'lo' : 'mid'
+-}
+-
+-/** 반원 위에 n개를 고르게: 위쪽은 200°~340°, 아래쪽은 20°~160°(화면 좌표, y가 아래로) */
+-function angles(n: number, side: 'top' | 'bottom'): number[] {
+-  const [from, to] = side === 'top' ? [200, 340] : [160, 20]
+-  if (n === 1) return [side === 'top' ? 270 : 90]
+-  return Array.from({ length: n }, (_, i) => from + ((to - from) * i) / (n - 1))
+-}
+-
+-interface Node {
+-  id: number
+-  name: string
+-  x: number
+-  y: number
+-  side: 'top' | 'bottom'
+-  width: number
+-  tier: Tier
+-  stat: string
+-  title: string
+-}
+-
+-export function ChemistryMap({ slug, me, teammates, opponents }: {
+-  slug: string
+-  me: string
+-  teammates: MateLink[]
+-  opponents: RivalLink[]
+-}) {
+-  const mates = teammates.slice(0, MAX)
+-  const rivals = opponents.slice(0, MAX)
+-  const maxMatches = Math.max(1, ...mates.map((m) => m.matches), ...rivals.map((m) => m.matches))
+-  const width = (m: number) => 2 + 6 * (m / maxMatches)
+-  const pos = (deg: number) => ({ x: CX + R * Math.cos((deg * Math.PI) / 180), y: CY + R * Math.sin((deg * Math.PI) / 180) })
+-
+-  const nodes: Node[] = [
+-    ...mates.map((m, i): Node => {
+-      const p = pos(angles(mates.length, 'top')[i])
+-      const rate = m.winRate ?? (m.matches ? m.wins / m.matches : null)
+-      const losses = m.matches - m.wins - m.draws
+-      return {
+-        id: m.memberId, name: m.name ?? '', ...p, side: 'top', width: width(m.matches), tier: tierOf(rate),
+-        stat: `${m.matches}경기 · ${rate === null ? '-' : Math.round(rate * 100)}%`,
+-        title: `${m.name}: 같은 팀 ${m.matches}경기, ${m.wins}승 ${m.draws}무 ${losses}패`,
+-      }
+-    }),
+-    ...rivals.map((m, i): Node => {
+-      const p = pos(angles(rivals.length, 'bottom')[i])
+-      return {
+-        id: m.memberId, name: m.name ?? '', ...p, side: 'bottom', width: width(m.matches),
+-        tier: tierOf(m.matches ? m.wins / m.matches : null),
+-        stat: `${m.wins}승 ${m.draws}무 ${m.losses}패`,
+-        title: `${m.name} 상대로 ${m.matches}경기 ${m.wins}승 ${m.draws}무 ${m.losses}패`,
+-      }
+-    }),
+-  ]
+-  if (!nodes.length) return <p className="small muted">기록이 쌓이면 보여요.</p>
+-
+-  const summary = `${me}의 케미 맵. 자주 같은 팀: ${mates.map((m) => `${m.name} ${m.matches}경기`).join(', ') || '없음'}. `
+-    + `자주 맞붙은 선수: ${rivals.map((m) => `${m.name} ${m.wins}승 ${m.draws}무 ${m.losses}패`).join(', ') || '없음'}.`
+-
+-  return (
+-    <figure className="chem">
+-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={summary}>
+-        {/* 가운데 구분선 + 위/아래 이름표 */}
+-        <line x1={8} y1={CY} x2={CX - 34} y2={CY} className="chem-divider" />
+-        <line x1={CX + 34} y1={CY} x2={W - 8} y2={CY} className="chem-divider" />
+-        <text x={10} y={CY - 8} className="chem-side">▲ 같은 팀</text>
+-        <text x={10} y={CY + 18} className="chem-side">▼ 맞대결</text>
+-
+-        {nodes.map((n) => (
+-          <line key={`l${n.side}${n.id}`} x1={CX} y1={CY} x2={n.x} y2={n.y} strokeWidth={n.width}
+-            className={`chem-link ${n.tier}`} />
+-        ))}
+-
+-        <circle cx={CX} cy={CY} r={27} className="chem-me" />
+-        <text x={CX} y={CY + 5} textAnchor="middle" className="chem-me-text">{initials(me)}</text>
+-
+-        {nodes.map((n) => {
+-          const up = n.side === 'top'
+-          const nameY = up ? n.y - NODE - 20 : n.y + NODE + 15
+-          const statY = up ? n.y - NODE - 5 : n.y + NODE + 30
+-          return (
+-            <Link key={`n${n.side}${n.id}`} to={`/c/${slug}/members/${n.id}`} className="chem-node" aria-label={n.title}>
+-              <title>{n.title}</title>
+-              <circle cx={n.x} cy={n.y} r={NODE} className={`chem-dot ${n.tier}`} />
+-              <text x={n.x} y={n.y + 4} textAnchor="middle" className="chem-ini">{initials(n.name)}</text>
+-              <text x={n.x} y={nameY} textAnchor="middle" className="chem-name">{n.name}</text>
+-              <text x={n.x} y={statY} textAnchor="middle" className="chem-stat">{n.stat}</text>
+-            </Link>
+-          )
+-        })}
+-      </svg>
+-      <figcaption className="chem-legend">
+-        <span className="chem-key"><i className="w" />선 굵기 = 경기 수</span>
+-        {(['hi', 'mid', 'lo'] as Tier[]).map((t) => (
+-          <span key={t} className="chem-key"><i className={`c ${t}`} />{TIER_LABEL[t]}</span>
+-        ))}
+-      </figcaption>
+-    </figure>
+-  )
+-}
+diff --git a/frontend/src/pages/PlayerPage.tsx b/frontend/src/pages/PlayerPage.tsx
+index eda0b2d..d0aacfe 100644
+--- a/frontend/src/pages/PlayerPage.tsx
++++ b/frontend/src/pages/PlayerPage.tsx
+@@ -1,9 +1,9 @@
+-// S05 선수 기록 (+ 수상 이력: 최근 5개 가로 넘김) · 프로필(가입일 · 출생연도, 관리자 모드에서 입력) · 케미 맵
++// S05 선수 기록 (+ 수상 이력: 최근 5개 가로 넘김) · 프로필(가입일 · 출생연도, 관리자 모드에서 입력) · 케미(풋살 피치 | 궁합 티어표)
+ 
+ import { useState } from 'react'
+-import { Link, useParams } from 'react-router-dom'
++import { useParams } from 'react-router-dom'
+ import type { Award, MemberProfile } from '../api/types'
+-import { ChemistryMap } from '../components/ChemistryMap'
++import { Chemistry } from '../components/Chemistry'
+ import { ErrorBox, Loading, TopBar } from '../components/ui'
+ import { useClub } from '../lib/club'
+ import { fmtAwardPeriod, fmtAwardValue, fmtFullDate, initials, pct, RESULT_LABEL } from '../lib/format'
+@@ -12,12 +12,14 @@ import { useAction, useAsync } from '../lib/hooks'
+ const EMPTY_PROFILE: MemberProfile = { joinedAt: null, birthYear: null }
+ /** 수상 이력 카드로 보여 줄 개수(나머지는 [전체 보기]) */
+ const AWARD_CARDS = 5
++/** 케미: 자주 같은 팀 · 맞붙은 선수 몇 명까지 받을지(피치는 5명, 티어표는 전부) */
++const CHEMISTRY_TOP = 10
+ 
+ export function PlayerPage() {
+   const { memberId } = useParams()
+   const id = Number(memberId)
+   const { api, slug, isAdmin } = useClub()
+-  const detail = useAsync(() => api.memberDetail(id), [api, id])
++  const detail = useAsync(() => api.memberDetail(id, CHEMISTRY_TOP), [api, id])
+   const awards = useAsync(() => api.awards({ memberId: id }), [api, id])
+ 
+   if (detail.error) return <><TopBar title="선수 기록" back /><ErrorBox error={detail.error} onRetry={detail.reload} /></>
+@@ -77,27 +79,8 @@ export function PlayerPage() {
+         <AwardStrip awards={awards.data ?? []} />
+ 
+         <section className="section">
+-          <h2 style={{ fontSize: 15, fontWeight: 700 }}>케미 맵</h2>
+-          <ChemistryMap slug={slug} me={s.name} teammates={d.frequentTeammates} opponents={d.frequentOpponents} />
+-          {d.frequentTeammates.length || d.frequentOpponents.length ? (
+-            <details className="card flat">
+-              <summary className="small">목록으로 보기</summary>
+-              <h3 className="small muted" style={{ fontWeight: 700, margin: '4px 0' }}>자주 같은 팀이 된 선수</h3>
+-              {d.frequentTeammates.map((p) => (
+-                <Link key={p.memberId} to={`/c/${slug}/members/${p.memberId}`} className="list-row">
+-                  <b>{p.name}</b>
+-                  <span className="muted">{p.matches}경기 · 함께 승률 {pct(p.winRate)}</span>
+-                </Link>
+-              ))}
+-              <h3 className="small muted" style={{ fontWeight: 700, margin: '10px 0 4px' }}>자주 맞붙은 선수</h3>
+-              {d.frequentOpponents.map((p) => (
+-                <Link key={p.memberId} to={`/c/${slug}/members/${p.memberId}`} className="list-row">
+-                  <b>{p.name}</b>
+-                  <span className="muted">{p.matches}경기 · {p.wins}승 {p.draws}무 {p.losses}패</span>
+-                </Link>
+-              ))}
+-            </details>
+-          ) : null}
++          <h2 style={{ fontSize: 15, fontWeight: 700 }}>케미</h2>
++          <Chemistry slug={slug} me={s.name} teammates={d.frequentTeammates} opponents={d.frequentOpponents} />
+         </section>
+       </main>
+     </>
+diff --git a/frontend/src/pages/RecordsPage.tsx b/frontend/src/pages/RecordsPage.tsx
+index afdb33e..4092466 100644
+--- a/frontend/src/pages/RecordsPage.tsx
++++ b/frontend/src/pages/RecordsPage.tsx
+@@ -6,7 +6,7 @@ import type { Article, Award, MemberStat } from '../api/types'
+ import { ArticleCard } from '../components/ArticleCard'
+ import { ClubBar, Empty, ErrorBox, Loading } from '../components/ui'
+ import { useClub, useClubEvent } from '../lib/club'
+-import { fmtAwardValue, fmtDate, fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
++import { fmtAwardPeriod, fmtAwardValue, fmtDate, fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
+ import { useAction, useAsync } from '../lib/hooks'
+ 
+ type RecordsTab = 'stats' | 'awards' | 'articles'
+@@ -51,7 +51,7 @@ export function RecordsPage() {
+         {tab === 'stats' ? (
+           <StatsTab stats={stats.data} awards={awards.data ?? []} error={stats.error} loading={stats.loading} reload={stats.reload} />
+         ) : tab === 'awards' ? (
+-          <AwardsTab awards={awards.data} error={awards.error} reload={awards.reload} />
++          <AwardsTab />
+         ) : (
+           <ArticlesTab />
+         )}
+@@ -145,43 +145,131 @@ function StatsTab({ stats, awards, error, loading, reload }: {
+   )
+ }
+ 
+-function AwardsTab({ awards, error, reload }: { awards: Award[] | undefined; error: unknown; reload: () => void }) {
+-  const { slug } = useClub()
+-  if (error) return <ErrorBox error={error} onRetry={reload} />
+-  if (!awards) return <Loading />
+-  if (awards.length === 0) return <Empty>아직 수여된 타이틀이 없어요.<br />[일정마감] 때 득점왕 · 도움왕이 자동으로 정해져요.</Empty>
+-  const weeks = new Map<string, Award[]>()
+-  awards.forEach((a) => weeks.set(a.periodStart, [...(weeks.get(a.periodStart) ?? []), a]))
+-  const tally = new Map<string, { name: string; n: number; memberId: number }>()
+-  awards.forEach((a) => {
+-    const t = tally.get(String(a.memberId)) ?? { name: a.memberName ?? '', n: 0, memberId: a.memberId }
+-    t.n++
+-    tally.set(String(a.memberId), t)
++// ------------------------------------------------------------------ 수상 내역: 기간(기본 이번 달) + 상 별 조회
++const ATTEND_PREFIX = 'ATTEND_STREAK_'  // 연속 참가 10~50회는 칩 하나로 묶음
++
++type Period = { kind: 'month'; month: string } | { kind: 'year' } | { kind: 'all' }
++
++/** 주소의 period: 'YYYY-MM' | 'year' | 'all'. 없으면 이번 달 */
++function parsePeriod(raw: string | null): Period {
++  if (raw === 'year' || raw === 'all') return { kind: raw }
++  if (raw && /^\d{4}-\d{2}$/.test(raw)) return { kind: 'month', month: raw }
++  return { kind: 'month', month: todayIso().slice(0, 7) }
++}
++
++function shiftMonth(month: string, n: number): string {
++  const [y, m] = month.split('-').map(Number)
++  const d = new Date(y, m - 1 + n, 1)
++  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
++}
++
++function periodRange(p: Period): { from?: string; to?: string } {
++  if (p.kind === 'all') return {}
++  if (p.kind === 'year') { const y = todayIso().slice(0, 4); return { from: `${y}-01-01`, to: `${y}-12-31` } }
++  const [y, m] = p.month.split('-').map(Number)
++  const last = new Date(y, m, 0).getDate()
++  return { from: `${p.month}-01`, to: `${p.month}-${String(last).padStart(2, '0')}` }
++}
++
++function periodLabel(p: Period): string {
++  if (p.kind === 'all') return '전체 기간'
++  if (p.kind === 'year') return `${todayIso().slice(0, 4)}년`
++  const [y, m] = p.month.split('-')
++  return `${y}년 ${Number(m)}월`
++}
++
++function AwardsTab() {
++  const { api, slug } = useClub()
++  const [params, setParams] = useSearchParams()
++  const period = parsePeriod(params.get('period'))
++  const title = params.get('title') ?? ''
++  const range = periodRange(period)
++  const types = useAsync(() => api.titleTypes(), [api])
++  const awards = useAsync(() => api.awards({ ...range, ...(title ? { titleCode: title } : {}), limit: 1000 }),
++    [api, range.from, range.to, title])
++  useClubEvent((m) => {
++    if (m.type === 'TITLE_UPDATED' || m.type === 'SESSION_UPDATED') awards.reload()
+   })
+-  const top = [...tally.values()].sort((a, b) => b.n - a.n).slice(0, 5)
++
++  const set = (next: { period?: string | null; title?: string | null }) => {
++    const q = new URLSearchParams(params)
++    q.set('tab', 'awards')
++    for (const [k, v] of Object.entries(next)) {
++      if (v) q.set(k, v)
++      else q.delete(k)
++    }
++    setParams(q, { replace: true })
++  }
++  const thisMonth = todayIso().slice(0, 7)
++  const month = period.kind === 'month' ? period.month : thisMonth
++  const goMonth = (n: number) => {
++    const m = period.kind === 'month' ? shiftMonth(month, n) : thisMonth
++    set({ period: m === thisMonth ? null : m })
++  }
++  // 상 칩: 활성 타이틀 종류(표시 순서), 연속 참가 n회는 하나로
++  const chips: { code: string; label: string }[] = []
++  for (const t of types.data ?? []) {
++    if (t.titleCode.startsWith(ATTEND_PREFIX)) {
++      if (!chips.some((c) => c.code === ATTEND_PREFIX)) chips.push({ code: ATTEND_PREFIX, label: '연속 참가' })
++    } else chips.push({ code: t.titleCode, label: t.titleName })
++  }
++
++  const list = [...(awards.data ?? [])].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd) || a.titleCode.localeCompare(b.titleCode))
++  const groups = new Map<string, Award[]>()
++  list.forEach((a) => groups.set(fmtAwardPeriod(a), [...(groups.get(fmtAwardPeriod(a)) ?? []), a]))
++  const tally = new Map<number, { name: string; n: number }>()
++  list.forEach((a) => tally.set(a.memberId, { name: a.memberName ?? '', n: (tally.get(a.memberId)?.n ?? 0) + 1 }))
++  const top = [...tally.entries()].sort((x, y) => y[1].n - x[1].n).slice(0, 5)
+ 
+   return (
+     <>
+-      <section className="card stack" style={{ gap: 8 }}>
+-        <h2 style={{ fontSize: 15, fontWeight: 700 }}>타이틀 많이 받은 선수</h2>
+-        {top.map((t, i) => (
+-          <Link key={t.memberId} to={`/c/${slug}/members/${t.memberId}`} className="row between" style={{ color: 'var(--ink)', minHeight: 32 }}>
+-            <span><b>{i + 1}</b>&nbsp;&nbsp;{t.name}</span>
+-            <span className="tag gold">{t.n}회</span>
+-          </Link>
++      <div className="period-bar" role="group" aria-label="기간">
++        <div className="month-nav" data-active={period.kind === 'month'}>
++          <button type="button" className="icon-btn" aria-label="이전 달" onClick={() => goMonth(-1)}>◀</button>
++          <button type="button" className="month-label" onClick={() => set({ period: null })}
++            aria-label={`월별 보기: ${periodLabel({ kind: 'month', month })}`}>
++            {Number(month.slice(5))}월{month.slice(0, 4) !== thisMonth.slice(0, 4) ? <small>{month.slice(0, 4)}</small> : null}
++          </button>
++          <button type="button" className="icon-btn" aria-label="다음 달" disabled={period.kind === 'month' && month >= thisMonth}
++            onClick={() => goMonth(1)}>▶</button>
++        </div>
++        <button type="button" className="chip" aria-pressed={period.kind === 'year'} onClick={() => set({ period: 'year' })}>올해</button>
++        <button type="button" className="chip" aria-pressed={period.kind === 'all'} onClick={() => set({ period: 'all' })}>전체</button>
++      </div>
++      <div className="chips" role="group" aria-label="상 종류">
++        <button type="button" className="chip" aria-pressed={!title} onClick={() => set({ title: null })}>전체</button>
++        {chips.map((c) => (
++          <button key={c.code} type="button" className="chip" aria-pressed={title === c.code} onClick={() => set({ title: c.code })}>{c.label}</button>
+         ))}
+-      </section>
+-      {[...weeks.entries()].map(([start, list]) => (
+-        <section key={start} className="section">
+-          <h2 className="small muted" style={{ fontWeight: 700 }}>{fmtShortDate(start)} – {fmtShortDate(list[0].periodEnd)}</h2>
+-          {list.map((a) => (
+-            <Link key={a.memberTitleId} to={`/c/${slug}/members/${a.memberId}`} className="list-row">
+-              <span className="row"><span className="tag gold">{a.titleName}</span><b>{a.memberName}</b></span>
+-              <span className="small muted">{awardNote(a)}</span>
+-            </Link>
++      </div>
++
++      {awards.error ? <ErrorBox error={awards.error} onRetry={awards.reload} /> : !awards.data ? <Loading /> : list.length === 0 ? (
++        <Empty>{periodLabel(period)}{title ? ` · ${chips.find((c) => c.code === title)?.label ?? ''}` : ''} 수상 기록이 없어요.</Empty>
++      ) : (
++        <>
++          <p className="small muted" style={{ margin: 0 }}>{periodLabel(period)} · 수상 {list.length}건 · {tally.size}명</p>
++          <section className="card stack" style={{ gap: 8 }}>
++            <h2 style={{ fontSize: 15, fontWeight: 700 }}>많이 받은 선수</h2>
++            {top.map(([memberId, t], i) => (
++              <Link key={memberId} to={`/c/${slug}/members/${memberId}`} className="row between" style={{ color: 'var(--ink)', minHeight: 32 }}>
++                <span><b>{i + 1}</b>&nbsp;&nbsp;{t.name}</span>
++                <span className="tag gold">{t.n}회</span>
++              </Link>
++            ))}
++          </section>
++          {[...groups.entries()].map(([label, items]) => (
++            <section key={label} className="section">
++              <h2 className="small muted" style={{ fontWeight: 700 }}>{label}</h2>
++              {items.map((a) => (
++                <Link key={a.memberTitleId} to={`/c/${slug}/members/${a.memberId}`} className="list-row">
++                  <span className="row"><span className="tag gold">{a.titleName}</span><b>{a.memberName}</b></span>
++                  <span className="small muted">{awardNote(a)}</span>
++                </Link>
++              ))}
++            </section>
+           ))}
+-        </section>
+-      ))}
++        </>
++      )}
+     </>
+   )
+ }
+diff --git a/frontend/src/styles/global.css b/frontend/src/styles/global.css
+index f3a5516..7ec56e4 100644
+--- a/frontend/src/styles/global.css
++++ b/frontend/src/styles/global.css
+@@ -449,30 +449,65 @@ a.panel-body:hover { color: var(--ink); background: #222933; }
+ .award-card.more { align-items: center; justify-content: center; border-style: dashed; font: inherit; }
+ .award-card.more b { color: var(--accent-ink); }
+ 
+-/* 선수 화면: 케미 맵(위 = 같은 팀, 아래 = 맞대결). 색은 승률 3단계 — 파랑/주황은 색약에도 구분되는 짝 */
+-:root { --chem-hi: #5b9bff; --chem-mid: #7d8796; --chem-lo: #f08a3c; }
+-.chem { margin: 0; padding: 4px 0 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
+-.chem svg { display: block; width: 100%; height: auto; max-width: 420px; margin: 0 auto; }
+-.chem-divider { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 4; }
+-.chem-side { font-size: 11px; font-weight: 700; fill: var(--muted); }
+-.chem-link { stroke-linecap: round; opacity: 0.85; }
+-.chem-link.hi, .chem-dot.hi { stroke: var(--chem-hi); }
+-.chem-link.mid, .chem-dot.mid { stroke: var(--chem-mid); }
+-.chem-link.lo, .chem-dot.lo { stroke: var(--chem-lo); }
+-.chem-dot { fill: var(--night-2); stroke-width: 2.5; }
+-.chem-me { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2.5; }
+-.chem-me-text { font-size: 13px; font-weight: 800; fill: #fff; }
+-.chem-ini { font-size: 11px; font-weight: 700; fill: var(--ink); pointer-events: none; }
+-.chem-name { font-size: 12px; font-weight: 700; fill: var(--ink); }
+-.chem-stat { font-size: 10.5px; fill: var(--muted); }
+-.chem-node:hover .chem-dot, .chem-node:focus-visible .chem-dot { fill: var(--soft); stroke-width: 3.5; }
+-.chem-node:focus { outline: none; }
+-.chem-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: center; padding: 6px 10px 12px; font-size: 11px; color: var(--muted); }
++/* 선수 화면: 케미 [풋살 피치 | 궁합 티어표]. 색은 승률 3단계 — 파랑/주황은 색약에도 구분되는 짝 */
++:root { --chem-hi: #5b9bff; --chem-mid: #9aa4b2; --chem-lo: #f08a3c; }
++.seg { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border-radius: 10px; background: var(--night-2); border: 1px solid var(--line); }
++.seg button { min-height: 38px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 14px; font-weight: 700; }
++.seg button[aria-pressed='true'] { background: var(--card); color: var(--ink); box-shadow: inset 0 -2px 0 var(--accent); }
++
++.chem-pitch { margin: 0; }
++.chem-pitch svg { display: block; width: 100%; height: auto; max-width: 420px; margin: 0 auto; }
++.pitch-turf { fill: #173326; stroke: #2f5a44; }
++.pitch-line { fill: none; stroke: #3f7259; stroke-width: 2; }
++.pitch-side { font-size: 11px; font-weight: 700; fill: #9ccbb2; }
++.pitch-side.sub { font-size: 10px; font-weight: 500; fill: #7fae95; }
++.pitch-me { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 3; }
++.pitch-me-text { font-size: 13px; font-weight: 800; fill: #fff; }
++.pitch-dot { fill: var(--bg); stroke-width: 3; }
++.pitch-dot.hi, .tier-chip.hi { --c: var(--chem-hi); }
++.pitch-dot.mid, .tier-chip.mid { --c: var(--chem-mid); }
++.pitch-dot.lo, .tier-chip.lo { --c: var(--chem-lo); }
++.pitch-dot { stroke: var(--c); }
++.pitch-ini { font-size: 11px; font-weight: 700; fill: var(--ink); pointer-events: none; }
++.pitch-name { font-size: 12px; font-weight: 800; fill: var(--ink); }
++.pitch-stat { font-size: 10.5px; fill: #b9d6c6; }
++.pitch-node:hover .pitch-dot, .pitch-node:focus-visible .pitch-dot { fill: var(--soft); stroke-width: 4; }
++.pitch-node:focus { outline: none; }
++
++.tier-head { margin: 4px 0 0; font-size: 13px; font-weight: 800; color: var(--ink-3); }
++.tier-table { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; }
++.tier-row { display: grid; grid-template-columns: 64px 1fr; border-top: 1px solid var(--line); }
++.tier-row:first-child { border-top: 0; }
++.tier-name { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 2px; background: var(--panel-head);
++  font-size: 13px; font-weight: 800; text-align: center; }
++.tier-name small { font-size: 10px; font-weight: 500; color: var(--muted); }
++.tier-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; }
++.tier-chip { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 3px 10px 3px 4px; border-radius: 16px;
++  background: var(--night-2); border: 1.5px solid var(--c); color: var(--ink); font-size: 13px; font-weight: 700; }
++.tier-chip:hover { color: var(--ink); background: var(--soft); }
++.tier-chip b { display: inline-flex; width: 24px; height: 24px; border-radius: 12px; align-items: center; justify-content: center;
++  background: var(--c); color: var(--on-light); font-size: 10px; }
++.tier-chip span { font-size: 11px; font-weight: 500; color: var(--muted); }
++.tier-empty { font-size: 12px; color: var(--muted); padding: 6px 2px; }
++
++.chem-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: center; font-size: 11px; color: var(--muted); }
+ .chem-key { display: inline-flex; align-items: center; gap: 5px; }
+ .chem-key i { display: inline-block; }
+-.chem-key i.w { width: 22px; height: 0; border-top: 2px solid var(--chem-mid); border-bottom: 4px solid var(--chem-mid); border-radius: 2px; }
++.chem-key i.size { width: 14px; height: 14px; border-radius: 7px; border: 2px solid var(--chem-mid);
++  box-shadow: -10px 0 0 -4px var(--bg), -10px 0 0 -2px var(--chem-mid); margin-left: 8px; }
+ .chem-key i.c { width: 10px; height: 10px; border-radius: 5px; border: 2.5px solid; }
+ .chem-key i.c.hi { border-color: var(--chem-hi); }
+ .chem-key i.c.mid { border-color: var(--chem-mid); }
+ .chem-key i.c.lo { border-color: var(--chem-lo); }
+ 
++/* 기록 > 수상 내역: 기간 줄(◀ n월 ▶ · 올해 · 전체) */
++.period-bar { display: flex; align-items: center; gap: 6px; }
++.month-nav { display: inline-flex; align-items: center; height: 38px; border-radius: 19px; border: 1px solid var(--line-strong);
++  background: var(--card); }
++.month-nav[data-active='true'] { border-color: var(--accent); background: var(--accent-soft); }
++.month-nav .icon-btn { width: 36px; height: 36px; min-height: 36px; font-size: 11px; color: var(--muted); }
++.month-nav .icon-btn:disabled { opacity: 0.3; }
++.month-label { min-width: 52px; height: 36px; border: 0; background: transparent; color: var(--ink); font-family: var(--display);
++  font-size: 18px; font-weight: 800; display: inline-flex; align-items: baseline; justify-content: center; gap: 3px; }
++.month-label small { font-family: var(--body); font-size: 10px; font-weight: 500; color: var(--muted); }
++
+diff --git a/tests/test_titles_v2.py b/tests/test_titles_v2.py
+index b7b40dc..bccafa2 100644
+--- a/tests/test_titles_v2.py
++++ b/tests/test_titles_v2.py
+@@ -119,3 +119,14 @@ def test_attendance_streak_titles(make_club):
+     awards = api.ok(api.get("/titles/awards", params={"memberId": mid["C"]}, admin=False))
+     assert [a["titleName"] for a in awards] == ["연속 참가 10회", "연속 참가 10회"]
+     assert {m["memberId"]: m["titleCount"] for m in api.ok(api.get("/stats/members", admin=False))}[mid["C"]] == 2
++
++    # 수상 내역 조회: 상 별(코드, 'ATTEND_STREAK_' = 연속 참가 전부) · 기간 · 개수
++    q = lambda **kw: api.ok(api.get("/titles/awards", params=kw, admin=False))  # noqa: E731
++    assert len(q(titleCode="ATTEND_STREAK_")) == len(expect)
++    assert {a["memberId"] for a in q(titleCode="ATTEND_STREAK_20")} == {mid["A"], mid["E"], mid["F"]}
++    d10 = date(2027, 1, 2) + timedelta(days=7 * 10)  # 10번째 일정 날짜(3번째 뒤 취소 일정 1주 포함)
++    assert {a["memberId"] for a in q(titleCode="ATTEND_STREAK_10", **{"from": d10.isoformat(), "to": d10.isoformat()})} \
++        == {mid["A"], mid["C"], mid["E"], mid["F"]}
++    assert len(q(limit=2)) == 2
++    # 선수 상세: 자주 같은 팀 · 맞붙은 선수 개수(top)
++    assert len(api.ok(api.get(f"/stats/members/{mid['A']}", params={"top": 2}, admin=False))["frequentTeammates"]) <= 2

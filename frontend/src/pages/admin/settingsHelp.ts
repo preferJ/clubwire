@@ -20,7 +20,7 @@ export interface ConfigHelp {
 
 export const CONFIG_GROUPS: { title: string; keys: string[]; advanced?: boolean }[] = [
   { title: '경기', keys: ['MATCH_DURATION_SEC', 'MATCH_AUTO_END_YN', 'MATCH_EARLY_END_GOALS'] },
-  { title: '기사(The Wire)', keys: ['ARTICLE_PUBLISH_MODE', 'WIRE_MAX_INSIGHTS'] },
+  { title: '기사(The Wire)', keys: ['ARTICLE_PUBLISH_MODE', 'WIRE_MAX_INSIGHTS', 'AI_TEMPERATURE', 'AI_MAX_OUTPUT_TOKENS'] },
   { title: '이달의 MVP', keys: ['MONTHLY_MVP_MIN_SESSIONS'] },
   { title: '팀 자동 편성', keys: ['TEAM_RATING_TOLERANCE_PERCENT', 'TEAM_CANDIDATE_COUNT', 'PAIR_ALPHA', 'PAIR_PENALTY_EPSILON'] },
   {
@@ -91,7 +91,28 @@ export const CONFIG_HELP: Record<string, ConfigHelp> = {
       ['올리면', '작은 소식까지 기사에 들어갈 수 있어요. 대신 기사가 길고 산만해질 수 있고 AI 사용량이 조금 늘어요.'],
       ['내리면', '굵직한 소식만 남아 기사가 짧고 선명해져요. 개근·기록 도전 같은 작은 소식은 빠지기 쉬워요.'],
     ],
-    tip: 'AI 키가 없을 때 쓰는 템플릿 작성기는 이 값과 상관없이 최대 6문장까지만 써요.',
+    tip: 'AI 키가 없거나 AI가 실패해서 쓰는 기본형 기사는 같은 종류 사실을 묶어 문장 수를 따로 줄여요.',
+  },
+  AI_TEMPERATURE: {
+    label: 'AI 기사 창의성',
+    summary: '같은 사실을 얼마나 다양한 표현으로 쓸지 정해요. 0~2 사이 숫자예요.',
+    how: 'AI가 다음 단어를 고를 때 얼마나 모험할지를 정하는 값(temperature)이에요. 사실은 입력으로 준 것만 쓰라는 규칙은 그대로라 기록이 바뀌지는 않고 문장 표현만 달라져요.',
+    effects: [
+      ['올리면', '제목과 문장이 다채로워져요. 너무 높으면(1.2 이상) 어색한 표현이나 규칙 위반이 늘어 기본형 기사로 바뀌는 일이 생길 수 있어요.'],
+      ['내리면', '매번 비슷한 말투로 차분하게 써요. 0에 가까우면 같은 사실이면 거의 같은 문장이 나와요.'],
+    ],
+    tip: '0.5~0.9를 권해요. 일부 AI 모델(추론형)은 이 값을 받지 않아서, 그때는 자동으로 빼고 보내요.',
+  },
+  AI_MAX_OUTPUT_TOKENS: {
+    label: 'AI 답변 최대 길이',
+    unit: '토큰',
+    summary: 'AI가 기사 한 건에 쓸 수 있는 최대 분량이에요. 비용 상한 역할도 해요.',
+    how: '제목 · 요약 · 본문을 합친 답변 길이의 상한이에요. 한글은 대략 한 글자가 1토큰 안팎이에요. 넘으면 답변이 잘려서 한 번 더 요청하고, 그래도 잘리면 기본형 기사로 써요.',
+    effects: [
+      ['올리면', '긴 마감 기사도 잘리지 않아요. 대신 한 건당 최대 비용이 커져요.'],
+      ['내리면', '비용 상한이 낮아져요. 너무 낮으면(1000 미만) 본문이 잘려 기본형 기사로 바뀌는 일이 잦아져요.'],
+    ],
+    tip: '기본 2000이면 3~6문단 기사에 충분해요.',
   },
 
   // ---------------------------------------------------------------- 이달의 MVP

@@ -89,13 +89,14 @@ export function fmtRise(v: number | null | undefined): string {
 
 /** 타이틀 기간: 이달의 MVP는 '9월', 주간은 '9.21–9.27' */
 export function fmtAwardPeriod(a: { titleCode: string; periodStart: string; periodEnd: string }): string {
-  if (a.titleCode === 'MONTHLY_MVP') return `${Number(a.periodStart.slice(5, 7))}월`
+  if (a.titleCode.startsWith('MONTHLY_')) return `${Number(a.periodStart.slice(5, 7))}월`  // 이달의 MVP · 득점왕 · 도움왕
+  if (a.periodStart === a.periodEnd) return fmtShortDate(a.periodStart)  // 연속 참가 등 일정 하루 단위
   return `${fmtShortDate(a.periodStart)}–${fmtShortDate(a.periodEnd)}`
 }
 
-/** 타이틀 수상 값: 득점왕 '3골', 도움왕 '2도움', 이달의 MVP '+4.2%' (+ 공동) */
+/** 타이틀 수상 값: 득점왕 '3골', 도움왕 '2도움', 이달의 MVP '+4.2%' (+ 공동). 연속 참가는 이름에 횟수가 있어 빈 값 */
 export function fmtAwardValue(facts: { metric?: string; value?: number; tied?: boolean } | null | undefined): string {
-  if (!facts || facts.value === undefined || facts.value === null) return ''
+  if (!facts || facts.value === undefined || facts.value === null || facts.metric === 'attendStreak') return ''
   const v = facts.metric === 'risePercent' ? fmtRise(facts.value)
     : `${facts.value}${facts.metric === 'assists' ? '도움' : facts.metric === 'wins' ? '승' : '골'}`
   return `${v}${facts.tied ? ' · 공동' : ''}`

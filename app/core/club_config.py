@@ -47,6 +47,10 @@ CONFIG_DEFS: tuple[ConfigDef, ...] = (
         choices=("MANUAL", "AUTO"),
     ),
     ConfigDef("WIRE_MAX_INSIGHTS", "INT", 15, "기사 1건에 AI로 넘기는 Insight 최대 개수", min_value=1, max_value=50),
+    ConfigDef("AI_TEMPERATURE", "FLOAT", 0.7, "AI 기사 창의성(temperature, 0~2). 낮을수록 사실 위주로 일정, 높을수록 표현이 다양",
+              min_value=0, max_value=2),
+    ConfigDef("AI_MAX_OUTPUT_TOKENS", "INT", 2000, "AI 답변 최대 길이(토큰). 넘으면 잘려서 다시 쓰고, 그래도 안 되면 기본형 기사",
+              min_value=300, max_value=8000),
     # ---- 이달의 MVP ----
     ConfigDef("MONTHLY_MVP_MIN_SESSIONS", "INT", 2, "이달의 MVP 후보 자격: 그 달 출전한 일정 수(이상)",
               min_value=1, max_value=31),

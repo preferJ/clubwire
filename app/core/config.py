@@ -23,7 +23,7 @@ class Settings(BaseSettings):
 
     # OpenAI (키는 서버 환경변수로만 주입한다. 브라우저/레포 금지)
     OPENAI_API_KEY: str | None = None
-    AI_PROVIDER: str = "auto"  # auto | openai | stub  (auto: 키가 있으면 openai)
+    AI_PROVIDER: str = "auto"  # auto | openai | template(=stub)  (auto: 키가 있으면 openai, 없으면 기본형 기사)
     AI_ARTICLE_MODEL: str = "gpt-4.1-mini"
     AI_RECAP_MODEL: str = "gpt-4.1-mini"
     AI_TIMEOUT_SEC: float = 60.0
@@ -43,8 +43,8 @@ class Settings(BaseSettings):
     @property
     def ai_provider_resolved(self) -> str:
         if self.AI_PROVIDER == "auto":
-            return "openai" if self.OPENAI_API_KEY else "stub"
-        return self.AI_PROVIDER
+            return "openai" if self.OPENAI_API_KEY else "template"
+        return "template" if self.AI_PROVIDER == "stub" else self.AI_PROVIDER
 
 
 @lru_cache

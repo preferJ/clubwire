@@ -19,7 +19,7 @@ from app.services.match_service import finalize_remaining_for_close
 from app.services.rating_service import rebuild_ratings
 from app.services.stats_service import rebuild_all_stats
 from app.services.team_service import apply_generation
-from app.services.title_service import compute_auto_titles
+from app.services.title_service import compute_attendance_titles, compute_auto_titles
 from app.wire.article_service import create_article
 from app.wire.insight_engine import generate_post_insights, generate_pre_insights, session_summary
 
@@ -58,6 +58,7 @@ def close_session(db: Session, club_id: int, session_id: int, admin_id: int | No
     s.closed_at = utcnow()
     db.flush()
     compute_auto_titles(db, club_id, s)
+    compute_attendance_titles(db, club_id, s)  # 연속 참가 10 · 20 · 30 · 40 · 50회
     rebuild_all_stats(db, club_id)
     article_ids: list[int] = []
     if finalized_count:

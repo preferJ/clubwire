@@ -1,0 +1,1052 @@
+diff --git a/README.md b/README.md
+index e357371..f20488d 100644
+--- a/README.md
++++ b/README.md
+@@ -59,6 +59,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리
+ | `test_concurrency.py` | 동시 골 20건(멱등키 중복 8건 포함) → 점수 = 이벤트 수 |
+ | `test_regressions.py` | 한쪽 팀이 빈 경기 포함 시 증분=전체 재계산, 설정 버전 연속 증가, 마감 이전 날짜 일정 차단, 득점자 팀 이동 차단, 제외 멤버 참석자 목록 반영 |
+ | `test_frontend_apis.py` | 홈 LIVE 배너 · 요약 줄(tzdata 없는 환경 포함), 일정 목록 인원수, 일정 요약, 멤버별 수상 이력, 기사 목록 페이지(게시 순서 커서·일정 날짜), 선수 프로필(가입일 · 출생연도 입력 · 지우기) |
++| `test_titles_v2.py` | 이달의 득점왕 · 도움왕(월 마감, 동점 공동, MVP 기사 한 줄, MVP만 발표된 달 보충), 연속 참가 10 · 20회(참석 명단 기준, 취소 일정 무시, 결석하면 끊김, 다시 쌓으면 다시 수여) |
+ | `test_article_writer.py` | AI 창의성 · 답변 최대 길이가 요청에 실림, temperature 미지원 모델 재요청, 연결 실패 · 크레딧 초과 · 키 오류 · 답변 잘림 → 기본형 기사(게시 규칙 그대로) + 원인 표시, [다시 쓰기]로 AI 복귀, 키 없음 |
+ | `test_monthly_mvp.py` | 이달의 MVP: 상승률 계산(DB 이력과 일치) · 자격(일정 2회) · 열린 일정 있으면 대기 · 마지막 일정 마감 시 타이틀 + 기사 바로 게시 · 점수 비노출 · 한 달 한 번 · 후보 1~3위 |
+ | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
+@@ -130,7 +131,7 @@ scripts/gen_docs.py   문서 재생성
+ 
+ ## 6. 샘플 데이터
+ 
+-`ypr_sample_data.sql`(별도 전달): 2026년 7/4 ~ 10/17 토요일 16회 경기 기록(7 · 8 · 9월 이달의 MVP 포함, 10월은 후보 진행 중). 모든 테이블을 비우고 다시 넣는다.
++`ypr_sample_data.sql`(별도 전달): 2026년 7/4 ~ 10/17 토요일 16회 경기 기록(7 · 8 · 9월 이달의 MVP · 득점왕 · 도움왕, 연속 참가 10회 포함, 10월은 진행 중). 모든 테이블을 비우고 다시 넣는다.
+ 
+ ```
+ # 0) 최신 코드로 테이블 준비
+diff --git a/alembic/versions/0008_more_titles.py b/alembic/versions/0008_more_titles.py
+new file mode 100644
+index 0000000..4020cf6
+--- /dev/null
++++ b/alembic/versions/0008_more_titles.py
+@@ -0,0 +1,32 @@
++"""more titles
++
++이달의 득점왕 · 도움왕(월 마감) + 연속 참가 10 · 20 · 30 · 40 · 50회([일정마감], 참석 명단 기준).
++테이블 구조는 그대로, 컬럼 설명(COMMENT)만 바꾼다. 타이틀 정의 행(MONTHLY_TOP_SCORER / MONTHLY_TOP_ASSIST /
++ATTEND_STREAK_10~50)은 새 클럽은 생성 때, 기존 클럽은 처음 필요할 때 앱이 만든다(샘플 SQL을 다시 넣어도 동작).
++
++Revision ID: 0008
++Revises: 0007
++Create Date: 2026-10-23 18:00:00.000000
++"""
++from typing import Sequence, Union
++
++from alembic import op
++import sqlalchemy as sa
++
++
++revision: str = '0008'
++down_revision: Union[str, None] = '0007'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++
++def upgrade() -> None:
++    op.create_table_comment('TITLE_TYPE', '타이틀 정의(이주의 · 이달의 득점왕/도움왕, 이달의 MVP, 연속 참가 n회 …)', existing_comment='타이틀 정의(이주의 득점왕/도움왕, 이달의 MVP …)')
++    op.alter_column('TITLE_TYPE', 'AUTO_RULE', existing_type=sa.String(length=30), existing_nullable=True,
++                    comment='자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP), ATTENDANCE_STREAK(연속 참가, 코드 끝 숫자 = 횟수)', existing_comment='자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP 전용)')
++
++
++def downgrade() -> None:
++    op.create_table_comment('TITLE_TYPE', '타이틀 정의(이주의 득점왕/도움왕, 이달의 MVP …)', existing_comment='타이틀 정의(이주의 · 이달의 득점왕/도움왕, 이달의 MVP, 연속 참가 n회 …)')
++    op.alter_column('TITLE_TYPE', 'AUTO_RULE', existing_type=sa.String(length=30), existing_nullable=True,
++                    comment='자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP 전용)', existing_comment='자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP), ATTENDANCE_STREAK(연속 참가, 코드 끝 숫자 = 횟수)')
+diff --git a/app/integrations/openai/template_writer.py b/app/integrations/openai/template_writer.py
+index 47689ca..f886284 100644
+--- a/app/integrations/openai/template_writer.py
++++ b/app/integrations/openai/template_writer.py
+@@ -253,6 +253,9 @@ class TemplateArticleWriter:
+                         f"{g}경기에서 {j(lead, '이', '가')} 혼자 {n}골을 몰아쳤다.")
+             if t == "TITLE_AWARDED":
+                 tn = f["titleName"]
++                if f.get("metric") == "attendStreak":  # '연속 참가 10회' — 이름에 횟수가 있음
++                    return (f"{head_who}, {tn}",
++                            f"{j(who, '이', '가')} {'나란히 ' if many else ''}{tn}를 달성했다. 한 번도 빠지지 않고 나온 기록이다.")
+                 unit = {"assists": "도움", "wins": "승"}.get(f.get("metric"), "골")
+                 val = f"({f['value']}{unit})" if f.get("value") else ""
+                 return (f"{head_who}, {tn}",
+@@ -402,6 +405,13 @@ class TemplateArticleWriter:
+             seq = [f"{r['rank']}위 {r['name']}(+{r['risePercent']:.1f}%)" for r in runners]
+             paras.append("뒤를 이어 " + ", ".join(seq) + josa_only(runners[-1]["name"], "이", "가")
+                          + " 이름을 올렸다.")
++        titles = [x for x in mvp.get("monthlyTitles") or [] if x.get("names")]
++        if titles:
++            unit = {"goals": "골", "assists": "도움"}
++            parts = [f"{x['titleName'].replace('이달의 ', '')}{josa_only(x['titleName'], '은', '는')} "
++                     f"{names_ko(x['names'])}({x['value']}{unit.get(x.get('metric'), '')}{', 공동' if len(x['names']) > 1 else ''})"
++                     for x in titles]
++            paras.append(f"{month} " + ", ".join(parts) + "이다.")
+         if mvp.get("rule"):
+             paras.append(f"선정 기준은 {mvp['rule']}다.")
+         raw = {"title": title[:120], "summary": summary[:300], "body": "\n\n".join(paras), "usedInsightIds": []}
+diff --git a/app/integrations/openai/writer.py b/app/integrations/openai/writer.py
+index 693f696..8e44f9c 100644
+--- a/app/integrations/openai/writer.py
++++ b/app/integrations/openai/writer.py
+@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
+ 
+ from app.core.config import settings
+ 
+-PROMPT_VERSION = "wire_prompt_v3"  # v2: 천적·징크스·복수 사실 표현 규칙 / v3: 이달의 MVP(MONTHLY_MVP)
++PROMPT_VERSION = "wire_prompt_v4"  # v2: 천적·징크스·복수 / v3: 이달의 MVP / v4: 이달의 득점왕·도움왕 · 연속 참가 타이틀
+ 
+ SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포츠 기자다. 한국어로 기사를 쓴다.
+ 
+@@ -27,6 +27,7 @@ SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포
+ - 천적·징크스·복수 사실(NEMESIS_MATCH, JINX_PAIR, REVENGE_RESULT)은 "설욕할까", "징크스를 깰까"처럼
+   도전과 반전의 관점으로 가볍게 쓰고, 지는 쪽을 탓하거나 조롱하지 않는다.
+ - 팀 단위 사실(UNBEATEN_TEAM, CLEAN_SHEET)은 특정 선수 한 명의 공으로 돌리지 않는다.
++- TITLE_AWARDED의 metric이 attendStreak면 '연속 참가 n회'(그 날짜 일정에 빠지지 않고 나온 횟수) 기록이다. 꾸준함을 칭찬하는 톤으로 쓴다.
+ 
+ [구성 규칙]
+ - importance가 높을수록 뉴스 가치가 높다. 모든 insight를 쓸 필요는 없다.
+@@ -41,6 +42,7 @@ SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포
+ - bestMatches는 "특히 많이 오른 경기"로 날짜 · 경기 번호 · 결과 · 스코어 · 본인 골/도움을 곁들여 1~3개 소개하고,
+   bestDay는 "가장 크게 오른 날"로 소개한다. 경기별 상승률(%)도 쓸 수 있다.
+ - runnersUp(2 · 3위)은 마지막 문단에 짧게 언급한다. rule(선정 기준)을 한 문장으로 밝힌다.
++- monthlyTitles(이달의 득점왕 · 도움왕, 공동이면 names 여러 명)가 있으면 마지막 문단에 한 문장으로 함께 전한다.
+ - 제목에 "이달의 MVP"와 선수 이름을 넣는다. insights는 비어 있으므로 usedInsightIds는 빈 배열.
+ """
+ 
+diff --git a/app/models/comments.py b/app/models/comments.py
+index 1687c07..5f5963d 100644
+--- a/app/models/comments.py
++++ b/app/models/comments.py
+@@ -221,13 +221,13 @@ COMMENTS: dict[str, dict[str, str]] = {
+         "LAST_OPPONENT_AT": "마지막 맞대결 날짜",
+     },
+     "TITLE_TYPE": {
+-        "__table__": "타이틀 정의(이주의 득점왕/도움왕, 이달의 MVP …)",
++        "__table__": "타이틀 정의(이주의 · 이달의 득점왕/도움왕, 이달의 MVP, 연속 참가 n회 …)",
+         "TITLE_TYPE_ID": "타이틀 종류 ID",
+         "TITLE_CODE": "타이틀 코드",
+         "TITLE_NAME": "타이틀명",
+         "PERIOD_TYPE": "WEEKLY(월~일)/SESSION/MONTHLY(1일~말일)",
+         "AWARD_METHOD": "MANUAL(관리자)/AUTO(주간: 일정마감 시, 월간: 월 마감 시 자동 집계)",
+-        "AUTO_RULE": "자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP 전용)",
++        "AUTO_RULE": "자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP), ATTENDANCE_STREAK(연속 참가, 코드 끝 숫자 = 횟수)",
+         "COUNTS_AS_MVP_YN": "MVP 횟수(MVP_COUNT) 집계 대상 여부. 이달의 MVP = 1",
+         "DISPLAY_ORDER": "표시 순서",
+     },
+diff --git a/app/models/enums.py b/app/models/enums.py
+index 1f15494..75476b5 100644
+--- a/app/models/enums.py
++++ b/app/models/enums.py
+@@ -91,6 +91,7 @@ class TitleAutoRule(StrEnum):
+     TOP_ASSISTS = "TOP_ASSISTS"
+     TOP_WINS = "TOP_WINS"
+     MONTHLY_RATING_RISE = "MONTHLY_RATING_RISE"   # 이달의 MVP 전용(그 달 실력 점수 상승률 1위)
++    ATTENDANCE_STREAK = "ATTENDANCE_STREAK"       # 연속 참가 10 · 20 · 30 · 40 · 50회(일정마감 때, 참석 명단 기준)
+ 
+ 
+ class InsightPhase(StrEnum):
+diff --git a/app/services/club_service.py b/app/services/club_service.py
+index 196e017..6537cda 100644
+--- a/app/services/club_service.py
++++ b/app/services/club_service.py
+@@ -18,6 +18,11 @@ DEFAULT_TITLES = (
+     ("TOP_ASSIST", "이주의 도움왕", TitlePeriodType.WEEKLY, AwardMethod.AUTO, TitleAutoRule.TOP_ASSISTS, False),
+     # 이달의 MVP: 월 마감 때 실력 점수 상승률 1위(mvp_service). 기존 클럽은 첫 월 마감 때 자동으로 만들어짐
+     ("MONTHLY_MVP", "이달의 MVP", TitlePeriodType.MONTHLY, AwardMethod.AUTO, TitleAutoRule.MONTHLY_RATING_RISE, True),
++    # 이달의 득점왕 · 도움왕(월 마감) / 연속 참가 n회([일정마감]). 기존 클럽은 처음 필요할 때 자동으로 만들어짐
++    ("MONTHLY_TOP_SCORER", "이달의 득점왕", TitlePeriodType.MONTHLY, AwardMethod.AUTO, TitleAutoRule.TOP_GOALS, False),
++    ("MONTHLY_TOP_ASSIST", "이달의 도움왕", TitlePeriodType.MONTHLY, AwardMethod.AUTO, TitleAutoRule.TOP_ASSISTS, False),
++    *((f"ATTEND_STREAK_{n}", f"연속 참가 {n}회", TitlePeriodType.SESSION, AwardMethod.AUTO, TitleAutoRule.ATTENDANCE_STREAK,
++       False) for n in (10, 20, 30, 40, 50)),
+ )
+ 
+ 
+diff --git a/app/services/lifecycle_service.py b/app/services/lifecycle_service.py
+index 89a885f..9ad60c8 100644
+--- a/app/services/lifecycle_service.py
++++ b/app/services/lifecycle_service.py
+@@ -19,7 +19,7 @@ from app.services.match_service import finalize_remaining_for_close
+ from app.services.rating_service import rebuild_ratings
+ from app.services.stats_service import rebuild_all_stats
+ from app.services.team_service import apply_generation
+-from app.services.title_service import compute_auto_titles
++from app.services.title_service import compute_attendance_titles, compute_auto_titles
+ from app.wire.article_service import create_article
+ from app.wire.insight_engine import generate_post_insights, generate_pre_insights, session_summary
+ 
+@@ -58,6 +58,7 @@ def close_session(db: Session, club_id: int, session_id: int, admin_id: int | No
+     s.closed_at = utcnow()
+     db.flush()
+     compute_auto_titles(db, club_id, s)
++    compute_attendance_titles(db, club_id, s)  # 연속 참가 10 · 20 · 30 · 40 · 50회
+     rebuild_all_stats(db, club_id)
+     article_ids: list[int] = []
+     if finalized_count:
+diff --git a/app/services/mvp_service.py b/app/services/mvp_service.py
+index 923376d..8edca5e 100644
+--- a/app/services/mvp_service.py
++++ b/app/services/mvp_service.py
+@@ -7,6 +7,8 @@
+ - 월 마감: 클럽 현지 날짜로 다음 달이 되고, 그 달 일정이 모두 마감/취소되면
+   → MEMBER_TITLE(이달의 MVP) 수여 + MONTHLY_MVP 기사 작성(게시 설정과 상관없이 바로 게시)
+ - 한 달은 한 번만 마감한다(수여 이력이 있으면 관리자가 취소한 것이라도 다시 만들지 않음).
++- 이달의 득점왕 · 도움왕(2026-10-23): 같은 월 마감 때 그 달 확정 경기 골 · 도움 1위(동점 공동, 0개면 없음).
++  타이틀 종류마다 따로 '이미 수여했는지' 보므로, 배포 전에 MVP만 발표된 달도 득점왕 · 도움왕은 채워진다.
+ """
+ from collections import defaultdict
+ from dataclasses import dataclass, field
+@@ -28,13 +30,18 @@ from app.models.enums import (
+ )
+ from app.services.common import lock_club, member_names
+ from app.services.config_service import load_config
+-from app.services.history import load_history
++from app.services.history import load_history, member_totals
+ from app.services.stats_service import rebuild_member_stats
+ from app.wire.article_service import create_article
+ 
+ MVP_CODE = "MONTHLY_MVP"
+ MVP_NAME = "이달의 MVP"
+ RACE_SIZE = 3  # 홈 화면 후보 수
++# 이달의 득점왕 · 도움왕: (코드, 이름, 규칙, 집계 항목, 표시 순서)
++MONTHLY_STAT_TITLES = (
++    ("MONTHLY_TOP_SCORER", "이달의 득점왕", TitleAutoRule.TOP_GOALS, "goals", 3),
++    ("MONTHLY_TOP_ASSIST", "이달의 도움왕", TitleAutoRule.TOP_ASSISTS, "assists", 4),
++)
+ 
+ 
+ @dataclass
+@@ -114,18 +121,25 @@ def _candidates(db: Session, ranked: list[MonthRise]) -> list[dict]:
+     return out
+ 
+ 
+-def _mvp_type(db: Session, club_id: int, create: bool = False) -> TitleType | None:
+-    """'이달의 MVP' 타이틀 정의. 없으면(기존 클럽 · 샘플 데이터 복원 후) 만든다. 관리자가 비활성화했으면 None."""
+-    t = db.scalar(select(TitleType).where(TitleType.club_id == club_id, TitleType.title_code == MVP_CODE))
++def _monthly_type(db: Session, club_id: int, code: str, name: str, rule: str, order: int, *,
++                  counts_as_mvp: bool = False, create: bool = False) -> TitleType | None:
++    """월간 타이틀 정의. 없으면(기존 클럽 · 샘플 데이터 복원 후) 만든다. 관리자가 비활성화했으면 None."""
++    t = db.scalar(select(TitleType).where(TitleType.club_id == club_id, TitleType.title_code == code))
+     if t is None and create:
+-        t = TitleType(club_id=club_id, title_code=MVP_CODE, title_name=MVP_NAME, period_type=TitlePeriodType.MONTHLY,
+-                      award_method=AwardMethod.AUTO, auto_rule=TitleAutoRule.MONTHLY_RATING_RISE,
+-                      counts_as_mvp_yn=True, display_order=2)
++        t = TitleType(club_id=club_id, title_code=code, title_name=name, period_type=TitlePeriodType.MONTHLY,
++                      award_method=AwardMethod.AUTO, auto_rule=rule, counts_as_mvp_yn=counts_as_mvp,
++                      display_order=order)
+         db.add(t)
+         db.flush()
+     return t if t is not None and t.active_yn else None
+ 
+ 
++def _mvp_type(db: Session, club_id: int, create: bool = False) -> TitleType | None:
++    """'이달의 MVP' 타이틀 정의."""
++    return _monthly_type(db, club_id, MVP_CODE, MVP_NAME, TitleAutoRule.MONTHLY_RATING_RISE, 2,
++                         counts_as_mvp=True, create=create)
++
++
+ def mvp_race(db: Session, club: Club, today: date | None = None) -> dict:
+     """홈 화면: 이번 달 후보 1~3위(상승률만) + 지난달 MVP."""
+     today = today or local_today(club.timezone)
+@@ -164,41 +178,78 @@ def close_due_month(db: Session, club: Club, today: date | None = None) -> list[
+ def close_month(db: Session, club: Club, month_start: date) -> list[int]:
+     start, end = month_range(month_start)
+     lock_club(db, club.club_id)
+-    t = _mvp_type(db, club.club_id, create=True)
+-    if not t:
+-        db.rollback()
+-        return []
+-    done = db.scalar(select(MemberTitle.member_title_id).where(
+-        MemberTitle.title_type_id == t.title_type_id, MemberTitle.period_start == start).limit(1))
++    mvp_t = _mvp_type(db, club.club_id, create=True)
++    stat_ts = [(_monthly_type(db, club.club_id, code, name, rule, order, create=True), metric)
++               for code, name, rule, metric, order in MONTHLY_STAT_TITLES]
++
++    def todo(t: TitleType | None) -> bool:  # 이 달에 아직 수여한 적 없는 타이틀만(취소된 수여도 '했음')
++        return t is not None and db.scalar(select(MemberTitle.member_title_id).where(
++            MemberTitle.title_type_id == t.title_type_id, MemberTitle.period_start == start).limit(1)) is None
++
++    stat_ts = [(t, m) for t, m in stat_ts if todo(t)]
++    mvp_t = mvp_t if todo(mvp_t) else None
+     sessions = list(db.scalars(select(ClubSession).where(
+         ClubSession.club_id == club.club_id, ClubSession.session_date.between(start, end),
+         ClubSession.status != SessionStatus.CANCELLED).order_by(ClubSession.session_date, ClubSession.session_id)))
+-    # 이미 마감 / 일정 없음 / 아직 안 끝난 일정이 있음 → 다음에 다시 확인
+-    if done or not sessions or any(s.status != SessionStatus.CLOSED for s in sessions):
++    # 할 일 없음 / 일정 없음 / 아직 안 끝난 일정이 있음 → 다음에 다시 확인
++    if not (mvp_t or stat_ts) or not sessions or any(s.status != SessionStatus.CLOSED for s in sessions):
+         db.commit()  # 타이틀 정의를 새로 만들었으면 저장
+         return []
++    anchor = sessions[-1]  # 타이틀 · 기사는 그 달 마지막 일정에 붙인다(와이어 · 기록 탭 일정별 묶음에 그대로 들어감)
++
++    # 이달의 득점왕 · 도움왕: 그 달 확정 경기 골 · 도움 1위(동점 공동)
++    totals = member_totals(load_history(db, club.club_id, session_ids=[x.session_id for x in sessions]))
++    awarded = 0
++    for t, metric in stat_ts:
++        best = max((getattr(v, metric) for v in totals.values()), default=0)
++        top = sorted(mid for mid, v in totals.items() if best > 0 and getattr(v, metric) == best)
++        for mid in top:
++            db.add(MemberTitle(club_id=club.club_id, title_type_id=t.title_type_id, member_id=mid, period_start=start,
++                               period_end=end, session_id=anchor.session_id, award_method=AwardMethod.AUTO,
++                               facts_json={"metric": metric, "value": best, "tied": len(top) > 1}))
++        awarded += len(top)
++
++    # 이달의 MVP: 실력 점수 상승률 1위
+     min_sessions = int(load_config(db, club.club_id)["MONTHLY_MVP_MIN_SESSIONS"])
+-    ranked = ranking(db, club.club_id, start, end, min_sessions)
+-    if not ranked:
+-        db.commit()
+-        return []
+-
+-    anchor = sessions[-1]  # 기사는 그 달 마지막 일정에 붙인다(와이어 · 기록 탭 일정별 묶음에 그대로 들어감)
+-    winners = [r for r in ranked if r.percent == ranked[0].percent]
++    ranked = ranking(db, club.club_id, start, end, min_sessions) if mvp_t else []
++    winners = [r for r in ranked if r.percent == ranked[0].percent] if ranked else []
+     for r in winners:
+-        db.add(MemberTitle(club_id=club.club_id, title_type_id=t.title_type_id, member_id=r.member_id,
++        db.add(MemberTitle(club_id=club.club_id, title_type_id=mvp_t.title_type_id, member_id=r.member_id,
+                            period_start=start, period_end=end, session_id=anchor.session_id,
+                            award_method=AwardMethod.AUTO,
+                            facts_json={"metric": "risePercent", "value": r.percent, "tied": len(winners) > 1,
+                                        "sessions": r.sessions, "games": r.games}))
++    if not awarded and not winners:
++        db.commit()
++        return []
+     db.flush()
+     rebuild_member_stats(db, club.club_id)
+-    context = {"month": start.strftime("%Y-%m"), "monthLabel": f"{start.month}월",
+-               "monthlyMvp": monthly_facts(db, club.club_id, start, end, ranked, min_sessions)}
+-    article = create_article(db, club, anchor, ArticleType.MONTHLY_MVP, [], context)
+-    emit(db, club.club_id, "TITLE_UPDATED", {"titleCode": MVP_CODE, "month": context["month"]})
++    article_ids: list[int] = []
++    if winners:  # 발표 기사는 MVP가 나온 달만(득점왕 · 도움왕은 기사 마지막 문단에)
++        facts = monthly_facts(db, club.club_id, start, end, ranked, min_sessions)
++        facts["monthlyTitles"] = monthly_titles(db, club.club_id, start)
++        context = {"month": start.strftime("%Y-%m"), "monthLabel": f"{start.month}월", "monthlyMvp": facts}
++        article_ids.append(create_article(db, club, anchor, ArticleType.MONTHLY_MVP, [], context).article_id)
++    emit(db, club.club_id, "TITLE_UPDATED", {"month": start.strftime("%Y-%m")})
+     db.commit()
+-    return [article.article_id]
++    return article_ids
++
++
++def monthly_titles(db: Session, club_id: int, month_start: date) -> list[dict]:
++    """그 달 이달의 득점왕 · 도움왕(기사용): [{titleName, metric, value, names[]}]"""
++    rows = db.execute(
++        select(MemberTitle, TitleType).join(TitleType, TitleType.title_type_id == MemberTitle.title_type_id)
++        .where(MemberTitle.club_id == club_id, MemberTitle.period_start == month_start,
++               MemberTitle.cancelled_yn.is_(False), TitleType.active_yn.is_(True),
++               TitleType.title_code.in_([c for c, *_ in MONTHLY_STAT_TITLES]))
++        .order_by(TitleType.display_order, MemberTitle.member_id)).all()
++    names = member_names(db, [mt.member_id for mt, _ in rows])
++    out: dict[str, dict] = {}
++    for mt, t in rows:
++        item = out.setdefault(t.title_code, {"titleName": t.title_name, "metric": (mt.facts_json or {}).get("metric"),
++                                             "value": (mt.facts_json or {}).get("value"), "names": []})
++        item["names"].append(names.get(mt.member_id))
++    return list(out.values())
+ 
+ 
+ def monthly_facts(db: Session, club_id: int, start: date, end: date, ranked: list[MonthRise],
+diff --git a/app/services/title_service.py b/app/services/title_service.py
+index c78066b..43850bd 100644
+--- a/app/services/title_service.py
++++ b/app/services/title_service.py
+@@ -1,17 +1,18 @@
+ """타이틀(이주의 득점왕 / 도움왕, 이달의 MVP …) 정의와 수여 이력. 비활성 타이틀(예: 제거된 주간 MVP)의 지난 이력은 조회에서 제외.
+ 
+-이달의 MVP(MONTHLY)는 [일정마감]이 아니라 월 마감 때 mvp_service가 집계한다.
++이달의 MVP · 득점왕 · 도움왕(MONTHLY)은 [일정마감]이 아니라 월 마감 때 mvp_service가 집계한다.
++연속 참가 10 · 20 · 30 · 40 · 50회는 [일정마감] 때 compute_attendance_titles가 수여한다.
+ """
+ from datetime import date
+ 
+-from sqlalchemy import select
++from sqlalchemy import select, tuple_
+ from sqlalchemy.orm import Session
+ 
+ from app.core.database import emit
+ from app.core.errors import BadRequest, Conflict, NotFound
+ from app.core.timeutil import month_range, to_iso, utcnow, week_range
+-from app.models import ClubSession, Member, MemberTitle, TitleType
+-from app.models.enums import AwardMethod, SessionStatus, TitleAutoRule, TitlePeriodType
++from app.models import ClubSession, Member, MemberTitle, SessionMember, TitleType
++from app.models.enums import AttendanceStatus, AwardMethod, SessionStatus, TitleAutoRule, TitlePeriodType
+ from app.services.common import get_member, get_session, member_names
+ from app.services.history import load_history, member_totals
+ from app.services.stats_service import rebuild_member_stats
+@@ -123,8 +124,9 @@ def compute_auto_titles(db: Session, club_id: int, anchor: ClubSession) -> list[
+     """
+     created: list[MemberTitle] = []
+     for t in list_title_types(db, club_id):
+-        if t.award_method != AwardMethod.AUTO or t.period_type == TitlePeriodType.MONTHLY:
+-            continue  # 이달의 MVP는 월 마감 때(mvp_service.close_month)
++        if (t.award_method != AwardMethod.AUTO or t.period_type == TitlePeriodType.MONTHLY
++                or t.auto_rule == TitleAutoRule.ATTENDANCE_STREAK):
++            continue  # 월간은 월 마감 때(mvp_service.close_month), 연속 참가는 compute_attendance_titles
+         start, end = _period(t, anchor.session_date)
+         sids = list(db.scalars(select(ClubSession.session_id).where(
+             ClubSession.club_id == club_id, ClubSession.session_date.between(start, end),
+@@ -155,6 +157,71 @@ def compute_auto_titles(db: Session, club_id: int, anchor: ClubSession) -> list[
+     return created
+ 
+ 
++# ------------------------------------------------------------------ 연속 참가
++ATTEND_MILESTONES = (10, 20, 30, 40, 50)
++
++
++def attend_code(n: int) -> str:
++    return f"ATTEND_STREAK_{n}"
++
++
++def _attend_type(db: Session, club_id: int, n: int) -> TitleType | None:
++    """'연속 참가 n회' 정의. 없으면(기존 클럽 · 샘플 데이터 복원 후) 만든다. 비활성화했으면 None."""
++    t = db.scalar(select(TitleType).where(TitleType.club_id == club_id, TitleType.title_code == attend_code(n)))
++    if t is None:
++        t = TitleType(club_id=club_id, title_code=attend_code(n), title_name=f"연속 참가 {n}회",
++                      period_type=TitlePeriodType.SESSION, award_method=AwardMethod.AUTO,
++                      auto_rule=TitleAutoRule.ATTENDANCE_STREAK, counts_as_mvp_yn=False, display_order=4 + n // 10)
++        db.add(t)
++        db.flush()
++    return t if t.active_yn else None
++
++
++def attendance_streaks(db: Session, club_id: int, anchor: ClubSession) -> dict[int, int]:
++    """anchor 일정 참석자별 연속 참가 횟수(anchor 포함). 참가 = 마감된 일정의 참석 명단(ATTENDING).
++    취소된 일정은 세지도 끊지도 않는다. 빠진 일정이 나오면 거기서 끊긴다."""
++    sids = list(db.scalars(select(ClubSession.session_id).where(
++        ClubSession.club_id == club_id,
++        (ClubSession.status == SessionStatus.CLOSED) | (ClubSession.session_id == anchor.session_id),
++        tuple_(ClubSession.session_date, ClubSession.session_id) <= tuple_(anchor.session_date, anchor.session_id))
++        .order_by(ClubSession.session_date.desc(), ClubSession.session_id.desc())))
++    attend: dict[int, set[int]] = {}
++    for sid, mid in db.execute(select(SessionMember.session_id, SessionMember.member_id).where(
++            SessionMember.session_id.in_(sids), SessionMember.attendance_status == AttendanceStatus.ATTENDING)):
++        attend.setdefault(sid, set()).add(mid)
++    out = {}
++    for mid in attend.get(anchor.session_id, set()):
++        n = 0
++        for sid in sids:
++            if mid not in attend.get(sid, ()):
++                break
++            n += 1
++        out[mid] = n
++    return out
++
++
++def compute_attendance_titles(db: Session, club_id: int, anchor: ClubSession) -> list[MemberTitle]:
++    """[일정마감] 시 연속 참가가 정확히 10 · 20 · 30 · 40 · 50회가 된 선수에게 수여(호출 측 트랜잭션).
++    끊겼다가 다시 10회가 되면 또 수여한다. 같은 일정에서 두 번 주지 않는다."""
++    created: list[MemberTitle] = []
++    for mid, n in sorted(attendance_streaks(db, club_id, anchor).items()):
++        if n not in ATTEND_MILESTONES:
++            continue
++        t = _attend_type(db, club_id, n)
++        if not t or db.scalar(select(MemberTitle.member_title_id).where(
++                MemberTitle.title_type_id == t.title_type_id, MemberTitle.member_id == mid,
++                MemberTitle.session_id == anchor.session_id, MemberTitle.cancelled_yn.is_(False))):
++            continue
++        mt = MemberTitle(club_id=club_id, title_type_id=t.title_type_id, member_id=mid,
++                         period_start=anchor.session_date, period_end=anchor.session_date,
++                         session_id=anchor.session_id, award_method=AwardMethod.AUTO,
++                         facts_json={"metric": "attendStreak", "value": n})
++        db.add(mt)
++        created.append(mt)
++    db.flush()
++    return created
++
++
+ def list_awards(db: Session, club_id: int, *, member_id: int | None = None, date_from: date | None = None,
+                 date_to: date | None = None, include_cancelled: bool = False, limit: int = 100) -> list[dict]:
+     stmt = (select(MemberTitle, TitleType).join(TitleType, TitleType.title_type_id == MemberTitle.title_type_id)
+@@ -179,4 +246,4 @@ def list_awards(db: Session, club_id: int, *, member_id: int | None = None, date
+ 
+ 
+ __all__ = ["list_title_types", "create_title_type", "update_title_type", "award_title", "cancel_award",
+-           "compute_auto_titles", "list_awards", "Member"]
++           "compute_auto_titles", "compute_attendance_titles", "list_awards", "Member"]
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index 50e961c..cab5433 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -372,6 +372,24 @@ DELETE MT FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_T
+ - 테스트 `tests/test_article_writer.py`(OpenAI 클라이언트 대역으로 요청 인자 · 실패별 기본형 대체 확인)
+ - 샘플 데이터는 그대로(생성기가 같은 작성기를 써서 기사 문장이 바뀌지 않음을 다시 생성해 확인)
+ 
++## 3-12. 이달의 득점왕 · 도움왕 + 연속 참가 + 선수 화면(수상 이력 · 케미 맵) (2026-10-23)
++
++| 항목 | 결정 | 이유 |
++|---|---|---|
++| 이달의 득점왕 · 도움왕 | `MONTHLY_TOP_SCORER` · `MONTHLY_TOP_ASSIST`(MONTHLY, AUTO). 월 마감(이달의 MVP와 같은 시점)에 그 달 확정 경기 골 · 도움 1위, 동점 공동, 0개면 없음. 이주의 득점왕 · 도움왕은 그대로 | 요청: 주간 + 월간 둘 다 |
++| 월 마감 '한 번만' | 타이틀 종류마다 따로 판단(그 달 수여 이력이 있으면 그 종류만 건너뜀) | 배포 전에 MVP만 발표된 9월도 득점왕 · 도움왕은 채워짐. MVP 기사는 MVP가 새로 나온 달만 |
++| MVP 기사 | `monthlyMvp.monthlyTitles`(득점왕 · 도움왕) 추가 → 마지막 문단 한 문장. 프롬프트 v4 | 요청 |
++| 연속 참가 | `ATTEND_STREAK_10/20/30/40/50`("연속 참가 n회", SESSION, AUTO, `ATTENDANCE_STREAK`). [일정마감] 때 그 일정 참석자 중 연속 횟수가 정확히 10 · 20 · 30 · 40 · 50인 사람에게 | |
++| 참가 기준 | 마감된 일정의 **참석 명단**(`SESSION_MEMBER.ATTENDANCE_STATUS = ATTENDING`). 뛴 경기 수와 무관. 취소된 일정은 세지도 끊지도 않음. 빠진 일정이 나오면 끊김 | 요청: 그 날짜 참가 기준 |
++| 다시 수여 | 끊겼다가 다시 10회가 되면 또 수여('연속 참가 10회 ×2'). 같은 일정에서는 한 번만 | 요청 |
++| 수상 이력 | 선수 화면: 최근(기간 끝 날짜 순) 5개를 카드로 가로 넘김, 더 있으면 마지막 칸 [전체 n개] → 아래 목록. 카드: 타이틀 · 값(3골 / +4.2% / 10회 연속) · 기간(이달의 ~는 'n월') · 공동 | 요청 |
++| 케미 맵 | 자주 같은 팀 · 자주 맞붙은 선수 목록 → 방사형 관계도(`components/ChemistryMap.tsx`). 가운데 = 나, 위 반원 = 같은 팀 5명, 아래 반원 = 맞대결 5명. 선 굵기 = 경기 수, 색 = 승률 3단계(50%↑ 파랑 · 30~50% 회색 · 30%↓ 주황), 이름 아래 숫자, 노드 누르면 그 선수. 정확한 값은 [목록으로 보기] | 요청(C안). 파랑/주황은 색약에도 구분되고(빨강/초록은 구분 안 됨), 색만으로 읽지 않게 숫자를 같이 씀 |
++
++- API 변경 없음(기존 `/stats/members/{id}`, `/titles/awards` 값으로 그림). 타이틀 정의 행은 새 클럽은 생성 때, 기존 클럽은 처음 필요할 때 앱이 만든다
++- alembic 0008: `TITLE_TYPE` 설명 · `AUTO_RULE` 설명만 변경
++- 샘플 데이터 다시 생성: 7 · 8 · 9월 이달의 득점왕 · 도움왕, 연속 참가 10회(4명) 포함
++- 테스트 `tests/test_titles_v2.py`
++
+ ## 4. 남은 이슈 / 다음 단계
+ 
+ 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
+diff --git a/docs/TABLES.md b/docs/TABLES.md
+index 18451b2..50345da 100644
+--- a/docs/TABLES.md
++++ b/docs/TABLES.md
+@@ -463,7 +463,7 @@ Rating 변경 이력(감사 목적 보존, 재계산 시 VOIDED 처리)
+ 
+ ### TITLE_TYPE
+ 
+-타이틀 정의(이주의 득점왕/도움왕, 이달의 MVP …)  
++타이틀 정의(이주의 · 이달의 득점왕/도움왕, 이달의 MVP, 연속 참가 n회 …)  
+ 구분: **Config/Reference**
+ 
+ | No | 컬럼 | 타입 | NULL | 키 | 설명 |
+@@ -474,7 +474,7 @@ Rating 변경 이력(감사 목적 보존, 재계산 시 VOIDED 처리)
+ | 4 | `TITLE_NAME` | VARCHAR(50) | N |  | 타이틀명 |
+ | 5 | `PERIOD_TYPE` | VARCHAR(10) | N |  | WEEKLY(월~일)/SESSION/MONTHLY(1일~말일) |
+ | 6 | `AWARD_METHOD` | VARCHAR(10) | N |  | MANUAL(관리자)/AUTO(주간: 일정마감 시, 월간: 월 마감 시 자동 집계) |
+-| 7 | `AUTO_RULE` | VARCHAR(30) | Y |  | 자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP 전용) |
++| 7 | `AUTO_RULE` | VARCHAR(30) | Y |  | 자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP), ATTENDANCE_STREAK(연속 참가, 코드 끝 숫자 = 횟수) |
+ | 8 | `COUNTS_AS_MVP_YN` | BOOL | N |  | MVP 횟수(MVP_COUNT) 집계 대상 여부. 이달의 MVP = 1 |
+ | 9 | `ACTIVE_YN` | BOOL | N |  | 사용 여부(false=비활성, 삭제 대신 사용) |
+ | 10 | `DISPLAY_ORDER` | INTEGER | N |  | 표시 순서 |
+diff --git a/docs/WIRE_RULES.md b/docs/WIRE_RULES.md
+index 48a73fc..11739b7 100644
+--- a/docs/WIRE_RULES.md
++++ b/docs/WIRE_RULES.md
+@@ -40,7 +40,7 @@
+ | 연승 (WIN_STREAK / 연승) | 오늘 마지막 경기를 이겨 3연승 이상 진행 중 | ○○○ 등 7명, 4연승 질주 |
+ | 연속골 (SCORING_STREAK / 연속골) | 오늘 골 + 3일정 이상 연속 | ○○○, 10주 연속 골 |
+ | 복귀전 결과 (RETURN_PLAYER_RESULT / 복귀) | 30일 이상 만에 뛴 선수의 오늘 성적 | ○○○, 49일 만의 복귀전서 1골 |
+-| 타이틀 (TITLE_AWARDED / 타이틀) | 이번 일정에 받은 타이틀(이주의 득점왕·도움왕) | ○○○, 이주의 득점왕 |
++| 타이틀 (TITLE_AWARDED / 타이틀) | 이번 일정에 받은 타이틀(이주의 득점왕·도움왕, 연속 참가 10·20·30·40·50회 — `metric = attendStreak`) | ○○○, 이주의 득점왕 / ○○○, 연속 참가 10회 |
+ | 복수 결과 (REVENGE_RESULT / 천적) | 오늘 프리뷰의 천적 매치 두 사람이 실제로 맞붙은 결과(설욕 / 천적 계속 / 무승부) | ○○○, △△△ 상대 4연패 끊었다 |
+ | 골 콤비 (ASSIST_COMBO / 콤비) | 같은 도움→득점 조합이 오늘 2번 이상 | ○○○→△△△, 오늘만 두 번 |
+ | 무패 팀 (UNBEATEN_TEAM / 무패) | 오늘 3경기 이상 + 패배 0(전승이면 강조). 대표 선수 없음 | A팀, 오늘 5경기 무패 |
+diff --git a/docs/schema.sql b/docs/schema.sql
+index 05e6758..053fa75 100644
+--- a/docs/schema.sql
++++ b/docs/schema.sql
+@@ -108,7 +108,7 @@ CREATE TABLE `TITLE_TYPE` (
+ 	`TITLE_NAME` VARCHAR(50) NOT NULL COMMENT '타이틀명', 
+ 	`PERIOD_TYPE` VARCHAR(10) NOT NULL COMMENT 'WEEKLY(월~일)/SESSION/MONTHLY(1일~말일)', 
+ 	`AWARD_METHOD` VARCHAR(10) NOT NULL COMMENT 'MANUAL(관리자)/AUTO(주간: 일정마감 시, 월간: 월 마감 시 자동 집계)', 
+-	`AUTO_RULE` VARCHAR(30) COMMENT '자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP 전용)', 
++	`AUTO_RULE` VARCHAR(30) COMMENT '자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP), ATTENDANCE_STREAK(연속 참가, 코드 끝 숫자 = 횟수)', 
+ 	`COUNTS_AS_MVP_YN` BOOL NOT NULL COMMENT 'MVP 횟수(MVP_COUNT) 집계 대상 여부. 이달의 MVP = 1', 
+ 	`ACTIVE_YN` BOOL NOT NULL COMMENT '사용 여부(false=비활성, 삭제 대신 사용)', 
+ 	`DISPLAY_ORDER` INTEGER NOT NULL COMMENT '표시 순서', 
+@@ -117,7 +117,7 @@ CREATE TABLE `TITLE_TYPE` (
+ 	CONSTRAINT `PK_TITLE_TYPE` PRIMARY KEY (`TITLE_TYPE_ID`), 
+ 	CONSTRAINT `UQ_TITLE_TYPE_CLUB_ID_TITLE_CODE` UNIQUE (`CLUB_ID`, `TITLE_CODE`), 
+ 	CONSTRAINT `FK_TITLE_TYPE_CLUB_ID` FOREIGN KEY(`CLUB_ID`) REFERENCES `CLUB` (`CLUB_ID`)
+-)COMMENT='타이틀 정의(이주의 득점왕/도움왕, 이달의 MVP …)' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
++)COMMENT='타이틀 정의(이주의 · 이달의 득점왕/도움왕, 이달의 MVP, 연속 참가 n회 …)' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+ 
+ CREATE TABLE `MEMBER_PAIR_STAT` (
+ 	`MEMBER_ID_LOW` BIGINT NOT NULL COMMENT '작은 멤버 ID', 
+diff --git a/frontend/src/components/ChemistryMap.tsx b/frontend/src/components/ChemistryMap.tsx
+new file mode 100644
+index 0000000..8a10c38
+--- /dev/null
++++ b/frontend/src/components/ChemistryMap.tsx
+@@ -0,0 +1,142 @@
++// 케미 맵: 나를 가운데 두고 위쪽 반원 = 자주 같은 팀이 된 선수, 아래쪽 반원 = 자주 맞붙은 선수(각 최대 5명).
++// 선 굵기 = 함께 · 맞붙은 경기 수, 색 = 승률 3단계(파랑 높음 · 회색 보통 · 주황 낮음 — 색약에도 구분되는 짝).
++// 색만으로 읽지 않게 이름 아래에 숫자(경기 수 · 승률 / 승 무 패)를 같이 쓰고, 정확한 값은 아래 [목록으로 보기]에 둔다.
++
++import { Link } from 'react-router-dom'
++import { initials } from '../lib/format'
++
++export interface MateLink {
++  memberId: number
++  name: string | null
++  matches: number
++  wins: number
++  draws: number
++  winRate: number | null
++}
++
++export interface RivalLink {
++  memberId: number
++  name: string | null
++  matches: number
++  wins: number
++  draws: number
++  losses: number
++}
++
++type Tier = 'hi' | 'mid' | 'lo'
++/** 승률 3단계: 50% 이상 높음, 30% 미만 낮음(3팀 풋살은 무승부가 많아 평균 승률이 35~40%대) */
++const HI = 0.5
++const LO = 0.3
++const TIER_LABEL: Record<Tier, string> = { hi: '승률 50%↑', mid: '30~50%', lo: '30%↓' }
++
++const W = 360
++const H = 400
++const CX = 180
++const CY = 200
++const R = 130
++const NODE = 19
++const MAX = 5
++
++function tierOf(rate: number | null): Tier {
++  if (rate === null) return 'mid'
++  return rate >= HI ? 'hi' : rate < LO ? 'lo' : 'mid'
++}
++
++/** 반원 위에 n개를 고르게: 위쪽은 200°~340°, 아래쪽은 20°~160°(화면 좌표, y가 아래로) */
++function angles(n: number, side: 'top' | 'bottom'): number[] {
++  const [from, to] = side === 'top' ? [200, 340] : [160, 20]
++  if (n === 1) return [side === 'top' ? 270 : 90]
++  return Array.from({ length: n }, (_, i) => from + ((to - from) * i) / (n - 1))
++}
++
++interface Node {
++  id: number
++  name: string
++  x: number
++  y: number
++  side: 'top' | 'bottom'
++  width: number
++  tier: Tier
++  stat: string
++  title: string
++}
++
++export function ChemistryMap({ slug, me, teammates, opponents }: {
++  slug: string
++  me: string
++  teammates: MateLink[]
++  opponents: RivalLink[]
++}) {
++  const mates = teammates.slice(0, MAX)
++  const rivals = opponents.slice(0, MAX)
++  const maxMatches = Math.max(1, ...mates.map((m) => m.matches), ...rivals.map((m) => m.matches))
++  const width = (m: number) => 2 + 6 * (m / maxMatches)
++  const pos = (deg: number) => ({ x: CX + R * Math.cos((deg * Math.PI) / 180), y: CY + R * Math.sin((deg * Math.PI) / 180) })
++
++  const nodes: Node[] = [
++    ...mates.map((m, i): Node => {
++      const p = pos(angles(mates.length, 'top')[i])
++      const rate = m.winRate ?? (m.matches ? m.wins / m.matches : null)
++      const losses = m.matches - m.wins - m.draws
++      return {
++        id: m.memberId, name: m.name ?? '', ...p, side: 'top', width: width(m.matches), tier: tierOf(rate),
++        stat: `${m.matches}경기 · ${rate === null ? '-' : Math.round(rate * 100)}%`,
++        title: `${m.name}: 같은 팀 ${m.matches}경기, ${m.wins}승 ${m.draws}무 ${losses}패`,
++      }
++    }),
++    ...rivals.map((m, i): Node => {
++      const p = pos(angles(rivals.length, 'bottom')[i])
++      return {
++        id: m.memberId, name: m.name ?? '', ...p, side: 'bottom', width: width(m.matches),
++        tier: tierOf(m.matches ? m.wins / m.matches : null),
++        stat: `${m.wins}승 ${m.draws}무 ${m.losses}패`,
++        title: `${m.name} 상대로 ${m.matches}경기 ${m.wins}승 ${m.draws}무 ${m.losses}패`,
++      }
++    }),
++  ]
++  if (!nodes.length) return <p className="small muted">기록이 쌓이면 보여요.</p>
++
++  const summary = `${me}의 케미 맵. 자주 같은 팀: ${mates.map((m) => `${m.name} ${m.matches}경기`).join(', ') || '없음'}. `
++    + `자주 맞붙은 선수: ${rivals.map((m) => `${m.name} ${m.wins}승 ${m.draws}무 ${m.losses}패`).join(', ') || '없음'}.`
++
++  return (
++    <figure className="chem">
++      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={summary}>
++        {/* 가운데 구분선 + 위/아래 이름표 */}
++        <line x1={8} y1={CY} x2={CX - 34} y2={CY} className="chem-divider" />
++        <line x1={CX + 34} y1={CY} x2={W - 8} y2={CY} className="chem-divider" />
++        <text x={10} y={CY - 8} className="chem-side">▲ 같은 팀</text>
++        <text x={10} y={CY + 18} className="chem-side">▼ 맞대결</text>
++
++        {nodes.map((n) => (
++          <line key={`l${n.side}${n.id}`} x1={CX} y1={CY} x2={n.x} y2={n.y} strokeWidth={n.width}
++            className={`chem-link ${n.tier}`} />
++        ))}
++
++        <circle cx={CX} cy={CY} r={27} className="chem-me" />
++        <text x={CX} y={CY + 5} textAnchor="middle" className="chem-me-text">{initials(me)}</text>
++
++        {nodes.map((n) => {
++          const up = n.side === 'top'
++          const nameY = up ? n.y - NODE - 20 : n.y + NODE + 15
++          const statY = up ? n.y - NODE - 5 : n.y + NODE + 30
++          return (
++            <Link key={`n${n.side}${n.id}`} to={`/c/${slug}/members/${n.id}`} className="chem-node" aria-label={n.title}>
++              <title>{n.title}</title>
++              <circle cx={n.x} cy={n.y} r={NODE} className={`chem-dot ${n.tier}`} />
++              <text x={n.x} y={n.y + 4} textAnchor="middle" className="chem-ini">{initials(n.name)}</text>
++              <text x={n.x} y={nameY} textAnchor="middle" className="chem-name">{n.name}</text>
++              <text x={n.x} y={statY} textAnchor="middle" className="chem-stat">{n.stat}</text>
++            </Link>
++          )
++        })}
++      </svg>
++      <figcaption className="chem-legend">
++        <span className="chem-key"><i className="w" />선 굵기 = 경기 수</span>
++        {(['hi', 'mid', 'lo'] as Tier[]).map((t) => (
++          <span key={t} className="chem-key"><i className={`c ${t}`} />{TIER_LABEL[t]}</span>
++        ))}
++      </figcaption>
++    </figure>
++  )
++}
+diff --git a/frontend/src/lib/format.ts b/frontend/src/lib/format.ts
+index d44eb00..8f70c11 100644
+--- a/frontend/src/lib/format.ts
++++ b/frontend/src/lib/format.ts
+@@ -89,13 +89,14 @@ export function fmtRise(v: number | null | undefined): string {
+ 
+ /** 타이틀 기간: 이달의 MVP는 '9월', 주간은 '9.21–9.27' */
+ export function fmtAwardPeriod(a: { titleCode: string; periodStart: string; periodEnd: string }): string {
+-  if (a.titleCode === 'MONTHLY_MVP') return `${Number(a.periodStart.slice(5, 7))}월`
++  if (a.titleCode.startsWith('MONTHLY_')) return `${Number(a.periodStart.slice(5, 7))}월`  // 이달의 MVP · 득점왕 · 도움왕
++  if (a.periodStart === a.periodEnd) return fmtShortDate(a.periodStart)  // 연속 참가 등 일정 하루 단위
+   return `${fmtShortDate(a.periodStart)}–${fmtShortDate(a.periodEnd)}`
+ }
+ 
+-/** 타이틀 수상 값: 득점왕 '3골', 도움왕 '2도움', 이달의 MVP '+4.2%' (+ 공동) */
++/** 타이틀 수상 값: 득점왕 '3골', 도움왕 '2도움', 이달의 MVP '+4.2%' (+ 공동). 연속 참가는 이름에 횟수가 있어 빈 값 */
+ export function fmtAwardValue(facts: { metric?: string; value?: number; tied?: boolean } | null | undefined): string {
+-  if (!facts || facts.value === undefined || facts.value === null) return ''
++  if (!facts || facts.value === undefined || facts.value === null || facts.metric === 'attendStreak') return ''
+   const v = facts.metric === 'risePercent' ? fmtRise(facts.value)
+     : `${facts.value}${facts.metric === 'assists' ? '도움' : facts.metric === 'wins' ? '승' : '골'}`
+   return `${v}${facts.tied ? ' · 공동' : ''}`
+diff --git a/frontend/src/pages/PlayerPage.tsx b/frontend/src/pages/PlayerPage.tsx
+index 88a758d..eda0b2d 100644
+--- a/frontend/src/pages/PlayerPage.tsx
++++ b/frontend/src/pages/PlayerPage.tsx
+@@ -1,14 +1,17 @@
+-// S05 선수 기록 (+ 수상 이력) · 프로필(가입일 · 출생연도, 관리자 모드에서 입력)
++// S05 선수 기록 (+ 수상 이력: 최근 5개 가로 넘김) · 프로필(가입일 · 출생연도, 관리자 모드에서 입력) · 케미 맵
+ 
+ import { useState } from 'react'
+ import { Link, useParams } from 'react-router-dom'
+ import type { Award, MemberProfile } from '../api/types'
++import { ChemistryMap } from '../components/ChemistryMap'
+ import { ErrorBox, Loading, TopBar } from '../components/ui'
+ import { useClub } from '../lib/club'
+ import { fmtAwardPeriod, fmtAwardValue, fmtFullDate, initials, pct, RESULT_LABEL } from '../lib/format'
+ import { useAction, useAsync } from '../lib/hooks'
+ 
+ const EMPTY_PROFILE: MemberProfile = { joinedAt: null, birthYear: null }
++/** 수상 이력 카드로 보여 줄 개수(나머지는 [전체 보기]) */
++const AWARD_CARDS = 5
+ 
+ export function PlayerPage() {
+   const { memberId } = useParams()
+@@ -71,44 +74,80 @@ export function PlayerPage() {
+           )}
+         </section>
+ 
+-        <section className="section">
+-          <h2 style={{ fontSize: 15, fontWeight: 700 }}>수상 이력</h2>
+-          {(awards.data ?? []).length === 0 ? <p className="small muted">아직 받은 타이틀이 없어요.</p> : (
+-            (awards.data ?? []).slice(0, 10).map((a) => (
+-              <div key={a.memberTitleId} className="list-row">
+-                <span className="row"><span className="tag gold">{a.titleName}</span></span>
+-                <span className="small muted">
+-                  {fmtAwardPeriod(a)}{fmtAwardValue(a.facts) ? ` · ${fmtAwardValue(a.facts)}` : ''}
+-                </span>
+-              </div>
+-            ))
+-          )}
+-        </section>
+-
+-        <section className="section">
+-          <h2 style={{ fontSize: 15, fontWeight: 700 }}>자주 같은 팀이 된 선수</h2>
+-          {d.frequentTeammates.length === 0 ? <p className="small muted">기록이 쌓이면 보여요.</p> : d.frequentTeammates.map((p) => (
+-            <Link key={p.memberId} to={`/c/${slug}/members/${p.memberId}`} className="list-row">
+-              <b>{p.name}</b>
+-              <span className="muted">{p.matches}경기 · 함께 승률 {pct(p.winRate)}</span>
+-            </Link>
+-          ))}
+-        </section>
++        <AwardStrip awards={awards.data ?? []} />
+ 
+         <section className="section">
+-          <h2 style={{ fontSize: 15, fontWeight: 700 }}>자주 맞붙은 선수</h2>
+-          {d.frequentOpponents.length === 0 ? <p className="small muted">기록이 쌓이면 보여요.</p> : d.frequentOpponents.map((p) => (
+-            <Link key={p.memberId} to={`/c/${slug}/members/${p.memberId}`} className="list-row">
+-              <b>{p.name}</b>
+-              <span className="muted">{p.matches}경기 · {p.wins}승 {p.draws}무 {p.losses}패</span>
+-            </Link>
+-          ))}
++          <h2 style={{ fontSize: 15, fontWeight: 700 }}>케미 맵</h2>
++          <ChemistryMap slug={slug} me={s.name} teammates={d.frequentTeammates} opponents={d.frequentOpponents} />
++          {d.frequentTeammates.length || d.frequentOpponents.length ? (
++            <details className="card flat">
++              <summary className="small">목록으로 보기</summary>
++              <h3 className="small muted" style={{ fontWeight: 700, margin: '4px 0' }}>자주 같은 팀이 된 선수</h3>
++              {d.frequentTeammates.map((p) => (
++                <Link key={p.memberId} to={`/c/${slug}/members/${p.memberId}`} className="list-row">
++                  <b>{p.name}</b>
++                  <span className="muted">{p.matches}경기 · 함께 승률 {pct(p.winRate)}</span>
++                </Link>
++              ))}
++              <h3 className="small muted" style={{ fontWeight: 700, margin: '10px 0 4px' }}>자주 맞붙은 선수</h3>
++              {d.frequentOpponents.map((p) => (
++                <Link key={p.memberId} to={`/c/${slug}/members/${p.memberId}`} className="list-row">
++                  <b>{p.name}</b>
++                  <span className="muted">{p.matches}경기 · {p.wins}승 {p.draws}무 {p.losses}패</span>
++                </Link>
++              ))}
++            </details>
++          ) : null}
+         </section>
+       </main>
+     </>
+   )
+ }
+ 
++/** 수상 이력: 최근(기간 끝 날짜 순) 5개를 카드로 가로 넘김. 더 있으면 마지막 칸 [전체 n개] → 아래 목록 */
++function AwardStrip({ awards }: { awards: Award[] }) {
++  const [all, setAll] = useState(false)
++  const sorted = [...awards].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd) || b.createdAt.localeCompare(a.createdAt))
++  const cards = sorted.slice(0, AWARD_CARDS)
++  return (
++    <section className="section">
++      <div className="row between">
++        <h2 style={{ fontSize: 15, fontWeight: 700 }}>수상 이력</h2>
++        {sorted.length > 1 ? <span className="small muted">옆으로 넘겨 보기 · 전체 {sorted.length}개</span> : null}
++      </div>
++      {sorted.length === 0 ? <p className="small muted">아직 받은 타이틀이 없어요.</p> : (
++        <div className="award-strip" role="list" aria-label="최근 수상">
++          {cards.map((a) => (
++            <div key={a.memberTitleId} className="award-card" role="listitem">
++              <span className="tag gold">{a.titleName}</span>
++              <b className="num">{cardValue(a)}</b>
++              <span className="small muted">{fmtAwardPeriod(a)}{a.facts?.tied ? ' · 공동' : ''}</span>
++            </div>
++          ))}
++          {sorted.length > AWARD_CARDS ? (
++            <button type="button" className="award-card more" role="listitem" aria-expanded={all} onClick={() => setAll((v) => !v)}>
++              <b>{all ? '접기' : `전체 ${sorted.length}개`}</b>
++              <span className="small muted">{all ? '목록 닫기' : '아래에 목록으로'}</span>
++            </button>
++          ) : null}
++        </div>
++      )}
++      {all ? sorted.map((a) => (
++        <div key={a.memberTitleId} className="list-row">
++          <span className="row"><span className="tag gold">{a.titleName}</span></span>
++          <span className="small muted">{fmtAwardPeriod(a)}{fmtAwardValue(a.facts) ? ` · ${fmtAwardValue(a.facts)}` : ''}</span>
++        </div>
++      )) : null}
++    </section>
++  )
++}
++
++/** 카드 가운데 큰 글씨: '3골' · '+4.2%' · '10회 연속'('공동'은 아래 작은 글씨로) */
++function cardValue(a: Award): string {
++  if (a.facts?.metric === 'attendStreak') return `${a.facts.value}회 연속`
++  return fmtAwardValue(a.facts ? { ...a.facts, tied: false } : null) || '수상'
++}
++
+ /** 관리자 모드: 가입일 · 출생연도 입력. 비우고 저장하면 지운다 */
+ function ProfileEditor({ memberId, profile, onSaved }: { memberId: number; profile: MemberProfile; onSaved: () => void }) {
+   const { api } = useClub()
+diff --git a/frontend/src/pages/admin/ArticlesAdminPage.tsx b/frontend/src/pages/admin/ArticlesAdminPage.tsx
+index 231fbab..cf2501e 100644
+--- a/frontend/src/pages/admin/ArticlesAdminPage.tsx
++++ b/frontend/src/pages/admin/ArticlesAdminPage.tsx
+@@ -6,7 +6,7 @@ import type { Article, ArticleStatus, InsightPayload } from '../../api/types'
+ import { Icon } from '../../components/Icon'
+ import { Empty, ErrorBox, Loading, Switch, Tags, TopBar } from '../../components/ui'
+ import { useClub, useClubEvent } from '../../lib/club'
+-import { ARTICLE_TYPE_LABEL, fmtDateTime } from '../../lib/format'
++import { ARTICLE_TYPE_LABEL, fmtAwardValue, fmtDateTime } from '../../lib/format'
+ import { useAction, useAsync } from '../../lib/hooks'
+ 
+ const TABS: { key: string; label: string; statuses: ArticleStatus[] }[] = [
+@@ -189,7 +189,7 @@ function describeInsight(i: InsightPayload): string {
+     case 'FIRST_GOAL': return `${name}, 첫 골${f.debutDay ? ' (데뷔전)' : ''}`
+     case 'FIRST_ASSIST': return `${name}, 첫 도움${f.debutDay ? ' (데뷔전)' : ''}`
+     case 'PERSONAL_BEST_GOALS': return `${name}, 하루 ${f.goalsToday}골 (이전 최다 ${f.previousBest})`
+-    case 'TITLE_AWARDED': return `${name}, ${f.titleName}${f.value ? ` (${f.value}${f.metric === 'assists' ? '도움' : f.metric === 'wins' ? '승' : '골'})` : ''}`
++    case 'TITLE_AWARDED': return `${name}, ${f.titleName}${fmtAwardValue(f) ? ` (${fmtAwardValue(f)})` : ''}`
+     default: return name
+   }
+ }
+diff --git a/frontend/src/styles/global.css b/frontend/src/styles/global.css
+index 07f9a9f..f3a5516 100644
+--- a/frontend/src/styles/global.css
++++ b/frontend/src/styles/global.css
+@@ -438,3 +438,41 @@ a.panel-body:hover { color: var(--ink); background: #222933; }
+ .slim-row .label { display: flex; align-items: baseline; gap: 8px; }
+ .slim-row .en { font-family: var(--display); font-size: 13px; font-weight: 700; letter-spacing: 0.12em; color: #c9d1dc; }
+ .slim-row .ko { font-size: 13px; color: var(--muted); }
++
++/* 선수 화면: 수상 이력 가로 넘김(최근 5개) */
++.award-strip { display: flex; gap: 8px; overflow-x: auto; scroll-snap-type: x mandatory; scroll-padding: 0 16px;
++  margin: 0 -16px; padding: 2px 16px 6px; scrollbar-width: none; }
++.award-strip::-webkit-scrollbar { display: none; }
++.award-card { flex: 0 0 132px; scroll-snap-align: start; display: flex; flex-direction: column; align-items: flex-start; gap: 8px;
++  padding: 12px; border-radius: var(--radius-s); background: var(--card); border: 1px solid var(--line); color: var(--ink); text-align: left; }
++.award-card .num { font-family: var(--display); font-size: 22px; font-weight: 800; line-height: 1.1; }
++.award-card.more { align-items: center; justify-content: center; border-style: dashed; font: inherit; }
++.award-card.more b { color: var(--accent-ink); }
++
++/* 선수 화면: 케미 맵(위 = 같은 팀, 아래 = 맞대결). 색은 승률 3단계 — 파랑/주황은 색약에도 구분되는 짝 */
++:root { --chem-hi: #5b9bff; --chem-mid: #7d8796; --chem-lo: #f08a3c; }
++.chem { margin: 0; padding: 4px 0 0; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); }
++.chem svg { display: block; width: 100%; height: auto; max-width: 420px; margin: 0 auto; }
++.chem-divider { stroke: var(--line-strong); stroke-width: 1; stroke-dasharray: 3 4; }
++.chem-side { font-size: 11px; font-weight: 700; fill: var(--muted); }
++.chem-link { stroke-linecap: round; opacity: 0.85; }
++.chem-link.hi, .chem-dot.hi { stroke: var(--chem-hi); }
++.chem-link.mid, .chem-dot.mid { stroke: var(--chem-mid); }
++.chem-link.lo, .chem-dot.lo { stroke: var(--chem-lo); }
++.chem-dot { fill: var(--night-2); stroke-width: 2.5; }
++.chem-me { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 2.5; }
++.chem-me-text { font-size: 13px; font-weight: 800; fill: #fff; }
++.chem-ini { font-size: 11px; font-weight: 700; fill: var(--ink); pointer-events: none; }
++.chem-name { font-size: 12px; font-weight: 700; fill: var(--ink); }
++.chem-stat { font-size: 10.5px; fill: var(--muted); }
++.chem-node:hover .chem-dot, .chem-node:focus-visible .chem-dot { fill: var(--soft); stroke-width: 3.5; }
++.chem-node:focus { outline: none; }
++.chem-legend { display: flex; flex-wrap: wrap; gap: 6px 12px; justify-content: center; padding: 6px 10px 12px; font-size: 11px; color: var(--muted); }
++.chem-key { display: inline-flex; align-items: center; gap: 5px; }
++.chem-key i { display: inline-block; }
++.chem-key i.w { width: 22px; height: 0; border-top: 2px solid var(--chem-mid); border-bottom: 4px solid var(--chem-mid); border-radius: 2px; }
++.chem-key i.c { width: 10px; height: 10px; border-radius: 5px; border: 2.5px solid; }
++.chem-key i.c.hi { border-color: var(--chem-hi); }
++.chem-key i.c.mid { border-color: var(--chem-mid); }
++.chem-key i.c.lo { border-color: var(--chem-lo); }
++
+diff --git a/tests/test_titles_v2.py b/tests/test_titles_v2.py
+new file mode 100644
+index 0000000..b7b40dc
+--- /dev/null
++++ b/tests/test_titles_v2.py
+@@ -0,0 +1,121 @@
++"""이달의 득점왕 · 도움왕(월 마감) + 연속 참가 10 · 20 · 30 · 40 · 50회([일정마감], 참석 명단 기준)."""
++from datetime import date, timedelta
++
++from sqlalchemy import delete, select
++
++from app.core.database import SessionLocal
++from app.core.timeutil import local_today, month_range, prev_month_start
++from app.models import AiArticle, MemberTitle, TitleType
++from app.services import mvp_service
++from app.services.common import get_club_by_slug
++from app.services.history import load_history, member_totals
++
++
++def _titles(slug: str, code_prefix: str) -> list[tuple[str, int, int | None, dict]]:
++    with SessionLocal() as s:
++        club = get_club_by_slug(s, slug)
++        rows = s.execute(select(TitleType.title_code, MemberTitle.member_id, MemberTitle.session_id, MemberTitle.facts_json)
++                         .join(TitleType, TitleType.title_type_id == MemberTitle.title_type_id)
++                         .where(MemberTitle.club_id == club.club_id, MemberTitle.cancelled_yn.is_(False),
++                                TitleType.title_code.like(f"{code_prefix}%"))
++                         .order_by(MemberTitle.member_title_id)).all()
++    return [tuple(r) for r in rows]
++
++
++def _session(api, d: date, member_ids, matches=0):
++    sid = api.ok(api.post("/sessions", {"sessionDate": d.isoformat()}), 201)["sessionId"]
++    api.ok(api.post(f"/sessions/{sid}/members", {"memberIds": member_ids}))
++    gen = api.ok(api.post(f"/sessions/{sid}/teams/generate", {"teamCount": 2}))
++    api.ok(api.post(f"/sessions/{sid}/teams/confirm", {"generationId": gen["generationId"]}))
++    for g in range(matches):
++        m = api.next_match(sid)
++        mid = m["matchId"]
++        api.ok(api.post(f"/matches/{mid}/start"))
++        team = m["teamA"]["sessionTeamId"] if g % 2 == 0 else m["teamB"]["sessionTeamId"]
++        side = "teamA" if g % 2 == 0 else "teamB"
++        ms = api.ok(api.get(f"/matches/{mid}"))[side]["members"]
++        api.ok(api.post(f"/matches/{mid}/goals", {"teamId": team, "scorerMemberId": ms[0]["memberId"],
++                                                  "assistMemberId": ms[1]["memberId"]}))
++        api.ok(api.post(f"/matches/{mid}/end"))
++        api.ok(api.post(f"/matches/{mid}/finalize"))
++    return sid
++
++
++def test_monthly_top_scorer_and_assist(make_club):
++    api = make_club("mstat")
++    ids = [api.ok(api.post("/members", {"name": f"S{i}"}), 201)["memberId"] for i in range(6)]
++    month = prev_month_start(local_today("Asia/Seoul"))
++    s1 = _session(api, month.replace(day=5), ids, matches=3)
++    s2 = _session(api, month.replace(day=12), ids, matches=3)
++    api.ok(api.post(f"/sessions/{s1}/close"))
++    api.ok(api.post(f"/sessions/{s2}/close"))  # 지난달 마지막 일정 → 월 마감(MVP + 득점왕 · 도움왕)
++
++    with SessionLocal() as s:
++        club = get_club_by_slug(s, "mstat")
++        tot = member_totals(load_history(s, club.club_id, session_ids=[s1, s2]))
++    for code, metric in (("MONTHLY_TOP_SCORER", "goals"), ("MONTHLY_TOP_ASSIST", "assists")):
++        best = max(getattr(v, metric) for v in tot.values())
++        expect = sorted(m for m, v in tot.items() if getattr(v, metric) == best)
++        got = [t for t in _titles("mstat", code)]
++        assert sorted(t[1] for t in got) == expect and all(t[2] == s2 for t in got)
++        assert all(t[3] == {"metric": metric, "value": best, "tied": len(expect) > 1} for t in got)
++
++    awards = api.ok(api.get("/titles/awards", admin=False))
++    assert {"이달의 득점왕", "이달의 도움왕", "이달의 MVP"} <= {a["titleName"] for a in awards}
++    art = next(a for a in api.ok(api.get("/articles", admin=False)) if a["articleType"] == "MONTHLY_MVP")
++    body = api.ok(api.get(f"/articles/{art['articleId']}"))
++    assert "득점왕은" in body["content"] and "도움왕은" in body["content"]
++    assert [x["titleName"] for x in body["requestJson"]["monthlyMvp"]["monthlyTitles"]] == ["이달의 득점왕", "이달의 도움왕"]
++
++    # 배포 전에 MVP만 발표된 달: 득점왕 · 도움왕만 새로 채우고 기사는 다시 안 씀
++    with SessionLocal() as s:
++        club = get_club_by_slug(s, "mstat")
++        tids = s.scalars(select(TitleType.title_type_id).where(
++            TitleType.club_id == club.club_id, TitleType.title_code.in_(["MONTHLY_TOP_SCORER", "MONTHLY_TOP_ASSIST"]))).all()
++        s.execute(delete(MemberTitle).where(MemberTitle.title_type_id.in_(tids)))
++        s.commit()
++        assert mvp_service.close_due_month(s, club) == []
++        n_articles = s.scalar(select(AiArticle.article_id).where(AiArticle.club_id == club.club_id,
++                                                                AiArticle.article_type == "MONTHLY_MVP").limit(2))
++    assert n_articles and len(_titles("mstat", "MONTHLY_TOP_")) >= 2
++    with SessionLocal() as s:  # 다시 돌려도 그대로
++        club = get_club_by_slug(s, "mstat")
++        before = len(_titles("mstat", "MONTHLY_"))
++        assert mvp_service.close_due_month(s, club) == [] and len(_titles("mstat", "MONTHLY_")) == before
++
++
++def test_attendance_streak_titles(make_club):
++    """21번 일정(중간에 취소 1번). A·E·F 전부 참가 → 10 · 20회, B는 5번째 결석 → 15번째에 10회,
++    C는 11번째 결석 → 10번째와 21번째에 두 번 10회. 취소된 일정은 세지도 끊지도 않음."""
++    api = make_club("streak")
++    names = ["A", "B", "C", "E", "F"]
++    mid = {n: api.ok(api.post("/members", {"name": n}), 201)["memberId"] for n in names}
++    d = date(2027, 1, 2)
++    sids = []
++    for i in range(1, 22):
++        who = [n for n in names if not (n == "B" and i == 5) and not (n == "C" and i == 11)]
++        sid = _session(api, d, [mid[n] for n in who])
++        api.ok(api.post(f"/sessions/{sid}/close"))
++        sids.append(sid)
++        d += timedelta(days=7)
++        if i == 3:  # 취소된 일정(참석 체크까지만 하고 취소)
++            cid = api.ok(api.post("/sessions", {"sessionDate": d.isoformat()}), 201)["sessionId"]
++            api.ok(api.post(f"/sessions/{cid}/members", {"memberIds": [mid["A"], mid["E"]]}))
++            api.ok(api.post(f"/sessions/{cid}/cancel"))
++            d += timedelta(days=7)
++
++    got = {(code, m, sid) for code, m, sid, _ in _titles("streak", "ATTEND_STREAK_")}
++    at = lambda k: sids[k - 1]  # noqa: E731  k번째 일정
++    expect = set()
++    for n in ("A", "E", "F"):
++        expect |= {("ATTEND_STREAK_10", mid[n], at(10)), ("ATTEND_STREAK_20", mid[n], at(20))}
++    expect |= {("ATTEND_STREAK_10", mid["B"], at(15))}
++    expect |= {("ATTEND_STREAK_10", mid["C"], at(10)), ("ATTEND_STREAK_10", mid["C"], at(21))}
++    assert got == expect
++    assert all(f == {"metric": "attendStreak", "value": int(c.rsplit("_", 1)[1])}
++               for c, _, _, f in _titles("streak", "ATTEND_STREAK_"))
++
++    # 수상 내역(공개) · 선수별 타이틀 수
++    awards = api.ok(api.get("/titles/awards", params={"memberId": mid["C"]}, admin=False))
++    assert [a["titleName"] for a in awards] == ["연속 참가 10회", "연속 참가 10회"]
++    assert {m["memberId"]: m["titleCount"] for m in api.ok(api.get("/stats/members", admin=False))}[mid["C"]] == 2

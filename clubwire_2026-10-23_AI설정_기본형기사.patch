@@ -1,0 +1,1658 @@
+diff --git a/.env.example b/.env.example
+index 27e19c8..fd60139 100644
+--- a/.env.example
++++ b/.env.example
+@@ -7,7 +7,7 @@ ADMIN_TOKEN_TTL_MIN=720
+ 
+ # OpenAI (서버에만 둔다. 프론트/레포 금지). 비우면 stub 작성기로 동작
+ OPENAI_API_KEY=
+-AI_PROVIDER=auto
++AI_PROVIDER=auto  # auto: 키 있으면 AI, 없으면 기본형 기사 / openai / template
+ AI_ARTICLE_MODEL=gpt-4.1-mini
+ AI_RECAP_MODEL=gpt-4.1-mini
+ 
+diff --git a/README.md b/README.md
+index b4ad4aa..e357371 100644
+--- a/README.md
++++ b/README.md
+@@ -38,7 +38,7 @@ cd frontend && npm install && npm run dev      # http://localhost:5173/c/sanha
+ 배포할 때는 `cd frontend && npm run build` 후 백엔드만 띄우면 `frontend/dist`를 같은 서버에서 서빙한다
+ (`http://서버/c/sanha`). 관리자 모드는 화면 오른쪽 위 자물쇠 → PIN 입력.
+ 
+-`OPENAI_API_KEY`가 없으면 기사는 **stub 작성기**(템플릿)로 만들어진다. 키를 넣으면 자동으로 OpenAI를 쓴다.
++`OPENAI_API_KEY`가 없으면 기사는 **기본형 기사**(템플릿, `app/integrations/openai/template_writer.py`)로 만들어진다. 키를 넣으면 자동으로 OpenAI를 쓰고, AI 호출이 실패해도(크레딧 · 한도 초과, 연결 오류, 응답 검증 실패) 기본형으로 대신 쓴다. AI 창의성 · 답변 최대 길이는 관리자 설정 화면 '기사' 묶음.
+ 
+ > 테이블명이 대문자라 MySQL `lower_case_table_names=0`(Linux 기본)을 전제로 한다. Windows/macOS 로컬 MySQL은 이 설정이 달라 대소문자가 섞일 수 있으니 Docker(Linux) MySQL 사용을 권장.
+ 
+@@ -59,6 +59,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리
+ | `test_concurrency.py` | 동시 골 20건(멱등키 중복 8건 포함) → 점수 = 이벤트 수 |
+ | `test_regressions.py` | 한쪽 팀이 빈 경기 포함 시 증분=전체 재계산, 설정 버전 연속 증가, 마감 이전 날짜 일정 차단, 득점자 팀 이동 차단, 제외 멤버 참석자 목록 반영 |
+ | `test_frontend_apis.py` | 홈 LIVE 배너 · 요약 줄(tzdata 없는 환경 포함), 일정 목록 인원수, 일정 요약, 멤버별 수상 이력, 기사 목록 페이지(게시 순서 커서·일정 날짜), 선수 프로필(가입일 · 출생연도 입력 · 지우기) |
++| `test_article_writer.py` | AI 창의성 · 답변 최대 길이가 요청에 실림, temperature 미지원 모델 재요청, 연결 실패 · 크레딧 초과 · 키 오류 · 답변 잘림 → 기본형 기사(게시 규칙 그대로) + 원인 표시, [다시 쓰기]로 AI 복귀, 키 없음 |
+ | `test_monthly_mvp.py` | 이달의 MVP: 상승률 계산(DB 이력과 일치) · 자격(일정 2회) · 열린 일정 있으면 대기 · 마지막 일정 마감 시 타이틀 + 기사 바로 게시 · 점수 비노출 · 한 달 한 번 · 후보 1~3위 |
+ | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
+ 
+@@ -104,7 +105,7 @@ app/
+                   match_order      다음 경기 추천 대진(가장 오래 쉰 두 팀)
+                   importance       Insight 중요도
+   wire/           Insight 엔진, 기사 서비스, Insight Type 기준 데이터
+-  integrations/openai/  AI 작성기(OpenAI Structured Output / Stub)
++  integrations/openai/  AI 작성기(OpenAI Structured Output) / 기본형 기사 템플릿(template_writer)
+   jobs/           LIVE 타이머 자동 종료 루프
+ alembic/          마이그레이션(0001 initial)
+ frontend/         React + TypeScript (화면 ↔ 스토리보드 매핑은 docs/DECISIONS.md 3-2)
+diff --git a/alembic/versions/0007_ai_article_options.py b/alembic/versions/0007_ai_article_options.py
+new file mode 100644
+index 0000000..17c121f
+--- /dev/null
++++ b/alembic/versions/0007_ai_article_options.py
+@@ -0,0 +1,36 @@
++"""ai article options
++
++AI 기사 설정(창의성 AI_TEMPERATURE, 답변 최대 길이 AI_MAX_OUTPUT_TOKENS)은 SYSTEM_CONFIG 값이라 구조 변경 없음
++(없으면 기본값 0.7 / 2000). AI로 못 쓰면 기본형 기사(템플릿)로 대신 쓰는 것에 맞춰 컬럼 설명(COMMENT)만 바꾼다.
++
++Revision ID: 0007
++Revises: 0006
++Create Date: 2026-10-23 15:00:00.000000
++"""
++from typing import Sequence, Union
++
++from alembic import op
++import sqlalchemy as sa
++
++
++revision: str = '0007'
++down_revision: Union[str, None] = '0006'
++branch_labels: Union[str, Sequence[str], None] = None
++depends_on: Union[str, Sequence[str], None] = None
++
++OLD_MODEL, NEW_MODEL = '사용 모델(stub=개발용)', '사용 모델. template = 기본형 기사(AI 키 없음 · AI 실패), sample-template = 샘플 데이터'
++OLD_ERR, NEW_ERR = '실패 사유', "실패 사유 또는 기본형으로 쓴 이유('기본형으로 작성: …')"
++
++
++def upgrade() -> None:
++    op.alter_column('AI_ARTICLE', 'MODEL_NAME', existing_type=sa.String(length=100), existing_nullable=False,
++                    comment=NEW_MODEL, existing_comment=OLD_MODEL)
++    op.alter_column('AI_ARTICLE', 'ERROR_MESSAGE', existing_type=sa.Text(), existing_nullable=True,
++                    comment=NEW_ERR, existing_comment=OLD_ERR)
++
++
++def downgrade() -> None:
++    op.alter_column('AI_ARTICLE', 'MODEL_NAME', existing_type=sa.String(length=100), existing_nullable=False,
++                    comment=OLD_MODEL, existing_comment=NEW_MODEL)
++    op.alter_column('AI_ARTICLE', 'ERROR_MESSAGE', existing_type=sa.Text(), existing_nullable=True,
++                    comment=OLD_ERR, existing_comment=NEW_ERR)
+diff --git a/app/core/club_config.py b/app/core/club_config.py
+index ee537b8..d61a311 100644
+--- a/app/core/club_config.py
++++ b/app/core/club_config.py
+@@ -47,6 +47,10 @@ CONFIG_DEFS: tuple[ConfigDef, ...] = (
+         choices=("MANUAL", "AUTO"),
+     ),
+     ConfigDef("WIRE_MAX_INSIGHTS", "INT", 15, "기사 1건에 AI로 넘기는 Insight 최대 개수", min_value=1, max_value=50),
++    ConfigDef("AI_TEMPERATURE", "FLOAT", 0.7, "AI 기사 창의성(temperature, 0~2). 낮을수록 사실 위주로 일정, 높을수록 표현이 다양",
++              min_value=0, max_value=2),
++    ConfigDef("AI_MAX_OUTPUT_TOKENS", "INT", 2000, "AI 답변 최대 길이(토큰). 넘으면 잘려서 다시 쓰고, 그래도 안 되면 기본형 기사",
++              min_value=300, max_value=8000),
+     # ---- 이달의 MVP ----
+     ConfigDef("MONTHLY_MVP_MIN_SESSIONS", "INT", 2, "이달의 MVP 후보 자격: 그 달 출전한 일정 수(이상)",
+               min_value=1, max_value=31),
+diff --git a/app/core/config.py b/app/core/config.py
+index 4428139..26be2a7 100644
+--- a/app/core/config.py
++++ b/app/core/config.py
+@@ -23,7 +23,7 @@ class Settings(BaseSettings):
+ 
+     # OpenAI (키는 서버 환경변수로만 주입한다. 브라우저/레포 금지)
+     OPENAI_API_KEY: str | None = None
+-    AI_PROVIDER: str = "auto"  # auto | openai | stub  (auto: 키가 있으면 openai)
++    AI_PROVIDER: str = "auto"  # auto | openai | template(=stub)  (auto: 키가 있으면 openai, 없으면 기본형 기사)
+     AI_ARTICLE_MODEL: str = "gpt-4.1-mini"
+     AI_RECAP_MODEL: str = "gpt-4.1-mini"
+     AI_TIMEOUT_SEC: float = 60.0
+@@ -43,8 +43,8 @@ class Settings(BaseSettings):
+     @property
+     def ai_provider_resolved(self) -> str:
+         if self.AI_PROVIDER == "auto":
+-            return "openai" if self.OPENAI_API_KEY else "stub"
+-        return self.AI_PROVIDER
++            return "openai" if self.OPENAI_API_KEY else "template"
++        return "template" if self.AI_PROVIDER == "stub" else self.AI_PROVIDER
+ 
+ 
+ @lru_cache
+diff --git a/app/integrations/openai/template_writer.py b/app/integrations/openai/template_writer.py
+new file mode 100644
+index 0000000..47689ca
+--- /dev/null
++++ b/app/integrations/openai/template_writer.py
+@@ -0,0 +1,408 @@
++"""기본형 기사 작성기(템플릿).
++
++- OpenAI 키가 없을 때(AI_PROVIDER=auto/stub) 기사를 이 템플릿으로 쓴다.
++- OpenAI 호출이 실패하면(크레딧 · 지출 한도 초과, 연결 오류, 응답 검증 실패) article_service가 이걸로 대신 쓴다.
++- 샘플 데이터 생성기(scripts/gen_sample_data.py)도 같은 작성기를 쓴다(원래 그 파일에 있던 SampleArticleWriter를 옮김).
++- 입력은 AI와 같은 DTO(build_payload). 사실 밖 내용은 쓰지 않고, 조사(이/가 · 은/는 …)는 받침으로 고른다.
++"""
++from __future__ import annotations
++
++import random
++from datetime import date
++from typing import Any
++
++from app.integrations.openai.writer import validate_draft
++
++
++def _batchim(word: str) -> int | None:
++    """마지막 글자 받침 코드(0=없음). 한글이 아니면 숫자/영문 발음으로 추정."""
++    ch = word.strip()[-1:] or " "
++    if "가" <= ch <= "힣":
++        return (ord(ch) - 0xAC00) % 28
++    if ch.isdigit():
++        return {"0": 21, "1": 8, "3": 16, "6": 1, "7": 8, "8": 8}.get(ch, 0)
++    return 4 if ch.upper() in "LMNR" else 0
++
++
++def j(word: str, with_batchim: str, without: str) -> str:
++    """조사: j('손원일','이','가') → '손원일이'."""
++    b = _batchim(word)
++    if with_batchim == "으로":
++        return word + ("으로" if b and b != 8 else "로")
++    return word + (with_batchim if b else without)
++
++
++def josa_only(word: str, with_batchim: str, without: str) -> str:
++    return j(word, with_batchim, without)[len(word):]
++
++
++def tagged_list(items: list[tuple[str, str]]) -> tuple[str, str]:
++    """[("이민선","11주"),("김응철","9주")] → ("이민선(11주)과 김응철(9주)", "김응철") — 조사는 마지막 이름 기준."""
++    parts = [f"{n}({x})" for n, x in items]
++    if len(parts) == 1:
++        return parts[0], items[0][0]
++    text_ = ", ".join(parts[:-1]) + josa_only(items[-2][0], "과", "와") + " " + parts[-1]
++    return text_, items[-1][0]
++
++
++def names_ko(names: list[str]) -> str:
++    return ", ".join(names[:-1]) + (f"와 {names[-1]}" if not _batchim(names[-2]) else f"과 {names[-1]}") if len(names) > 1 else (names[0] if names else "")
++
++
++_RECENT_HEADS: dict[str, list[tuple[str, str]]] = {}  # 기사 종류별 최근 제목 (유형, 선수) — 같은 유형 반복 방지
++_HEAD_BONUS = {"HAT_TRICK": 14, "COMEBACK_WIN": 14, "UPSET_WIN": 12, "LATE_WINNER": 8, "RETURN_PLAYER_RESULT": 10,
++               "RETURN_PLAYER": 12, "RARE_PAIR": 6, "WIN_STREAK": 4, "TITLE_AWARDED": 2,
++               "CLOSE_MATCH_EXPECTED": -8, "MILESTONE_EXPECTED": -10, "MILESTONE_ACHIEVED": -4,
++               "REVENGE_RESULT": 16, "NEMESIS_MATCH": 10, "PERSONAL_BEST_GOALS": 12, "ASSIST_COMBO": 8,
++               "DUO_REUNITED": 6, "SCORING_RACE": 6, "UNBEATEN_TEAM": 6, "JINX_PAIR": 4, "CLEAN_SHEET": 4,
++               "ATTENDANCE_STREAK": -2}
++_METRIC = {"games": ("경기 출전", "경기"), "goals": ("골", "골"), "assists": ("도움", "개")}
++
++
++def _milestone(metric: str, ms: int) -> str:
++    word, _ = _METRIC.get(metric, ("골", "골"))
++    return f"통산 {ms}{word}" if metric != "games" else f"통산 {ms}경기 출전"
++
++
++class TemplateArticleWriter:
++    """기본형 기사: Insight 사실만으로 쓰는 템플릿 기사(사실 밖 내용은 쓰지 않는다). 같은 유형 사실은 한 문장으로 묶는다.
++
++    rng: 문구 변형용 난수. 없으면 기사마다(일정 날짜 · 종류) 같은 결과가 나오게 고정 시드를 쓴다.
++    """
++
++    provider = "template"
++
++    def __init__(self, rng: random.Random | None = None):
++        self._own_rng = rng
++        self.rng = rng
++
++    @staticmethod
++    def _name(ins: dict[str, Any]) -> str:
++        f = ins.get("facts") or {}
++        return (ins.get("subject") or {}).get("name") or (f.get("member") or {}).get("name") or ""
++
++    def _group_key(self, ins: dict[str, Any], phase: str) -> tuple:
++        t, f = ins["type"], ins.get("facts") or {}
++        if t in ("WIN_STREAK", "SCORING_STREAK", "ATTENDANCE_STREAK"):
++            return (t, phase)
++        if t in ("FIRST_GOAL", "FIRST_ASSIST"):
++            return (t,)
++        if t == "MILESTONE_ACHIEVED":
++            return (t, f.get("metric"), f.get("milestone"))
++        if t == "MILESTONE_EXPECTED":
++            return (t, f.get("metric"), f.get("milestone"), f.get("remaining"))
++        if t == "FIRST_APPEARANCE":
++            return (t,)
++        if t == "TITLE_AWARDED":
++            return (t, f.get("titleName"), f.get("value"))
++        return (t, ins["id"])  # 묶지 않음
++
++    def _sentence(self, t: str, phase: str, items: list[dict[str, Any]]) -> tuple[str | None, str | None]:
++        """같은 그룹 Insight 묶음 → (제목 후보, 문장)."""
++        f = items[0].get("facts") or {}
++        names = [self._name(i) for i in items if self._name(i)]
++        who = names_ko(names) if names else ""
++        lead = names[0] if names else ""
++        many = len(names) > 1
++        head_who = f"{lead} 등 {len(names)}명" if many else lead
++        g = f.get("gameNo")
++        try:
++            if t == "ATTENDANCE_STREAK":
++                ranked = sorted(items, key=lambda i: -(i.get("facts") or {}).get("streak", 0))
++                tagged = [(self._name(i), f"{i['facts']['streak']}주") for i in ranked if self._name(i)]
++                top, top_s = tagged[0][0], ranked[0]["facts"]["streak"]
++                if len(tagged) == 1:
++                    return f"{top}, {top_s}주 연속 개근", f"{j(top, '은', '는')} 오늘로 {top_s}주 연속 출전이다."
++                body_, last = tagged_list(tagged)
++                return f"{top}, {top_s}주 연속 개근", f"{body_}{josa_only(last, '이', '가')} 개근 행진을 이어가고 있다."
++            if t in ("DUO_REUNITED", "JINX_PAIR"):
++                ms = [m.get("name") for m in f.get("members", []) if m.get("name")]
++                pair, both = f"{ms[0]}·{ms[1]}", names_ko(ms)
++                m_, w_ = f["sameTeamMatches"], f["sameTeamWins"]
++                if t == "DUO_REUNITED":
++                    return (f"{pair}, 다시 한 팀… 함께 {m_}경기 {w_}승",
++                            f"{j(both, '이', '가')} 다시 한 팀이 됐다. 같은 팀으로 뛴 {m_}경기에서 {w_}승을 거둔 조합이다.")
++                return (f"{pair}, 징크스 깰까",
++                        f"{j(both, '은', '는')} 같은 팀으로 {m_}경기에서 {w_}승에 그쳤다. 오늘은 징크스를 깰 수 있을까.")
++            if t == "NEMESIS_MATCH":
++                u, r = f["member"]["name"], f["rival"]["name"]
++                uw, dw, dr, ls = f["memberWins"], f["rivalWins"], f["draws"], f.get("lossStreak", 0)
++                streak_txt = f" 최근 {ls}연패 중이다." if ls >= 2 else ""
++                rec_txt = f"{uw}승 {dr}무 {dw}패" if dr else f"{uw}승 {dw}패"
++                return (f"{u}, {r} 상대 {uw}승 {dw}패… 설욕할까",
++                        f"{j(u, '은', '는')} {r} 상대로 {rec_txt}.{streak_txt} 오늘은 다른 팀으로 갈려 설욕을 노린다.")
++            if t == "REVENGE_RESULT":
++                u, r = f["member"]["name"], f["rival"]["name"]
++                uw, dw, ls, oc = f["memberWinsToday"], f["rivalWinsToday"], f.get("lossStreakBefore", 0), f["outcome"]
++                if oc == "REVENGE":
++                    head = f"{u}, {r} 상대 {ls}연패 끊었다" if ls >= 2 else f"{u}, {r}에게 설욕"
++                    return head, f"{j(u, '은', '는')} 오늘 {j(r, '과', '와')}의 맞대결에서 {uw}승 {dw}패로 앞서며 설욕에 성공했다."
++                if oc == "HELD":
++                    return (f"{r}, {u} 상대 강세 이어가",
++                            f"{j(r, '은', '는')} 오늘도 {u} 상대로 {dw}승을 챙기며 강세를 이어갔다.")
++                if uw == dw == 0:
++                    return None, f"{j(u, '과', '와')} {j(r, '은', '는')} 오늘 {f['drawsToday']}번 맞붙어 모두 비겼다."
++                return None, f"{j(u, '과', '와')} {r}의 맞대결은 오늘 {uw}승 {dw}패로 팽팽했다."
++            if t == "SCORING_RACE":
++                mo, ld, ch = f["month"], f["leader"]["name"], f["chaser"]["name"]
++                lg, cg, gap = f["leaderGoals"], f["chaserGoals"], f["gap"]
++                if gap == 0:
++                    return (f"{mo}월 득점왕, {ld}·{ch} 공동 선두",
++                            f"{mo}월 득점 경쟁이 뜨겁다. {j(names_ko([ld, ch]), '이', '가')} 나란히 {lg}골로 공동 선두다.")
++                return (f"{mo}월 득점왕, {ld}·{ch} {gap}골 차",
++                        f"{mo}월 득점 경쟁이 뜨겁다. {j(ld, '이', '가')} {lg}골, {j(ch, '이', '가')} {cg}골로 {gap}골 차다.")
++            if t == "ASSIST_COMBO":
++                a_, s_, n_, c_ = f["assister"]["name"], f["scorer"]["name"], f["countToday"], f.get("careerCount", 0)
++                tail = f" 둘이 합작한 골은 통산 {c_}골이다." if c_ > n_ else ""
++                cnt = {2: "두", 3: "세", 4: "네", 5: "다섯"}.get(n_, str(n_))
++                return (f"{a_}→{s_}, 오늘만 {cnt} 번",
++                        f"{a_}의 패스를 {j(s_, '이', '가')} 마무리한 골이 오늘만 {cnt} 번 나왔다.{tail}")
++            if t in ("UNBEATEN_TEAM", "CLEAN_SHEET"):
++                team = f["teamCode"] + "팀"
++                if t == "CLEAN_SHEET":
++                    return (f"{team}, {f['cleanSheets']}경기 무실점",
++                            f"{j(team, '은', '는')} 오늘 {f['games']}경기 중 {f['cleanSheets']}경기를 무실점으로 막아 냈다.")
++                if f.get("perfect"):
++                    return f"{team}, {f['games']}전 전승", f"{j(team, '은', '는')} 오늘 {f['games']}경기를 모두 이겼다."
++                return (f"{team}, 오늘 {f['games']}경기 무패",
++                        f"{j(team, '은', '는')} 오늘 {f['games']}경기에서 {f['wins']}승 {f['draws']}무로 한 번도 지지 않았다.")
++            if t in ("FIRST_GOAL", "FIRST_ASSIST"):
++                what = "첫 골을 신고했다" if t == "FIRST_GOAL" else "첫 도움을 기록했다"
++                return (f"{head_who}, {'첫 골 신고' if t == 'FIRST_GOAL' else '첫 도움'}",
++                        f"{j(who, '이', '가')} {'나란히 ' if many else ''}기록 집계 후 {what}.")
++            if t == "PERSONAL_BEST_GOALS":
++                g_, pb = f["goalsToday"], f["previousBest"]
++                return (f"{lead}, 하루 {g_}골 개인 최다",
++                        f"{j(lead, '은', '는')} 오늘 {g_}골을 넣어 하루 최다 기록({pb}골)을 넘어섰다.")
++            if t in ("WIN_STREAK", "SCORING_STREAK") and len({(i.get("facts") or {}).get("streak") for i in items}) > 1:
++                ranked = sorted(items, key=lambda i: -(i.get("facts") or {}).get("streak", 0))
++                unit = "연승" if t == "WIN_STREAK" else "주"
++                tagged = [(self._name(i), f"{i['facts']['streak']}{unit}") for i in ranked if self._name(i)]
++                body_, last = tagged_list(tagged)
++                top, top_s = tagged[0][0], ranked[0]["facts"]["streak"]
++                if t == "WIN_STREAK":
++                    verb = "연승 행진을 이어가고 있다" if phase == "PRE" else "연승 행진을 이어갔다"
++                    head = f"{top}, {top_s}연승" + (" 이어갈까" if phase == "PRE" else " 질주")
++                else:
++                    verb = "연속 득점 행진을 이어가고 있다" if phase == "PRE" else "연속 골 행진을 이어갔다"
++                    head = f"{top}, {top_s}주 연속 " + ("득점 중" if phase == "PRE" else "골")
++                return head, f"{body_}{josa_only(last, '이', '가')} {verb}."
++            if t == "WIN_STREAK":
++                s = f["streak"]
++                if phase == "PRE":
++                    return (f"{head_who}, {s}연승 이어갈까",
++                            f"{j(who, '은', '는')} 나란히 {s}연승을 달리고 있다." if many else
++                            f"{j(who, '은', '는')} {s}연승을 달리고 있다. 오늘도 승리를 이어갈지 관심이 모인다.")
++                return (f"{head_who}, {s}연승 질주",
++                        f"{j(who, '은', '는')} {'나란히 ' if many else ''}{s}연승을 이어갔다.")
++            if t == "SCORING_STREAK":
++                s = f["streak"]
++                if phase == "PRE":
++                    return (f"{head_who}, {s}주 연속 득점 중",
++                            f"{j(who, '은', '는')} {'나란히 ' if many else ''}{s}주 연속으로 골 맛을 보고 있다.")
++                return (f"{head_who}, {s}주 연속 골",
++                        f"{j(who, '은', '는')} {'나란히 ' if many else ''}{s}주 연속 골 행진을 이어갔다.")
++            if t == "MILESTONE_ACHIEVED":
++                ph = _milestone(f["metric"], f["milestone"])
++                if f["metric"] == "games" and phase == "POST" and len(names) > 4:
++                    return None, f"{lead} 등 {len(names)}명이 {ph} 고지를 밟았다."
++                return f"{head_who}, {ph} 달성", f"{j(who, '이', '가')} {'나란히 ' if many else ''}{ph} 고지를 밟았다."
++            if t == "MILESTONE_EXPECTED":
++                ph = _milestone(f["metric"], f["milestone"])
++                unit = _METRIC.get(f["metric"], ("", "골"))[1]
++                return (f"{head_who}, {ph}까지 {f['remaining']}{unit}",
++                        f"{j(who, '은', '는')} {ph}까지 {f['remaining']}{unit}만 남겨 두었다.")
++            if t == "FIRST_APPEARANCE":
++                if len(names) > 3:
++                    return None, None
++                return None, f"{j(who, '은', '는')} 오늘이 기록 집계 후 첫 출전이다."
++            if t == "RETURN_PLAYER":
++                d = f["daysSinceLastAppearance"]
++                return f"{lead}, {d}일 만의 복귀", f"{j(lead, '이', '가')} {d}일 만에 다시 그라운드를 밟는다."
++            if t == "RETURN_PLAYER_RESULT":
++                d, goals, wins, games = f["daysSinceLastAppearance"], f.get("goalsToday", 0), f.get("winsToday", 0), f.get("gamesToday")
++                tail = (f"{goals}골 {wins}승을 보탰다" if goals and wins else f"{goals}골을 기록했다" if goals
++                        else f"골은 없었지만 {wins}승을 챙겼다" if wins else "다시 손발을 맞췄다")
++                return (f"{lead}, {d}일 만의 복귀전서 {goals}골" if goals else f"{lead}, {d}일 만의 복귀전",
++                        f"{d}일 만에 돌아온 {j(lead, '은', '는')} {games}경기에 나서 {tail}." if games else
++                        f"{d}일 만에 돌아온 {j(lead, '은', '는')} {tail}.")
++            if t == "RARE_PAIR":
++                ms = [m.get("name") for m in f.get("members", []) if m.get("name")]
++                if len(ms) < 2:
++                    return None, None
++                pair = f"{ms[0]}·{ms[1]}"
++                if f.get("neverSameTeam"):
++                    return f"{pair}, 처음으로 한 팀", f"{j(names_ko(ms), '이', '가')} 처음으로 같은 팀에서 호흡을 맞춘다."
++                n = f.get("sessionsSinceLastSameTeam")
++                return f"{pair}, {n}주 만에 한 팀", f"{j(names_ko(ms), '은', '는')} {n}번의 일정 만에 다시 같은 팀이 됐다."
++            if t == "CLOSE_MATCH_EXPECTED":
++                return "오늘은 접전 예고", "팀 간 전력이 고르게 나뉘어 어느 팀도 쉽게 승리를 장담하기 어렵다."
++            if t == "LATE_WINNER":
++                sec = f["remainingSec"]
++                return (f"{lead}, 종료 {sec}초 전 결승골",
++                        f"{g}경기는 {lead}의 발끝에서 갈렸다. 종료 {sec}초를 남기고 터진 결승골이었다.")
++            if t == "COMEBACK_WIN":
++                team, dd = f["winnerTeam"], f["maxDeficit"]
++                return f"{team}팀, {dd}골 차 뒤집었다", f"{team}팀은 {g}경기에서 {dd}골 차로 끌려가다 경기를 뒤집었다."
++            if t == "UPSET_WIN":
++                team = f["winnerTeam"]
++                return f"{team}팀의 반란", f"{g}경기에서는 {j(team + '팀', '이', '가')} 열세라는 예상을 깨고 승리를 가져갔다."
++            if t == "HAT_TRICK":
++                n = f["goals"]
++                return (f"{lead}, {g}경기 해트트릭" if n == 3 else f"{lead}, 한 경기 {n}골 폭발",
++                        f"{g}경기에서 {j(lead, '이', '가')} 혼자 {n}골을 몰아쳤다.")
++            if t == "TITLE_AWARDED":
++                tn = f["titleName"]
++                unit = {"assists": "도움", "wins": "승"}.get(f.get("metric"), "골")
++                val = f"({f['value']}{unit})" if f.get("value") else ""
++                return (f"{head_who}, {tn}",
++                        f"{j(who, '이', '가')} {'나란히 ' if many else ''}{tn}{val}에 이름을 올렸다.")
++        except (KeyError, TypeError, IndexError):
++            return None, None
++        return None, None
++
++    def write(self, payload: dict[str, Any], model: str, options: dict[str, Any] | None = None):
++        if self._own_rng is None and self.rng is None:  # 같은 사실이면 같은 문장(다시 써도 결과가 안 흔들림)
++            self.rng = random.Random(f"{payload.get('articleType')}:{payload.get('sessionDate')}:{payload.get('month')}")
++        kind = payload.get("articleType")
++        if kind == "MONTHLY_MVP":
++            return self._monthly_mvp(payload)
++        d = date.fromisoformat(payload["sessionDate"])
++        md = f"{d.month}월 {d.day}일"
++        club = payload.get("clubName") or ""
++        phase = "PRE" if kind == "PRE_MATCH" else "POST"
++        insights = sorted(payload.get("insights", []), key=lambda i: (-i["importance"], i["id"]))
++        recent = _RECENT_HEADS.setdefault(kind or "", [])
++        first_count = sum(1 for i in insights if i["type"] == "FIRST_APPEARANCE")
++
++        groups: dict[tuple, list[dict[str, Any]]] = {}
++        for ins in insights:
++            groups.setdefault(self._group_key(ins, phase), []).append(ins)
++        lines: list[str] = []
++        used: list[int] = []
++        heads: list[tuple] = []  # (점수, 제목, 유형, 선수, 문장, 원래 중요도)
++        for key, items in groups.items():  # 삽입 순서 = 중요도 순
++            t = key[0]
++            head, line = self._sentence(t, phase, items)
++            if not line:
++                continue
++            lines.append(line)
++            used.extend(i["id"] for i in items)
++            if head:
++                who = self._name(items[0])
++                score = max(i["importance"] for i in items) + _HEAD_BONUS.get(t, 0)
++                if (items[0].get("facts") or {}).get("metric") == "games":
++                    score -= 12  # 출전 경기 수 기록은 제목감이 약함
++                if any(rt == t for rt, _ in recent[-2:]):
++                    score -= 30
++                if who and any(rw == who for _, rw in recent[-2:]):
++                    score -= 15
++                heads.append((score, head, t, who, line, max(i["importance"] for i in items)))
++            if len(lines) >= 6:
++                break
++        heads.sort(key=lambda x: -x[0])
++        if heads:  # 고른 유형 안에서는 사실 자체가 가장 큰 것을 제목으로
++            best_t = heads[0][2]
++            heads.sort(key=lambda x: (x[2] != best_t, -x[5] if x[2] == best_t else -x[0]))
++        if heads:  # 제목이 된 사실을 본문 첫 문장·요약으로
++            lines.remove(heads[0][4])
++            lines.insert(0, heads[0][4])
++
++        paras: list[str] = []
++        if kind == "PRE_MATCH":
++            teams = payload.get("teams") or []
++            total = sum(len(t["members"]) + t.get("guestCount", 0) for t in teams)
++            guests = sum(t.get("guestCount", 0) for t in teams)
++            lead = f"{md} {'월화수목금토일'[d.weekday()]}요일, {club} {total}명이 {len(teams)}개 팀으로 나뉘어 맞붙는다."
++            if guests:
++                lead += f" 게스트 {guests}명도 함께 뛴다."
++            if first_count > 3:
++                lead += " 오늘부터 모든 경기 기록이 쌓이기 시작한다."
++            paras.append(lead)
++            roster = [f"{t['teamCode']}팀은 {', '.join(t['members'][:3])} 등 {len(t['members']) + t.get('guestCount', 0)}명"
++                      for t in teams]
++            if roster:
++                paras.append(", ".join(roster) + "으로 꾸려졌다.")
++            title = heads[0][1] if heads else (f"{md}, YPR 기록의 첫 페이지" if first_count > 3 else f"{md} 일요 경기 프리뷰")
++            summary = lines[0] if lines else lead
++            closing = self.rng.choice(("경기 결과와 오늘의 주인공은 마감 기사에서 전한다.",
++                                       "첫 경기 휘슬과 함께 오늘의 이야기가 시작된다.",
++                                       "누가 오늘의 주인공이 될지는 마감 기사에서 확인할 수 있다."))
++        else:
++            s = payload.get("sessionSummary") or {}
++            matches = s.get("matches", [])
++            goals = sum(m["scoreA"] + m["scoreB"] for m in matches)
++            recs = s.get("teamRecords") or {}
++            best = sorted(recs.items(), key=lambda kv: (-kv[1]["wins"], kv[1]["losses"], kv[0]))
++            lead = f"{md} {j(club, '은', '는')} {len(matches)}경기를 치르며 총 {goals}골을 기록했다."
++            if best:
++                code, r = best[0]
++                lead += f" {code}팀이 {r['wins']}승 {r['draws']}무 {r['losses']}패로 가장 많은 승리를 챙겼다."
++            paras.append(lead)
++            scorers = s.get("topScorers") or []
++            if scorers:
++                top = [f"{x['name']}({x['goals']}골)" for x in scorers[:3]]
++                paras.append(f"득점 순위에서는 {', '.join(top)} 순으로 앞섰다.")
++            title = heads[0][1] if heads else (f"{md} 결산: {best[0][0]}팀 {best[0][1]['wins']}승" if best else f"{md} 경기 결산")
++            summary = lines[0] if lines else lead
++            closing = "\n".join(f"{m['gameNo']}경기  {m['teamA']} {m['scoreA']} : {m['scoreB']} {m['teamB']}" for m in matches)
++        if heads:
++            recent.append((heads[0][2], heads[0][3]))
++        for i in range(0, len(lines), 2):
++            paras.append(" ".join(lines[i:i + 2]))
++        if closing:
++            paras.append(closing)
++        raw = {"title": title[:120], "summary": summary[:300], "body": "\n\n".join(paras), "usedInsightIds": used}
++        return validate_draft(raw, payload), raw
++
++
++    RESULT = {"W": "승리", "D": "무승부", "L": "패배"}
++
++    def _monthly_mvp(self, payload: dict[str, Any]):
++        """이달의 MVP 발표: 상승률 · 한 달 성적 · 특히 많이 오른 경기 · 가장 크게 오른 날 · 2·3위 · 선정 기준."""
++        mvp = payload.get("monthlyMvp") or {}
++        month = payload.get("monthLabel") or ""
++        winners = mvp.get("winners") or []
++        w = winners[0]
++        names = names_ko([x["name"] for x in winners])
++        tied = len(winners) > 1
++        title = f"{month} 이달의 MVP, {names}" + (" 공동 수상" if tied else "")
++        summary = (f"{j(names, '이', '가')} {month} 실력 점수를 {w['risePercent']:.1f}% 끌어올리며 "
++                   f"{month} MVP{'를 함께 차지했다' if tied else '에 올랐다'}.")
++        paras = []
++        for x in winners:
++            rec = f"{x['wins']}승 {x['draws']}무 {x['losses']}패"
++            gl = [f"{x['goals']}골"] if x["goals"] else []
++            gl += [f"{x['assists']}도움"] if x["assists"] else []
++            paras.append(f"{j(x['name'], '은', '는')} {month} {x['sessions']}번의 일정, {x['games']}경기에 나서 {rec}"
++                         + (f", {' '.join(gl)}" + josa_only(gl[-1], "을", "를") + " 기록했다." if gl else "를 기록했다.")
++                         + f" 한 달 동안 실력 점수는 {x['risePercent']:.1f}% 올랐다.")
++            best = [m for m in x.get("bestMatches", []) if m.get("result")]
++            if best:
++                parts = []
++                for m in best:
++                    md = date.fromisoformat(m["sessionDate"])
++                    pts = [f"{m['goals']}골"] if m.get("goals") else []
++                    pts += [f"{m['assists']}도움"] if m.get("assists") else []
++                    who = f", 본인 {' '.join(pts)}" if pts else ""
++                    parts.append(f"{md.month}월 {md.day}일 {m['gameNo']}경기 TEAM {m['teamCode']} {m['score']} "
++                                 f"TEAM {m['opponentTeamCode']} {self.RESULT[m['result']]}{who}(+{m['risePercent']:.1f}%)")
++                paras.append("특히 많이 오른 경기는 " + ", ".join(parts) + "이다.")
++            day = x.get("bestDay")
++            if day:
++                dd = date.fromisoformat(day["sessionDate"])
++                pts = [f"{day['goals']}골"] if day["goals"] else []
++                pts += [f"{day['assists']}도움"] if day["assists"] else []
++                tail = pts[-1] if pts else f"{day['wins']}승"
++                paras.append(f"가장 크게 오른 날은 {dd.month}월 {dd.day}일이다. 이날 {day['games']}경기에서 {day['wins']}승"
++                             + (f", {' '.join(pts)}" if pts else "") + josa_only(tail, "으로", "로")
++                             + f" 한 번에 {day['risePercent']:.1f}%를 쌓았다.")
++        runners = mvp.get("runnersUp") or []
++        if runners:
++            seq = [f"{r['rank']}위 {r['name']}(+{r['risePercent']:.1f}%)" for r in runners]
++            paras.append("뒤를 이어 " + ", ".join(seq) + josa_only(runners[-1]["name"], "이", "가")
++                         + " 이름을 올렸다.")
++        if mvp.get("rule"):
++            paras.append(f"선정 기준은 {mvp['rule']}다.")
++        raw = {"title": title[:120], "summary": summary[:300], "body": "\n\n".join(paras), "usedInsightIds": []}
++        return validate_draft(raw, payload), raw
+diff --git a/app/integrations/openai/writer.py b/app/integrations/openai/writer.py
+index 54f4031..693f696 100644
+--- a/app/integrations/openai/writer.py
++++ b/app/integrations/openai/writer.py
+@@ -3,7 +3,8 @@
+ - OpenAI API Key는 서버 환경변수(OPENAI_API_KEY)로만 사용한다.
+ - 모델명은 코드에 박지 않고 설정(AI_ARTICLE_MODEL / AI_RECAP_MODEL)으로 받는다.
+ - 응답은 자유 텍스트가 아닌 JSON Schema(Structured Output)로 받고, Pydantic으로 다시 검증한다.
+-- 키가 없으면(개발/테스트) StubArticleWriter가 템플릿으로 기사를 만든다.
++- 키가 없으면(개발/테스트) 기본형 기사 작성기(template_writer.TemplateArticleWriter)가 템플릿으로 쓴다.
++- 창의성(temperature) · 답변 최대 길이(max_completion_tokens)는 클럽 설정(AI_TEMPERATURE / AI_MAX_OUTPUT_TOKENS)에서 받는다.
+ """
+ import json
+ from typing import Any, Protocol
+@@ -72,7 +73,8 @@ class ArticleWriterError(Exception):
+ class ArticleWriter(Protocol):
+     provider: str
+ 
+-    def write(self, payload: dict[str, Any], model: str) -> tuple[ArticleDraft, dict[str, Any]]: ...
++    def write(self, payload: dict[str, Any], model: str,
++              options: dict[str, Any] | None = None) -> tuple[ArticleDraft, dict[str, Any]]: ...
+ 
+ 
+ def validate_draft(raw: dict[str, Any], payload: dict[str, Any]) -> ArticleDraft:
+@@ -96,136 +98,76 @@ class OpenAIArticleWriter:
+             raise ArticleWriterError("OPENAI_API_KEY가 설정되지 않았습니다.")
+         self.client = OpenAI(api_key=settings.OPENAI_API_KEY, timeout=settings.AI_TIMEOUT_SEC)
+ 
+-    def write(self, payload: dict[str, Any], model: str) -> tuple[ArticleDraft, dict[str, Any]]:
++    def write(self, payload: dict[str, Any], model: str,
++              options: dict[str, Any] | None = None) -> tuple[ArticleDraft, dict[str, Any]]:
++        """options: {"temperature": 0~2, "maxOutputTokens": 답변 최대 토큰}. 없으면 OpenAI 기본값."""
++        opts = options or {}
++        params: dict[str, Any] = {}
++        if opts.get("temperature") is not None:
++            params["temperature"] = float(opts["temperature"])
++        if opts.get("maxOutputTokens"):
++            params["max_completion_tokens"] = int(opts["maxOutputTokens"])
+         last_error: Exception | None = None
+         for _ in range(settings.AI_MAX_RETRY + 1):
+-            resp = self.client.chat.completions.create(
+-                model=model,
+-                messages=[
+-                    {"role": "system", "content": SYSTEM_PROMPT},
+-                    {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
+-                ],
+-                response_format={
+-                    "type": "json_schema",
+-                    "json_schema": {"name": "clubwire_article", "strict": True, "schema": ARTICLE_JSON_SCHEMA},
+-                },
+-            )
+-            content = resp.choices[0].message.content or ""
+             try:
++                resp = self._create(model, payload, params)
++            except Exception as e:  # noqa: BLE001  일부 모델(추론형)은 temperature를 받지 않음 → 빼고 한 번 더
++                if "temperature" in params and "temperature" in str(e).lower():
++                    params.pop("temperature")
++                    resp = self._create(model, payload, params)
++                else:
++                    raise
++            choice = resp.choices[0]
++            content = choice.message.content or ""
++            try:
++                if getattr(choice, "finish_reason", None) == "length":
++                    raise ArticleWriterError("답변이 최대 길이에서 잘림(답변 최대 길이 설정을 늘리세요)")
+                 raw = json.loads(content)
+                 return validate_draft(raw, payload), raw
+-            except Exception as e:  # 스키마/금칙어 위반 → 재시도
++            except Exception as e:  # 잘림/스키마/금칙어 위반 → 재시도
+                 last_error = e
+         raise ArticleWriterError(f"AI 응답 검증 실패: {last_error}")
+ 
+-
+-class StubArticleWriter:
+-    """OpenAI 키 없이 개발/테스트할 때 쓰는 템플릿 작성기(사실만 나열)."""
+-
+-    provider = "stub"
+-
+-    TEMPLATES = {
+-        "RETURN_PLAYER": "{name}이(가) {daysSinceLastAppearance}일 만에 돌아온다.",
+-        "RETURN_PLAYER_RESULT": "{daysSinceLastAppearance}일 만에 복귀한 {name}은(는) {gamesToday}경기에서 {goalsToday}골을 기록했다.",
+-        "FIRST_APPEARANCE": "{name}이(가) Clubwire 첫 경기에 나선다.",
+-        "WIN_STREAK": "{name}은(는) {streak}연승을 이어가고 있다.",
+-        "SCORING_STREAK": "{name}은(는) {streak}개 일정 연속 득점 중이다.",
+-        "MILESTONE_EXPECTED": "{name}은(는) {metricLabel} {milestone}개까지 {remaining}개를 남겨두고 있다.",
+-        "MILESTONE_ACHIEVED": "{name}이(가) 통산 {metricLabel} {milestone}개를 달성했다.",
+-        "RARE_PAIR": "{names}이(가) 오랜만에 같은 팀에서 호흡을 맞춘다.",
+-        "CLOSE_MATCH_EXPECTED": "오늘 팀 간 전력은 매우 균형적이다.",
+-        "LATE_WINNER": "{name}이(가) {gameNo}경기 종료 {remainingSec}초 전 결승골을 터뜨렸다.",
+-        "COMEBACK_WIN": "TEAM {winnerTeam}이(가) {gameNo}경기에서 {maxDeficit}골 차를 뒤집었다.",
+-        "UPSET_WIN": "{gameNo}경기에서 TEAM {winnerTeam}이(가) 예상을 깨고 승리했다.",
+-        "HAT_TRICK": "{name}이(가) {gameNo}경기에서 {goals}골을 몰아쳤다.",
+-        "TITLE_AWARDED": "{name}이(가) {titleName}에 올랐다.",
+-        "DUO_REUNITED": "{names}이(가) 다시 한 팀이 됐다. 함께 뛴 {sameTeamMatches}경기에서 {sameTeamWins}승을 거둔 조합이다.",
+-        "NEMESIS_MATCH": "{name}은(는) {rival[name]} 상대로 {memberWins}승 {rivalWins}패. 오늘은 설욕할 수 있을까.",
+-        "JINX_PAIR": "{names}은(는) 같은 팀으로 {sameTeamMatches}경기에서 {sameTeamWins}승. 오늘은 징크스를 깰 수 있을까.",
+-        "SCORING_RACE": "{month}월 득점 경쟁: {leader[name]} {leaderGoals}골, {chaser[name]} {chaserGoals}골.",
+-        "ATTENDANCE_STREAK": "{name}은(는) 오늘로 {streak}주 연속 출전이다.",
+-        "REVENGE_RESULT": "{name}은(는) 오늘 {rival[name]}과(와)의 맞대결에서 {memberWinsToday}승 {rivalWinsToday}패를 기록했다.",
+-        "ASSIST_COMBO": "{assister[name]}의 도움, {scorer[name]}의 골이 오늘만 {countToday}번 나왔다.",
+-        "UNBEATEN_TEAM": "TEAM {teamCode}은(는) 오늘 {games}경기에서 한 번도 지지 않았다({wins}승 {draws}무).",
+-        "CLEAN_SHEET": "TEAM {teamCode}은(는) 오늘 {cleanSheets}경기를 무실점으로 막았다.",
+-        "FIRST_GOAL": "{name}이(가) 첫 골을 신고했다.",
+-        "FIRST_ASSIST": "{name}이(가) 첫 도움을 기록했다.",
+-        "PERSONAL_BEST_GOALS": "{name}이(가) 하루 {goalsToday}골로 개인 최다 기록을 새로 썼다.",
+-    }
+-
+-    def write(self, payload: dict[str, Any], model: str) -> tuple[ArticleDraft, dict[str, Any]]:
+-        if payload.get("articleType") == "MONTHLY_MVP":
+-            return self._monthly_mvp(payload)
+-        insights = sorted(payload.get("insights", []), key=lambda i: -i["importance"])
+-        used, lines, per_member = [], [], {}
+-        for ins in insights:
+-            facts = dict(ins["facts"])
+-            subject = (ins.get("subject") or {}).get("name") or ""
+-            if subject and per_member.get(subject, 0) >= 2:
+-                continue
+-            facts.setdefault("name", subject)
+-            facts["names"] = ", ".join(m.get("name") or "" for m in facts.get("members", []))
+-            tpl = self.TEMPLATES.get(ins["type"])
+-            if not tpl:
+-                continue
+-            try:
+-                lines.append(tpl.format(**facts))
+-            except (KeyError, IndexError):
+-                continue
+-            used.append(ins["id"])
+-            if subject:
+-                per_member[subject] = per_member.get(subject, 0) + 1
+-            if len(used) >= 6:
+-                break
+-        kind = "프리뷰" if payload.get("articleType") == "PRE_MATCH" else "마감"
+-        title = f"[{kind}] {lines[0]}" if lines else f"[{kind}] {payload.get('sessionDate')} {payload.get('clubName')}"
+-        summary_obj = payload.get("sessionSummary") or {}
+-        extra = []
+-        for m in summary_obj.get("matches", []):
+-            extra.append(f"{m['gameNo']}경기 TEAM {m['teamA']} {m['scoreA']} : {m['scoreB']} TEAM {m['teamB']}")
+-        body = "\n\n".join(lines + (["\n".join(extra)] if extra else [])) or "오늘의 경기 소식입니다."
+-        raw = {"title": title[:120], "summary": (lines[0] if lines else title)[:300], "body": body, "usedInsightIds": used}
+-        return validate_draft(raw, payload), raw
+-
+-
+-    RESULT = {"W": "승", "D": "무", "L": "패"}
+-
+-    def _monthly_mvp(self, payload: dict[str, Any]) -> tuple[ArticleDraft, dict[str, Any]]:
+-        """이달의 MVP 템플릿: 상승률 · 성적 · 특히 많이 오른 경기 · 가장 크게 오른 날 · 2·3위."""
+-        mvp = payload.get("monthlyMvp") or {}
+-        month = payload.get("monthLabel") or payload.get("month") or ""
+-        winners = mvp.get("winners") or []
+-        names = " · ".join(w["name"] for w in winners)
+-        paras = []
+-        for w in winners:
+-            paras.append(f"{w['name']}이(가) {month} 실력 점수를 {w['risePercent']:.1f}% 끌어올리며 {month} MVP에 올랐다. "
+-                         f"{w['sessions']}번의 일정, {w['games']}경기에서 {w['wins']}승 {w['draws']}무 {w['losses']}패, "
+-                         f"{w['goals']}골 {w['assists']}도움을 기록했다.")
+-            best = [m for m in w.get("bestMatches", []) if m.get("result")]
+-            if best:
+-                lines = [f"{m['sessionDate'][5:].replace('-', '/')} {m['gameNo']}경기 TEAM {m['teamCode']} {m['score']} "
+-                         f"TEAM {m['opponentTeamCode']}({self.RESULT[m['result']]}, {m['goals']}골 {m['assists']}도움, "
+-                         f"+{m['risePercent']:.1f}%)" for m in best]
+-                paras.append("특히 많이 오른 경기는 " + ", ".join(lines) + "이다.")
+-            day = w.get("bestDay")
+-            if day:
+-                paras.append(f"가장 크게 오른 날은 {day['sessionDate'][5:].replace('-', '/')}. 이날 {day['games']}경기에서 "
+-                             f"{day['wins']}승, {day['goals']}골 {day['assists']}도움으로 +{day['risePercent']:.1f}%를 쌓았다.")
+-        runners = mvp.get("runnersUp") or []
+-        if runners:
+-            paras.append("뒤를 이어 " + ", ".join(f"{r['rank']}위 {r['name']}(+{r['risePercent']:.1f}%)" for r in runners)
+-                         + "가 이름을 올렸다.")
+-        if mvp.get("rule"):
+-            paras.append(f"선정 기준: {mvp['rule']}.")
+-        title = f"{month} 이달의 MVP, {names}" if names else f"{month} 이달의 MVP"
+-        top = winners[0] if winners else None
+-        summary = (f"{names}이(가) {month} 실력 점수 상승률 +{top['risePercent']:.1f}%로 이달의 MVP에 뽑혔다."
+-                   if top else title)
+-        raw = {"title": title[:120], "summary": summary[:300], "body": "\n\n".join(paras) or title, "usedInsightIds": []}
+-        return validate_draft(raw, payload), raw
++    def _create(self, model: str, payload: dict[str, Any], params: dict[str, Any]):
++        return self.client.chat.completions.create(
++            model=model,
++            messages=[
++                {"role": "system", "content": SYSTEM_PROMPT},
++                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, default=str)},
++            ],
++            response_format={
++                "type": "json_schema",
++                "json_schema": {"name": "clubwire_article", "strict": True, "schema": ARTICLE_JSON_SCHEMA},
++            },
++            **params,
++        )
+ 
+ 
+ def get_writer() -> ArticleWriter:
+     if settings.ai_provider_resolved == "openai":
+         return OpenAIArticleWriter()
+-    return StubArticleWriter()
++    return template_writer()
++
++
++def template_writer() -> ArticleWriter:
++    """기본형 기사 작성기(키 없음 · AI 실패 시)."""
++    from app.integrations.openai.template_writer import TemplateArticleWriter  # 순환 import 방지
++
++    return TemplateArticleWriter()
++
++
++def failure_reason(e: Exception) -> str:
++    """AI 작성 실패 원인(관리자 화면 표시용 한 줄)."""
++    name = type(e).__name__
++    text = str(e)
++    if name == "AuthenticationError" or "OPENAI_API_KEY" in text:
++        return "AI 키 오류(키가 없거나 잘못됨)"
++    if name == "RateLimitError" or "429" in text:
++        if any(k in text for k in ("insufficient_quota", "credit_balance", "spend_limit", "usage_limit")):
++            return "AI 크레딧 · 지출 한도 초과"
++        return "AI 요청 한도 초과(잠시 후 다시 쓰기)"
++    if name in ("APIConnectionError", "APITimeoutError") or "timed out" in text.lower():
++        return "AI 연결 실패(네트워크 · 시간 초과)"
++    if isinstance(e, ArticleWriterError):
++        return text[:200]
++    return f"AI 오류({name}): {text[:150]}"
+diff --git a/app/models/comments.py b/app/models/comments.py
+index 8aad795..1687c07 100644
+--- a/app/models/comments.py
++++ b/app/models/comments.py
+@@ -285,7 +285,7 @@ COMMENTS: dict[str, dict[str, str]] = {
+         "ARTICLE_ID": "기사 ID",
+         "ARTICLE_TYPE": "PRE_MATCH/SESSION_RECAP/MONTHLY_MVP(POST_MATCH 예약)",
+         "TITLE": "제목", "SUMMARY": "요약", "CONTENT": "본문",
+-        "MODEL_NAME": "사용 모델(stub=개발용)",
++        "MODEL_NAME": "사용 모델. template = 기본형 기사(AI 키 없음 · AI 실패), sample-template = 샘플 데이터",
+         "PROMPT_VERSION": "프롬프트 버전",
+         "INSIGHT_RULE_VERSION": "사용 Insight 규칙 버전 목록",
+         "STATUS": "PENDING/GENERATED/PUBLISHED/REJECTED/FAILED/SUPERSEDED",
+@@ -295,7 +295,7 @@ COMMENTS: dict[str, dict[str, str]] = {
+         "GENERATION_NO": "생성 차수",
+         "REQUEST_JSON": "AI 입력 DTO(사실 근거)",
+         "RESPONSE_JSON": "AI 응답 원문(JSON)",
+-        "ERROR_MESSAGE": "실패 사유",
++        "ERROR_MESSAGE": "실패 사유 또는 기본형으로 쓴 이유('기본형으로 작성: …')",
+     },
+     "AI_ARTICLE_INSIGHT": {
+         "__table__": "기사가 실제 사용한 Insight(AI usedInsightIds)",
+diff --git a/app/wire/article_service.py b/app/wire/article_service.py
+index b439658..67fd161 100644
+--- a/app/wire/article_service.py
++++ b/app/wire/article_service.py
+@@ -1,4 +1,8 @@
+-"""AI 기사: 생성 요청 → (백그라운드) OpenAI 호출 → 검증 → 저장/태그 → 게시."""
++"""AI 기사: 생성 요청 → (백그라운드) OpenAI 호출 → 검증 → 저장/태그 → 게시.
++
++AI로 못 쓰면(키 없음 · 크레딧/한도 초과 · 연결 오류 · 검증 실패) 기본형 기사(템플릿)로 대신 쓰고 평소 게시 규칙을 따른다.
++기본형은 MODEL_NAME = 'template', 실패 원인은 ERROR_MESSAGE에 남겨 관리자 화면에 보여 준다([다시 쓰기]로 AI 재시도).
++"""
+ import logging
+ from typing import Any
+ 
+@@ -21,7 +25,7 @@ from app.models import (
+     Member,
+ )
+ from app.models.enums import ArticleStatus, ArticleType
+-from app.integrations.openai.writer import PROMPT_VERSION, get_writer
++from app.integrations.openai.writer import PROMPT_VERSION, failure_reason, get_writer, template_writer
+ from app.services.config_service import load_config
+ from app.services.session_service import team_rosters
+ 
+@@ -31,6 +35,9 @@ ARTICLE_TYPE_TAG = {ArticleType.PRE_MATCH: "프리뷰", ArticleType.SESSION_RECA
+                     ArticleType.MONTHLY_MVP: "이달의 MVP"}
+ # 게시 설정(ARTICLE_PUBLISH_MODE)과 상관없이 생성 즉시 게시하는 기사
+ ALWAYS_PUBLISH = {ArticleType.MONTHLY_MVP}
++# 기본형(템플릿) 기사의 MODEL_NAME. sample-template = 샘플 데이터 생성기, stub = 예전 이름
++TEMPLATE_MODEL = "template"
++TEMPLATE_MODELS = {TEMPLATE_MODEL, "sample-template", "stub"}
+ 
+ 
+ def _model_for(article_type: str) -> str:
+@@ -78,7 +85,7 @@ def create_article(db: Session, club: Club, session: ClubSession, article_type:
+     provider = settings.ai_provider_resolved
+     a = AiArticle(
+         club_id=club.club_id, session_id=session.session_id, article_type=article_type,
+-        model_name=_model_for(article_type) if provider == "openai" else "stub",
++        model_name=_model_for(article_type) if provider == "openai" else TEMPLATE_MODEL,
+         prompt_version=PROMPT_VERSION, insight_rule_version=",".join(rule_versions)[:1000] or None,
+         status=ArticleStatus.PENDING, published_yn=False, generation_no=1, request_json=payload,
+     )
+@@ -94,25 +101,37 @@ def run_generation(article_id: int) -> None:
+         a = db.get(AiArticle, article_id)
+         if not a or a.status != ArticleStatus.PENDING:
+             return
++        cfg = load_config(db, a.club_id)
++        options = {"temperature": cfg["AI_TEMPERATURE"], "maxOutputTokens": cfg["AI_MAX_OUTPUT_TOKENS"]}
++        reason = None
+         try:
+             writer = get_writer()
+-            draft, raw = writer.write(a.request_json or {}, a.model_name)
+-        except Exception as e:  # noqa: BLE001
+-            log.exception("article generation failed: %s", article_id)
+-            a.status = ArticleStatus.FAILED
+-            a.error_message = str(e)[:4000]
+-            emit(db, a.club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
+-            db.commit()
+-            return
++            draft, raw = writer.write(a.request_json or {}, a.model_name, options)
++            if writer.provider != "openai":  # 처음부터 AI를 안 쓰는 설정
++                reason = "AI 키 없음(OPENAI_API_KEY)" if not settings.OPENAI_API_KEY else "AI 사용 안 함(AI_PROVIDER)"
++                a.model_name = TEMPLATE_MODEL
++        except Exception as e:  # noqa: BLE001  AI 실패 → 기본형 기사로 대신
++            log.warning("AI article failed, fallback to template: %s (%s)", article_id, e)
++            reason = failure_reason(e)
++            try:
++                draft, raw = template_writer().write(a.request_json or {}, TEMPLATE_MODEL)
++            except Exception as e2:  # noqa: BLE001  기본형까지 실패하면 실패로 남김
++                log.exception("template article failed: %s", article_id)
++                a.status = ArticleStatus.FAILED
++                a.error_message = f"{reason} / 기본형 작성 실패: {e2}"[:4000]
++                emit(db, a.club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
++                db.commit()
++                return
++            a.model_name = TEMPLATE_MODEL
+         a.title, a.summary, a.content = draft.title, draft.summary, draft.body
+         a.response_json = raw
+         a.status = ArticleStatus.GENERATED
+-        a.error_message = None
++        a.error_message = f"기본형으로 작성: {reason}" if reason else None
+         for iid in draft.usedInsightIds:
+             db.add(AiArticleInsight(article_id=a.article_id, insight_id=iid))
+         db.flush()
+         _apply_tags(db, a)
+-        if a.article_type in ALWAYS_PUBLISH or load_config(db, a.club_id)["ARTICLE_PUBLISH_MODE"] == "AUTO":
++        if a.article_type in ALWAYS_PUBLISH or cfg["ARTICLE_PUBLISH_MODE"] == "AUTO":
+             _publish(db, a)
+         emit(db, a.club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
+         db.commit()
+@@ -187,7 +206,7 @@ def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
+     provider = settings.ai_provider_resolved
+     a = AiArticle(
+         club_id=club_id, session_id=src.session_id, match_id=src.match_id, article_type=src.article_type,
+-        model_name=_model_for(src.article_type) if provider == "openai" else "stub",
++        model_name=_model_for(src.article_type) if provider == "openai" else TEMPLATE_MODEL,
+         prompt_version=PROMPT_VERSION, insight_rule_version=src.insight_rule_version,
+         status=ArticleStatus.PENDING, published_yn=False, parent_article_id=root_id, generation_no=max_no + 1,
+         request_json=src.request_json,
+@@ -209,6 +228,7 @@ def serialize_article(db: Session, a: AiArticle, *, detail: bool = False, admin:
+         "title": a.title, "summary": a.summary, "tags": tags, "status": a.status,
+         "publishedAt": to_iso(a.published_at), "createdAt": to_iso(a.created_at),
+         "generationNo": a.generation_no, "parentArticleId": a.parent_article_id,
++        "basic": a.model_name in TEMPLATE_MODELS,  # 기본형(템플릿) 기사 여부. 화면 안내 문구용
+     }
+     if detail:
+         data["content"] = a.content
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index d42d5db..50e961c 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -356,6 +356,22 @@ DELETE MT FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_T
+ - 샘플 데이터(`ypr_sample_data.sql`) 다시 생성: **2026-07-04 ~ 10-17 매주 토요일 16회**. 생성기가 시계를 옮기다 1일 00:10을 지나면 월 마감 → 7 · 8 · 9월 이달의 MVP 타이틀 + 발표 기사. 10월은 후보 진행 중(11월이 되면 서버가 자동 마감). 10/17 마감 기사는 검토 대기, 예정 일정 없음
+ - 생성기 기사 템플릿에 이달의 MVP 문구(조사 처리) 추가, 프리뷰 첫 문장의 요일을 날짜에서 계산(기존: '일요일' 고정)
+ 
++## 3-11. AI 창의성 · 답변 최대 길이 설정 + 기본형 기사 (2026-10-23)
++
++| 항목 | 결정 | 이유 |
++|---|---|---|
++| 창의성 | `AI_TEMPERATURE`(기본 0.7, 0~2) → OpenAI `temperature`. 관리자 설정 화면 '기사' 묶음 + (?) 도움말 | 서버 재시작 없이 클럽별로 조절. 추론형 모델처럼 temperature를 안 받는 모델이면 빼고 한 번 더 요청 |
++| 답변 최대 길이 | `AI_MAX_OUTPUT_TOKENS`(기본 2000, 300~8000) → `max_completion_tokens` | 비용 상한. 잘리면(`finish_reason = length`) 검증 실패로 보고 재시도 |
++| 기본형 기사 | AI 실패(키 없음 · 401 · 429 크레딧/한도 · 연결/시간 초과 · 검증 실패) → 템플릿으로 같은 사실을 써서 `GENERATED`, 평소 게시 규칙 적용 | 기사가 비지 않게. 원인은 `ERROR_MESSAGE`에 남기고 [다시 쓰기]로 AI 재시도 |
++| 템플릿 | 샘플 데이터 생성기의 작성기를 `app/integrations/openai/template_writer.py`(`TemplateArticleWriter`)로 옮겨 앱 · 생성기가 같이 씀. 예전 Stub 작성기는 삭제 | 조사 처리 · 같은 종류 사실 묶기 · 제목 고르기가 이미 검증된 문체 |
++| 표시 | 기사 응답에 `basic`(기본형 여부). 관리자: '기본형' 배지 + 이유, 공개: 기사 맨 아래 안내 문구 | 독자에게도 AI 기사와 구분 |
++| `AI_PROVIDER` | `auto`(키 있으면 openai, 없으면 template) / `openai` / `template`(`stub`도 같은 뜻으로 받음) | 이름 정리 |
++
++- alembic 0007: `AI_ARTICLE.MODEL_NAME` · `ERROR_MESSAGE` 컬럼 설명만 변경. 설정값은 `SYSTEM_CONFIG`(없으면 기본값)
++- `requirements.txt`: `openai>=1.55`(`max_completion_tokens`)
++- 테스트 `tests/test_article_writer.py`(OpenAI 클라이언트 대역으로 요청 인자 · 실패별 기본형 대체 확인)
++- 샘플 데이터는 그대로(생성기가 같은 작성기를 써서 기사 문장이 바뀌지 않음을 다시 생성해 확인)
++
+ ## 4. 남은 이슈 / 다음 단계
+ 
+ 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
+diff --git a/docs/TABLES.md b/docs/TABLES.md
+index 7fbaa16..18451b2 100644
+--- a/docs/TABLES.md
++++ b/docs/TABLES.md
+@@ -604,7 +604,7 @@ AI 기사(재생성은 새 행, 기존 보존)
+ | 6 | `TITLE` | VARCHAR(200) | Y |  | 제목 |
+ | 7 | `SUMMARY` | VARCHAR(500) | Y |  | 요약 |
+ | 8 | `CONTENT` | TEXT | Y |  | 본문 |
+-| 9 | `MODEL_NAME` | VARCHAR(100) | N |  | 사용 모델(stub=개발용) |
++| 9 | `MODEL_NAME` | VARCHAR(100) | N |  | 사용 모델. template = 기본형 기사(AI 키 없음 · AI 실패), sample-template = 샘플 데이터 |
+ | 10 | `PROMPT_VERSION` | VARCHAR(40) | N |  | 프롬프트 버전 |
+ | 11 | `INSIGHT_RULE_VERSION` | VARCHAR(1000) | Y |  | 사용 Insight 규칙 버전 목록 |
+ | 12 | `STATUS` | VARCHAR(20) | N |  | PENDING/GENERATED/PUBLISHED/REJECTED/FAILED/SUPERSEDED |
+@@ -614,7 +614,7 @@ AI 기사(재생성은 새 행, 기존 보존)
+ | 16 | `GENERATION_NO` | INTEGER | N |  | 생성 차수 |
+ | 17 | `REQUEST_JSON` | JSON | Y |  | AI 입력 DTO(사실 근거) |
+ | 18 | `RESPONSE_JSON` | JSON | Y |  | AI 응답 원문(JSON) |
+-| 19 | `ERROR_MESSAGE` | TEXT | Y |  | 실패 사유 |
++| 19 | `ERROR_MESSAGE` | TEXT | Y |  | 실패 사유 또는 기본형으로 쓴 이유('기본형으로 작성: …') |
+ | 20 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+ | 21 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+ 
+diff --git a/docs/WIRE_RULES.md b/docs/WIRE_RULES.md
+index 0f78749..48a73fc 100644
+--- a/docs/WIRE_RULES.md
++++ b/docs/WIRE_RULES.md
+@@ -62,3 +62,26 @@ Insight를 쓰지 않는 월간 기사. 월 마감 때(다음 달 1일, 그 달
+ 
+ - 상승률 = (그 달 마지막 경기 후 실력 점수 − 그 달 첫 경기 전 실력 점수) ÷ 첫 경기 전 점수 × 100. **점수 자체는 AI 입력에도 넣지 않는다**(상승률만)
+ - 기사 용어는 "레이팅"이 아니라 "실력 점수 상승률"(금칙어 검사 그대로 유지)
++
++## AI 설정과 기본형 기사 (2026-10-23)
++
++| 설정(관리자 > 운영 설정 > 기사) | 키 | 기본 | 범위 | OpenAI 요청 |
++|---|---|---|---|---|
++| AI 기사 창의성 | `AI_TEMPERATURE` | 0.7 | 0 ~ 2 | `temperature`(이 값을 받지 않는 모델이면 빼고 다시 요청) |
++| AI 답변 최대 길이 | `AI_MAX_OUTPUT_TOKENS` | 2000 | 300 ~ 8000 | `max_completion_tokens`(잘리면 응답 검증 실패로 처리) |
++
++**기본형 기사**: AI로 못 쓰면 같은 입력(DTO)으로 템플릿 기사를 쓴다(`template_writer.TemplateArticleWriter`, 샘플 데이터 기사와 같은 문체).
++
++| 언제 | 관리자 화면에 남는 이유(`ERROR_MESSAGE`) |
++|---|---|
++| 키 없음 | 기본형으로 작성: AI 키 없음(OPENAI_API_KEY) |
++| 키 오류(401) | 기본형으로 작성: AI 키 오류(키가 없거나 잘못됨) |
++| 크레딧 · 지출 한도 초과(429) | 기본형으로 작성: AI 크레딧 · 지출 한도 초과 |
++| 요청 한도(429, 잠깐) | 기본형으로 작성: AI 요청 한도 초과(잠시 후 다시 쓰기) |
++| 연결 실패 · 시간 초과 | 기본형으로 작성: AI 연결 실패(네트워크 · 시간 초과) |
++| 재시도 후에도 잘림 · 스키마 · 금칙어 위반 | 기본형으로 작성: AI 응답 검증 실패: … |
++
++- 게시는 평소 규칙 그대로(`ARTICLE_PUBLISH_MODE`, 이달의 MVP는 바로 게시). `MODEL_NAME = 'template'`
++- 관리자 기사 검토: '기본형' 표시 + 이유 + "[다시 쓰기]를 누르면 AI로 다시 써 봐요". 공개 기사 화면 맨 아래: "경기 기록으로 자동 작성한 기본형 기사입니다."
++- 기본형까지 실패하면(버그) 그때만 `FAILED`
++
+diff --git a/docs/schema.sql b/docs/schema.sql
+index 27fab06..05e6758 100644
+--- a/docs/schema.sql
++++ b/docs/schema.sql
+@@ -377,7 +377,7 @@ CREATE TABLE `AI_ARTICLE` (
+ 	`TITLE` VARCHAR(200) COMMENT '제목', 
+ 	`SUMMARY` VARCHAR(500) COMMENT '요약', 
+ 	`CONTENT` TEXT COMMENT '본문', 
+-	`MODEL_NAME` VARCHAR(100) NOT NULL COMMENT '사용 모델(stub=개발용)', 
++	`MODEL_NAME` VARCHAR(100) NOT NULL COMMENT '사용 모델. template = 기본형 기사(AI 키 없음 · AI 실패), sample-template = 샘플 데이터', 
+ 	`PROMPT_VERSION` VARCHAR(40) NOT NULL COMMENT '프롬프트 버전', 
+ 	`INSIGHT_RULE_VERSION` VARCHAR(1000) COMMENT '사용 Insight 규칙 버전 목록', 
+ 	`STATUS` VARCHAR(20) NOT NULL COMMENT 'PENDING/GENERATED/PUBLISHED/REJECTED/FAILED/SUPERSEDED', 
+@@ -387,7 +387,7 @@ CREATE TABLE `AI_ARTICLE` (
+ 	`GENERATION_NO` INTEGER NOT NULL COMMENT '생성 차수', 
+ 	`REQUEST_JSON` JSON COMMENT 'AI 입력 DTO(사실 근거)', 
+ 	`RESPONSE_JSON` JSON COMMENT 'AI 응답 원문(JSON)', 
+-	`ERROR_MESSAGE` TEXT COMMENT '실패 사유', 
++	`ERROR_MESSAGE` TEXT COMMENT '실패 사유 또는 기본형으로 쓴 이유(''기본형으로 작성: …'')', 
+ 	`UPDATED_AT` DATETIME(3) NOT NULL COMMENT '수정 일시(UTC)', 
+ 	`CREATED_AT` DATETIME(3) NOT NULL COMMENT '생성 일시(UTC)', 
+ 	CONSTRAINT `PK_AI_ARTICLE` PRIMARY KEY (`ARTICLE_ID`), 
+diff --git a/frontend/src/api/types.ts b/frontend/src/api/types.ts
+index 67fb471..d228bde 100644
+--- a/frontend/src/api/types.ts
++++ b/frontend/src/api/types.ts
+@@ -340,6 +340,8 @@ export interface Article {
+   createdAt: string
+   generationNo: number
+   parentArticleId: number | null
++  /** 기본형 기사(AI 대신 템플릿으로 작성: 키 없음 · AI 실패) */
++  basic: boolean
+   modelName?: string
+   errorMessage?: string | null
+ }
+diff --git a/frontend/src/pages/ArticlePage.tsx b/frontend/src/pages/ArticlePage.tsx
+index 4818a83..cb7767f 100644
+--- a/frontend/src/pages/ArticlePage.tsx
++++ b/frontend/src/pages/ArticlePage.tsx
+@@ -93,7 +93,9 @@ export function ArticlePage() {
+ 
+           <div className="row small muted">
+             <Icon name="info" size={14} />
+-            {monthly ? '월 마감 때 경기 기록을 바탕으로 AI가 작성해 자동 게시했습니다.' : '경기 기록을 바탕으로 AI가 작성하고 운영진이 게시했습니다.'}
++            {a.basic ? '경기 기록으로 자동 작성한 기본형 기사입니다.'
++              : monthly ? '월 마감 때 경기 기록을 바탕으로 AI가 작성해 자동 게시했습니다.'
++                : '경기 기록을 바탕으로 AI가 작성하고 운영진이 게시했습니다.'}
+           </div>
+           {isAdmin ? <Link className="btn sm" to={`/c/${slug}/admin/articles`}>기사 검토로</Link> : null}
+         </article>
+diff --git a/frontend/src/pages/admin/ArticlesAdminPage.tsx b/frontend/src/pages/admin/ArticlesAdminPage.tsx
+index 890e38d..231fbab 100644
+--- a/frontend/src/pages/admin/ArticlesAdminPage.tsx
++++ b/frontend/src/pages/admin/ArticlesAdminPage.tsx
+@@ -93,6 +93,7 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction }: {
+         <span className="row">
+           <span className={`status-badge ${a.status === 'PUBLISHED' ? 'green' : a.status === 'GENERATED' ? 'gold' : ''}`}>{STATUS_LABEL[a.status]}</span>
+           <span className="small muted">{ARTICLE_TYPE_LABEL[a.articleType]} · {a.generationNo}차</span>
++          {a.basic ? <span className="status-badge">기본형</span> : null}
+         </span>
+         <span className="small muted">{fmtDateTime(a.createdAt)}</span>
+       </div>
+@@ -102,7 +103,11 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction }: {
+         <div className="headline" style={{ fontSize: 20 }}>{a.title ?? (a.status === 'PENDING' ? 'AI가 기사를 쓰는 중…' : '(제목 없음)')}</div>
+         {a.summary ? <p style={{ fontSize: 14, fontWeight: 600, marginTop: 6 }}>{a.summary}</p> : null}
+       </button>
+-      {a.status === 'FAILED' && a.errorMessage ? <div className="notice warn small">{a.errorMessage}</div> : null}
++      {a.errorMessage && (a.status === 'FAILED' || a.basic) ? (
++        <div className="notice warn small">
++          {a.errorMessage}{a.basic ? ' · [다시 쓰기]를 누르면 AI로 다시 써 봐요.' : ''}
++        </div>
++      ) : null}
+ 
+       {open ? (
+         !d ? <Loading rows={1} /> : (
+diff --git a/frontend/src/pages/admin/settingsHelp.ts b/frontend/src/pages/admin/settingsHelp.ts
+index dc79b6e..3e21d50 100644
+--- a/frontend/src/pages/admin/settingsHelp.ts
++++ b/frontend/src/pages/admin/settingsHelp.ts
+@@ -20,7 +20,7 @@ export interface ConfigHelp {
+ 
+ export const CONFIG_GROUPS: { title: string; keys: string[]; advanced?: boolean }[] = [
+   { title: '경기', keys: ['MATCH_DURATION_SEC', 'MATCH_AUTO_END_YN', 'MATCH_EARLY_END_GOALS'] },
+-  { title: '기사(The Wire)', keys: ['ARTICLE_PUBLISH_MODE', 'WIRE_MAX_INSIGHTS'] },
++  { title: '기사(The Wire)', keys: ['ARTICLE_PUBLISH_MODE', 'WIRE_MAX_INSIGHTS', 'AI_TEMPERATURE', 'AI_MAX_OUTPUT_TOKENS'] },
+   { title: '이달의 MVP', keys: ['MONTHLY_MVP_MIN_SESSIONS'] },
+   { title: '팀 자동 편성', keys: ['TEAM_RATING_TOLERANCE_PERCENT', 'TEAM_CANDIDATE_COUNT', 'PAIR_ALPHA', 'PAIR_PENALTY_EPSILON'] },
+   {
+@@ -91,7 +91,28 @@ export const CONFIG_HELP: Record<string, ConfigHelp> = {
+       ['올리면', '작은 소식까지 기사에 들어갈 수 있어요. 대신 기사가 길고 산만해질 수 있고 AI 사용량이 조금 늘어요.'],
+       ['내리면', '굵직한 소식만 남아 기사가 짧고 선명해져요. 개근·기록 도전 같은 작은 소식은 빠지기 쉬워요.'],
+     ],
+-    tip: 'AI 키가 없을 때 쓰는 템플릿 작성기는 이 값과 상관없이 최대 6문장까지만 써요.',
++    tip: 'AI 키가 없거나 AI가 실패해서 쓰는 기본형 기사는 같은 종류 사실을 묶어 문장 수를 따로 줄여요.',
++  },
++  AI_TEMPERATURE: {
++    label: 'AI 기사 창의성',
++    summary: '같은 사실을 얼마나 다양한 표현으로 쓸지 정해요. 0~2 사이 숫자예요.',
++    how: 'AI가 다음 단어를 고를 때 얼마나 모험할지를 정하는 값(temperature)이에요. 사실은 입력으로 준 것만 쓰라는 규칙은 그대로라 기록이 바뀌지는 않고 문장 표현만 달라져요.',
++    effects: [
++      ['올리면', '제목과 문장이 다채로워져요. 너무 높으면(1.2 이상) 어색한 표현이나 규칙 위반이 늘어 기본형 기사로 바뀌는 일이 생길 수 있어요.'],
++      ['내리면', '매번 비슷한 말투로 차분하게 써요. 0에 가까우면 같은 사실이면 거의 같은 문장이 나와요.'],
++    ],
++    tip: '0.5~0.9를 권해요. 일부 AI 모델(추론형)은 이 값을 받지 않아서, 그때는 자동으로 빼고 보내요.',
++  },
++  AI_MAX_OUTPUT_TOKENS: {
++    label: 'AI 답변 최대 길이',
++    unit: '토큰',
++    summary: 'AI가 기사 한 건에 쓸 수 있는 최대 분량이에요. 비용 상한 역할도 해요.',
++    how: '제목 · 요약 · 본문을 합친 답변 길이의 상한이에요. 한글은 대략 한 글자가 1토큰 안팎이에요. 넘으면 답변이 잘려서 한 번 더 요청하고, 그래도 잘리면 기본형 기사로 써요.',
++    effects: [
++      ['올리면', '긴 마감 기사도 잘리지 않아요. 대신 한 건당 최대 비용이 커져요.'],
++      ['내리면', '비용 상한이 낮아져요. 너무 낮으면(1000 미만) 본문이 잘려 기본형 기사로 바뀌는 일이 잦아져요.'],
++    ],
++    tip: '기본 2000이면 3~6문단 기사에 충분해요.',
+   },
+ 
+   // ---------------------------------------------------------------- 이달의 MVP
+diff --git a/requirements.txt b/requirements.txt
+index 47ef2d7..f421489 100644
+--- a/requirements.txt
++++ b/requirements.txt
+@@ -9,6 +9,6 @@ pydantic-settings>=2.3
+ tzdata>=2024.1
+ argon2-cffi>=23.1
+ pyjwt>=2.8
+-openai>=1.40
++openai>=1.55  # max_completion_tokens(답변 최대 길이)
+ httpx>=0.27
+ pytest>=8.0
+diff --git a/scripts/gen_sample_data.py b/scripts/gen_sample_data.py
+index 870fd30..933acf5 100644
+--- a/scripts/gen_sample_data.py
++++ b/scripts/gen_sample_data.py
+@@ -14,7 +14,7 @@ INSERT문을 손으로 쓰면 정합성이 깨진다. 실제 서비스 로직을
+ - 득점/도움/자책골/게스트 골/골 취소(입력 정정) 포함, 일정확정→프리뷰 기사, 일정마감→자동 타이틀·마감 기사
+ - 월이 바뀌면(1일 00:10) 월 마감 → 이달의 MVP 타이틀 + 발표 기사(7 · 8 · 9월). 10월은 후보 진행 중으로 끝남
+ - 마지막 일정(10/17)의 마감 기사는 검토 대기로 둔다. 예정 일정은 만들지 않는다
+-- 기사는 OpenAI 대신 이 파일의 SampleArticleWriter(템플릿)가 Insight 사실로 작성
++- 기사는 OpenAI 대신 기본형 기사 작성기(app/integrations/openai/template_writer.py)가 Insight 사실로 작성
+ """
+ from __future__ import annotations
+ 
+@@ -36,7 +36,7 @@ from sqlalchemy import text  # noqa: E402
+ import app.wire.article_service as article_service  # noqa: E402
+ from app.core.database import SessionLocal, engine  # noqa: E402
+ from app.core.security import login_limiter  # noqa: E402
+-from app.integrations.openai.writer import validate_draft  # noqa: E402
++from app.integrations.openai.template_writer import TemplateArticleWriter  # noqa: E402
+ from app.main import app  # noqa: E402
+ from app.services import club_service, mvp_service  # noqa: E402
+ from app.services.common import get_club_by_slug  # noqa: E402
+@@ -73,395 +73,6 @@ def at(d: date, hh: int, mm: int = 0, ss: int = 0) -> datetime:
+     return datetime(d.year, d.month, d.day, hh, mm, ss, tzinfo=KST)
+ 
+ 
+-# ---------------------------------------------------------------------- 기사(템플릿)
+-def _batchim(word: str) -> int | None:
+-    """마지막 글자 받침 코드(0=없음). 한글이 아니면 숫자/영문 발음으로 추정."""
+-    ch = word.strip()[-1:] or " "
+-    if "가" <= ch <= "힣":
+-        return (ord(ch) - 0xAC00) % 28
+-    if ch.isdigit():
+-        return {"0": 21, "1": 8, "3": 16, "6": 1, "7": 8, "8": 8}.get(ch, 0)
+-    return 4 if ch.upper() in "LMNR" else 0
+-
+-
+-def j(word: str, with_batchim: str, without: str) -> str:
+-    """조사: j('손원일','이','가') → '손원일이'."""
+-    b = _batchim(word)
+-    if with_batchim == "으로":
+-        return word + ("으로" if b and b != 8 else "로")
+-    return word + (with_batchim if b else without)
+-
+-
+-def josa_only(word: str, with_batchim: str, without: str) -> str:
+-    return j(word, with_batchim, without)[len(word):]
+-
+-
+-def tagged_list(items: list[tuple[str, str]]) -> tuple[str, str]:
+-    """[("이민선","11주"),("김응철","9주")] → ("이민선(11주)과 김응철(9주)", "김응철") — 조사는 마지막 이름 기준."""
+-    parts = [f"{n}({x})" for n, x in items]
+-    if len(parts) == 1:
+-        return parts[0], items[0][0]
+-    text_ = ", ".join(parts[:-1]) + josa_only(items[-2][0], "과", "와") + " " + parts[-1]
+-    return text_, items[-1][0]
+-
+-
+-def names_ko(names: list[str]) -> str:
+-    return ", ".join(names[:-1]) + (f"와 {names[-1]}" if not _batchim(names[-2]) else f"과 {names[-1]}") if len(names) > 1 else (names[0] if names else "")
+-
+-
+-_RECENT_HEADS: dict[str, list[tuple[str, str]]] = {}  # 기사 종류별 최근 제목 (유형, 선수) — 같은 유형 반복 방지
+-_HEAD_BONUS = {"HAT_TRICK": 14, "COMEBACK_WIN": 14, "UPSET_WIN": 12, "LATE_WINNER": 8, "RETURN_PLAYER_RESULT": 10,
+-               "RETURN_PLAYER": 12, "RARE_PAIR": 6, "WIN_STREAK": 4, "TITLE_AWARDED": 2,
+-               "CLOSE_MATCH_EXPECTED": -8, "MILESTONE_EXPECTED": -10, "MILESTONE_ACHIEVED": -4,
+-               "REVENGE_RESULT": 16, "NEMESIS_MATCH": 10, "PERSONAL_BEST_GOALS": 12, "ASSIST_COMBO": 8,
+-               "DUO_REUNITED": 6, "SCORING_RACE": 6, "UNBEATEN_TEAM": 6, "JINX_PAIR": 4, "CLEAN_SHEET": 4,
+-               "ATTENDANCE_STREAK": -2}
+-_METRIC = {"games": ("경기 출전", "경기"), "goals": ("골", "골"), "assists": ("도움", "개")}
+-
+-
+-def _milestone(metric: str, ms: int) -> str:
+-    word, _ = _METRIC.get(metric, ("골", "골"))
+-    return f"통산 {ms}{word}" if metric != "games" else f"통산 {ms}경기 출전"
+-
+-
+-class SampleArticleWriter:
+-    """Insight 사실만으로 쓰는 샘플 기사(사실 밖 내용은 쓰지 않는다). 같은 유형 사실은 한 문장으로 묶는다."""
+-
+-    provider = "sample"
+-
+-    def __init__(self, rng: random.Random):
+-        self.rng = rng
+-
+-    @staticmethod
+-    def _name(ins: dict[str, Any]) -> str:
+-        f = ins.get("facts") or {}
+-        return (ins.get("subject") or {}).get("name") or (f.get("member") or {}).get("name") or ""
+-
+-    def _group_key(self, ins: dict[str, Any], phase: str) -> tuple:
+-        t, f = ins["type"], ins.get("facts") or {}
+-        if t in ("WIN_STREAK", "SCORING_STREAK", "ATTENDANCE_STREAK"):
+-            return (t, phase)
+-        if t in ("FIRST_GOAL", "FIRST_ASSIST"):
+-            return (t,)
+-        if t == "MILESTONE_ACHIEVED":
+-            return (t, f.get("metric"), f.get("milestone"))
+-        if t == "MILESTONE_EXPECTED":
+-            return (t, f.get("metric"), f.get("milestone"), f.get("remaining"))
+-        if t == "FIRST_APPEARANCE":
+-            return (t,)
+-        if t == "TITLE_AWARDED":
+-            return (t, f.get("titleName"), f.get("value"))
+-        return (t, ins["id"])  # 묶지 않음
+-
+-    def _sentence(self, t: str, phase: str, items: list[dict[str, Any]]) -> tuple[str | None, str | None]:
+-        """같은 그룹 Insight 묶음 → (제목 후보, 문장)."""
+-        f = items[0].get("facts") or {}
+-        names = [self._name(i) for i in items if self._name(i)]
+-        who = names_ko(names) if names else ""
+-        lead = names[0] if names else ""
+-        many = len(names) > 1
+-        head_who = f"{lead} 등 {len(names)}명" if many else lead
+-        g = f.get("gameNo")
+-        try:
+-            if t == "ATTENDANCE_STREAK":
+-                ranked = sorted(items, key=lambda i: -(i.get("facts") or {}).get("streak", 0))
+-                tagged = [(self._name(i), f"{i['facts']['streak']}주") for i in ranked if self._name(i)]
+-                top, top_s = tagged[0][0], ranked[0]["facts"]["streak"]
+-                if len(tagged) == 1:
+-                    return f"{top}, {top_s}주 연속 개근", f"{j(top, '은', '는')} 오늘로 {top_s}주 연속 출전이다."
+-                body_, last = tagged_list(tagged)
+-                return f"{top}, {top_s}주 연속 개근", f"{body_}{josa_only(last, '이', '가')} 개근 행진을 이어가고 있다."
+-            if t in ("DUO_REUNITED", "JINX_PAIR"):
+-                ms = [m.get("name") for m in f.get("members", []) if m.get("name")]
+-                pair, both = f"{ms[0]}·{ms[1]}", names_ko(ms)
+-                m_, w_ = f["sameTeamMatches"], f["sameTeamWins"]
+-                if t == "DUO_REUNITED":
+-                    return (f"{pair}, 다시 한 팀… 함께 {m_}경기 {w_}승",
+-                            f"{j(both, '이', '가')} 다시 한 팀이 됐다. 같은 팀으로 뛴 {m_}경기에서 {w_}승을 거둔 조합이다.")
+-                return (f"{pair}, 징크스 깰까",
+-                        f"{j(both, '은', '는')} 같은 팀으로 {m_}경기에서 {w_}승에 그쳤다. 오늘은 징크스를 깰 수 있을까.")
+-            if t == "NEMESIS_MATCH":
+-                u, r = f["member"]["name"], f["rival"]["name"]
+-                uw, dw, dr, ls = f["memberWins"], f["rivalWins"], f["draws"], f.get("lossStreak", 0)
+-                streak_txt = f" 최근 {ls}연패 중이다." if ls >= 2 else ""
+-                rec_txt = f"{uw}승 {dr}무 {dw}패" if dr else f"{uw}승 {dw}패"
+-                return (f"{u}, {r} 상대 {uw}승 {dw}패… 설욕할까",
+-                        f"{j(u, '은', '는')} {r} 상대로 {rec_txt}.{streak_txt} 오늘은 다른 팀으로 갈려 설욕을 노린다.")
+-            if t == "REVENGE_RESULT":
+-                u, r = f["member"]["name"], f["rival"]["name"]
+-                uw, dw, ls, oc = f["memberWinsToday"], f["rivalWinsToday"], f.get("lossStreakBefore", 0), f["outcome"]
+-                if oc == "REVENGE":
+-                    head = f"{u}, {r} 상대 {ls}연패 끊었다" if ls >= 2 else f"{u}, {r}에게 설욕"
+-                    return head, f"{j(u, '은', '는')} 오늘 {j(r, '과', '와')}의 맞대결에서 {uw}승 {dw}패로 앞서며 설욕에 성공했다."
+-                if oc == "HELD":
+-                    return (f"{r}, {u} 상대 강세 이어가",
+-                            f"{j(r, '은', '는')} 오늘도 {u} 상대로 {dw}승을 챙기며 강세를 이어갔다.")
+-                if uw == dw == 0:
+-                    return None, f"{j(u, '과', '와')} {j(r, '은', '는')} 오늘 {f['drawsToday']}번 맞붙어 모두 비겼다."
+-                return None, f"{j(u, '과', '와')} {r}의 맞대결은 오늘 {uw}승 {dw}패로 팽팽했다."
+-            if t == "SCORING_RACE":
+-                mo, ld, ch = f["month"], f["leader"]["name"], f["chaser"]["name"]
+-                lg, cg, gap = f["leaderGoals"], f["chaserGoals"], f["gap"]
+-                if gap == 0:
+-                    return (f"{mo}월 득점왕, {ld}·{ch} 공동 선두",
+-                            f"{mo}월 득점 경쟁이 뜨겁다. {j(names_ko([ld, ch]), '이', '가')} 나란히 {lg}골로 공동 선두다.")
+-                return (f"{mo}월 득점왕, {ld}·{ch} {gap}골 차",
+-                        f"{mo}월 득점 경쟁이 뜨겁다. {j(ld, '이', '가')} {lg}골, {j(ch, '이', '가')} {cg}골로 {gap}골 차다.")
+-            if t == "ASSIST_COMBO":
+-                a_, s_, n_, c_ = f["assister"]["name"], f["scorer"]["name"], f["countToday"], f.get("careerCount", 0)
+-                tail = f" 둘이 합작한 골은 통산 {c_}골이다." if c_ > n_ else ""
+-                cnt = {2: "두", 3: "세", 4: "네", 5: "다섯"}.get(n_, str(n_))
+-                return (f"{a_}→{s_}, 오늘만 {cnt} 번",
+-                        f"{a_}의 패스를 {j(s_, '이', '가')} 마무리한 골이 오늘만 {cnt} 번 나왔다.{tail}")
+-            if t in ("UNBEATEN_TEAM", "CLEAN_SHEET"):
+-                team = f["teamCode"] + "팀"
+-                if t == "CLEAN_SHEET":
+-                    return (f"{team}, {f['cleanSheets']}경기 무실점",
+-                            f"{j(team, '은', '는')} 오늘 {f['games']}경기 중 {f['cleanSheets']}경기를 무실점으로 막아 냈다.")
+-                if f.get("perfect"):
+-                    return f"{team}, {f['games']}전 전승", f"{j(team, '은', '는')} 오늘 {f['games']}경기를 모두 이겼다."
+-                return (f"{team}, 오늘 {f['games']}경기 무패",
+-                        f"{j(team, '은', '는')} 오늘 {f['games']}경기에서 {f['wins']}승 {f['draws']}무로 한 번도 지지 않았다.")
+-            if t in ("FIRST_GOAL", "FIRST_ASSIST"):
+-                what = "첫 골을 신고했다" if t == "FIRST_GOAL" else "첫 도움을 기록했다"
+-                return (f"{head_who}, {'첫 골 신고' if t == 'FIRST_GOAL' else '첫 도움'}",
+-                        f"{j(who, '이', '가')} {'나란히 ' if many else ''}기록 집계 후 {what}.")
+-            if t == "PERSONAL_BEST_GOALS":
+-                g_, pb = f["goalsToday"], f["previousBest"]
+-                return (f"{lead}, 하루 {g_}골 개인 최다",
+-                        f"{j(lead, '은', '는')} 오늘 {g_}골을 넣어 하루 최다 기록({pb}골)을 넘어섰다.")
+-            if t in ("WIN_STREAK", "SCORING_STREAK") and len({(i.get("facts") or {}).get("streak") for i in items}) > 1:
+-                ranked = sorted(items, key=lambda i: -(i.get("facts") or {}).get("streak", 0))
+-                unit = "연승" if t == "WIN_STREAK" else "주"
+-                tagged = [(self._name(i), f"{i['facts']['streak']}{unit}") for i in ranked if self._name(i)]
+-                body_, last = tagged_list(tagged)
+-                top, top_s = tagged[0][0], ranked[0]["facts"]["streak"]
+-                if t == "WIN_STREAK":
+-                    verb = "연승 행진을 이어가고 있다" if phase == "PRE" else "연승 행진을 이어갔다"
+-                    head = f"{top}, {top_s}연승" + (" 이어갈까" if phase == "PRE" else " 질주")
+-                else:
+-                    verb = "연속 득점 행진을 이어가고 있다" if phase == "PRE" else "연속 골 행진을 이어갔다"
+-                    head = f"{top}, {top_s}주 연속 " + ("득점 중" if phase == "PRE" else "골")
+-                return head, f"{body_}{josa_only(last, '이', '가')} {verb}."
+-            if t == "WIN_STREAK":
+-                s = f["streak"]
+-                if phase == "PRE":
+-                    return (f"{head_who}, {s}연승 이어갈까",
+-                            f"{j(who, '은', '는')} 나란히 {s}연승을 달리고 있다." if many else
+-                            f"{j(who, '은', '는')} {s}연승을 달리고 있다. 오늘도 승리를 이어갈지 관심이 모인다.")
+-                return (f"{head_who}, {s}연승 질주",
+-                        f"{j(who, '은', '는')} {'나란히 ' if many else ''}{s}연승을 이어갔다.")
+-            if t == "SCORING_STREAK":
+-                s = f["streak"]
+-                if phase == "PRE":
+-                    return (f"{head_who}, {s}주 연속 득점 중",
+-                            f"{j(who, '은', '는')} {'나란히 ' if many else ''}{s}주 연속으로 골 맛을 보고 있다.")
+-                return (f"{head_who}, {s}주 연속 골",
+-                        f"{j(who, '은', '는')} {'나란히 ' if many else ''}{s}주 연속 골 행진을 이어갔다.")
+-            if t == "MILESTONE_ACHIEVED":
+-                ph = _milestone(f["metric"], f["milestone"])
+-                if f["metric"] == "games" and phase == "POST" and len(names) > 4:
+-                    return None, f"{lead} 등 {len(names)}명이 {ph} 고지를 밟았다."
+-                return f"{head_who}, {ph} 달성", f"{j(who, '이', '가')} {'나란히 ' if many else ''}{ph} 고지를 밟았다."
+-            if t == "MILESTONE_EXPECTED":
+-                ph = _milestone(f["metric"], f["milestone"])
+-                unit = _METRIC.get(f["metric"], ("", "골"))[1]
+-                return (f"{head_who}, {ph}까지 {f['remaining']}{unit}",
+-                        f"{j(who, '은', '는')} {ph}까지 {f['remaining']}{unit}만 남겨 두었다.")
+-            if t == "FIRST_APPEARANCE":
+-                if len(names) > 3:
+-                    return None, None
+-                return None, f"{j(who, '은', '는')} 오늘이 기록 집계 후 첫 출전이다."
+-            if t == "RETURN_PLAYER":
+-                d = f["daysSinceLastAppearance"]
+-                return f"{lead}, {d}일 만의 복귀", f"{j(lead, '이', '가')} {d}일 만에 다시 그라운드를 밟는다."
+-            if t == "RETURN_PLAYER_RESULT":
+-                d, goals, wins, games = f["daysSinceLastAppearance"], f.get("goalsToday", 0), f.get("winsToday", 0), f.get("gamesToday")
+-                tail = (f"{goals}골 {wins}승을 보탰다" if goals and wins else f"{goals}골을 기록했다" if goals
+-                        else f"골은 없었지만 {wins}승을 챙겼다" if wins else "다시 손발을 맞췄다")
+-                return (f"{lead}, {d}일 만의 복귀전서 {goals}골" if goals else f"{lead}, {d}일 만의 복귀전",
+-                        f"{d}일 만에 돌아온 {j(lead, '은', '는')} {games}경기에 나서 {tail}." if games else
+-                        f"{d}일 만에 돌아온 {j(lead, '은', '는')} {tail}.")
+-            if t == "RARE_PAIR":
+-                ms = [m.get("name") for m in f.get("members", []) if m.get("name")]
+-                if len(ms) < 2:
+-                    return None, None
+-                pair = f"{ms[0]}·{ms[1]}"
+-                if f.get("neverSameTeam"):
+-                    return f"{pair}, 처음으로 한 팀", f"{j(names_ko(ms), '이', '가')} 처음으로 같은 팀에서 호흡을 맞춘다."
+-                n = f.get("sessionsSinceLastSameTeam")
+-                return f"{pair}, {n}주 만에 한 팀", f"{j(names_ko(ms), '은', '는')} {n}번의 일정 만에 다시 같은 팀이 됐다."
+-            if t == "CLOSE_MATCH_EXPECTED":
+-                return "오늘은 접전 예고", "팀 간 전력이 고르게 나뉘어 어느 팀도 쉽게 승리를 장담하기 어렵다."
+-            if t == "LATE_WINNER":
+-                sec = f["remainingSec"]
+-                return (f"{lead}, 종료 {sec}초 전 결승골",
+-                        f"{g}경기는 {lead}의 발끝에서 갈렸다. 종료 {sec}초를 남기고 터진 결승골이었다.")
+-            if t == "COMEBACK_WIN":
+-                team, dd = f["winnerTeam"], f["maxDeficit"]
+-                return f"{team}팀, {dd}골 차 뒤집었다", f"{team}팀은 {g}경기에서 {dd}골 차로 끌려가다 경기를 뒤집었다."
+-            if t == "UPSET_WIN":
+-                team = f["winnerTeam"]
+-                return f"{team}팀의 반란", f"{g}경기에서는 {j(team + '팀', '이', '가')} 열세라는 예상을 깨고 승리를 가져갔다."
+-            if t == "HAT_TRICK":
+-                n = f["goals"]
+-                return (f"{lead}, {g}경기 해트트릭" if n == 3 else f"{lead}, 한 경기 {n}골 폭발",
+-                        f"{g}경기에서 {j(lead, '이', '가')} 혼자 {n}골을 몰아쳤다.")
+-            if t == "TITLE_AWARDED":
+-                tn = f["titleName"]
+-                unit = {"assists": "도움", "wins": "승"}.get(f.get("metric"), "골")
+-                val = f"({f['value']}{unit})" if f.get("value") else ""
+-                return (f"{head_who}, {tn}",
+-                        f"{j(who, '이', '가')} {'나란히 ' if many else ''}{tn}{val}에 이름을 올렸다.")
+-        except (KeyError, TypeError, IndexError):
+-            return None, None
+-        return None, None
+-
+-    def write(self, payload: dict[str, Any], model: str):
+-        kind = payload.get("articleType")
+-        if kind == "MONTHLY_MVP":
+-            return self._monthly_mvp(payload)
+-        d = date.fromisoformat(payload["sessionDate"])
+-        md = f"{d.month}월 {d.day}일"
+-        club = payload.get("clubName") or ""
+-        phase = "PRE" if kind == "PRE_MATCH" else "POST"
+-        insights = sorted(payload.get("insights", []), key=lambda i: (-i["importance"], i["id"]))
+-        recent = _RECENT_HEADS.setdefault(kind or "", [])
+-        first_count = sum(1 for i in insights if i["type"] == "FIRST_APPEARANCE")
+-
+-        groups: dict[tuple, list[dict[str, Any]]] = {}
+-        for ins in insights:
+-            groups.setdefault(self._group_key(ins, phase), []).append(ins)
+-        lines: list[str] = []
+-        used: list[int] = []
+-        heads: list[tuple] = []  # (점수, 제목, 유형, 선수, 문장, 원래 중요도)
+-        for key, items in groups.items():  # 삽입 순서 = 중요도 순
+-            t = key[0]
+-            head, line = self._sentence(t, phase, items)
+-            if not line:
+-                continue
+-            lines.append(line)
+-            used.extend(i["id"] for i in items)
+-            if head:
+-                who = self._name(items[0])
+-                score = max(i["importance"] for i in items) + _HEAD_BONUS.get(t, 0)
+-                if (items[0].get("facts") or {}).get("metric") == "games":
+-                    score -= 12  # 출전 경기 수 기록은 제목감이 약함
+-                if any(rt == t for rt, _ in recent[-2:]):
+-                    score -= 30
+-                if who and any(rw == who for _, rw in recent[-2:]):
+-                    score -= 15
+-                heads.append((score, head, t, who, line, max(i["importance"] for i in items)))
+-            if len(lines) >= 6:
+-                break
+-        heads.sort(key=lambda x: -x[0])
+-        if heads:  # 고른 유형 안에서는 사실 자체가 가장 큰 것을 제목으로
+-            best_t = heads[0][2]
+-            heads.sort(key=lambda x: (x[2] != best_t, -x[5] if x[2] == best_t else -x[0]))
+-        if heads:  # 제목이 된 사실을 본문 첫 문장·요약으로
+-            lines.remove(heads[0][4])
+-            lines.insert(0, heads[0][4])
+-
+-        paras: list[str] = []
+-        if kind == "PRE_MATCH":
+-            teams = payload.get("teams") or []
+-            total = sum(len(t["members"]) + t.get("guestCount", 0) for t in teams)
+-            guests = sum(t.get("guestCount", 0) for t in teams)
+-            lead = f"{md} {'월화수목금토일'[d.weekday()]}요일, {club} {total}명이 {len(teams)}개 팀으로 나뉘어 맞붙는다."
+-            if guests:
+-                lead += f" 게스트 {guests}명도 함께 뛴다."
+-            if first_count > 3:
+-                lead += " 오늘부터 모든 경기 기록이 쌓이기 시작한다."
+-            paras.append(lead)
+-            roster = [f"{t['teamCode']}팀은 {', '.join(t['members'][:3])} 등 {len(t['members']) + t.get('guestCount', 0)}명"
+-                      for t in teams]
+-            if roster:
+-                paras.append(", ".join(roster) + "으로 꾸려졌다.")
+-            title = heads[0][1] if heads else (f"{md}, YPR 기록의 첫 페이지" if first_count > 3 else f"{md} 일요 경기 프리뷰")
+-            summary = lines[0] if lines else lead
+-            closing = self.rng.choice(("경기 결과와 오늘의 주인공은 마감 기사에서 전한다.",
+-                                       "첫 경기 휘슬과 함께 오늘의 이야기가 시작된다.",
+-                                       "누가 오늘의 주인공이 될지는 마감 기사에서 확인할 수 있다."))
+-        else:
+-            s = payload.get("sessionSummary") or {}
+-            matches = s.get("matches", [])
+-            goals = sum(m["scoreA"] + m["scoreB"] for m in matches)
+-            recs = s.get("teamRecords") or {}
+-            best = sorted(recs.items(), key=lambda kv: (-kv[1]["wins"], kv[1]["losses"], kv[0]))
+-            lead = f"{md} {j(club, '은', '는')} {len(matches)}경기를 치르며 총 {goals}골을 기록했다."
+-            if best:
+-                code, r = best[0]
+-                lead += f" {code}팀이 {r['wins']}승 {r['draws']}무 {r['losses']}패로 가장 많은 승리를 챙겼다."
+-            paras.append(lead)
+-            scorers = s.get("topScorers") or []
+-            if scorers:
+-                top = [f"{x['name']}({x['goals']}골)" for x in scorers[:3]]
+-                paras.append(f"득점 순위에서는 {', '.join(top)} 순으로 앞섰다.")
+-            title = heads[0][1] if heads else (f"{md} 결산: {best[0][0]}팀 {best[0][1]['wins']}승" if best else f"{md} 경기 결산")
+-            summary = lines[0] if lines else lead
+-            closing = "\n".join(f"{m['gameNo']}경기  {m['teamA']} {m['scoreA']} : {m['scoreB']} {m['teamB']}" for m in matches)
+-        if heads:
+-            recent.append((heads[0][2], heads[0][3]))
+-        for i in range(0, len(lines), 2):
+-            paras.append(" ".join(lines[i:i + 2]))
+-        if closing:
+-            paras.append(closing)
+-        raw = {"title": title[:120], "summary": summary[:300], "body": "\n\n".join(paras), "usedInsightIds": used}
+-        return validate_draft(raw, payload), raw
+-
+-
+-    RESULT = {"W": "승리", "D": "무승부", "L": "패배"}
+-
+-    def _monthly_mvp(self, payload: dict[str, Any]):
+-        """이달의 MVP 발표: 상승률 · 한 달 성적 · 특히 많이 오른 경기 · 가장 크게 오른 날 · 2·3위 · 선정 기준."""
+-        mvp = payload.get("monthlyMvp") or {}
+-        month = payload.get("monthLabel") or ""
+-        winners = mvp.get("winners") or []
+-        w = winners[0]
+-        names = names_ko([x["name"] for x in winners])
+-        tied = len(winners) > 1
+-        title = f"{month} 이달의 MVP, {names}" + (" 공동 수상" if tied else "")
+-        summary = (f"{j(names, '이', '가')} {month} 실력 점수를 {w['risePercent']:.1f}% 끌어올리며 "
+-                   f"{month} MVP{'를 함께 차지했다' if tied else '에 올랐다'}.")
+-        paras = []
+-        for x in winners:
+-            rec = f"{x['wins']}승 {x['draws']}무 {x['losses']}패"
+-            gl = [f"{x['goals']}골"] if x["goals"] else []
+-            gl += [f"{x['assists']}도움"] if x["assists"] else []
+-            paras.append(f"{j(x['name'], '은', '는')} {month} {x['sessions']}번의 일정, {x['games']}경기에 나서 {rec}"
+-                         + (f", {' '.join(gl)}" + josa_only(gl[-1], "을", "를") + " 기록했다." if gl else "를 기록했다.")
+-                         + f" 한 달 동안 실력 점수는 {x['risePercent']:.1f}% 올랐다.")
+-            best = [m for m in x.get("bestMatches", []) if m.get("result")]
+-            if best:
+-                parts = []
+-                for m in best:
+-                    md = date.fromisoformat(m["sessionDate"])
+-                    pts = [f"{m['goals']}골"] if m.get("goals") else []
+-                    pts += [f"{m['assists']}도움"] if m.get("assists") else []
+-                    who = f", 본인 {' '.join(pts)}" if pts else ""
+-                    parts.append(f"{md.month}월 {md.day}일 {m['gameNo']}경기 TEAM {m['teamCode']} {m['score']} "
+-                                 f"TEAM {m['opponentTeamCode']} {self.RESULT[m['result']]}{who}(+{m['risePercent']:.1f}%)")
+-                paras.append("특히 많이 오른 경기는 " + ", ".join(parts) + "이다.")
+-            day = x.get("bestDay")
+-            if day:
+-                dd = date.fromisoformat(day["sessionDate"])
+-                pts = [f"{day['goals']}골"] if day["goals"] else []
+-                pts += [f"{day['assists']}도움"] if day["assists"] else []
+-                tail = pts[-1] if pts else f"{day['wins']}승"
+-                paras.append(f"가장 크게 오른 날은 {dd.month}월 {dd.day}일이다. 이날 {day['games']}경기에서 {day['wins']}승"
+-                             + (f", {' '.join(pts)}" if pts else "") + josa_only(tail, "으로", "로")
+-                             + f" 한 번에 {day['risePercent']:.1f}%를 쌓았다.")
+-        runners = mvp.get("runnersUp") or []
+-        if runners:
+-            seq = [f"{r['rank']}위 {r['name']}(+{r['risePercent']:.1f}%)" for r in runners]
+-            paras.append("뒤를 이어 " + ", ".join(seq) + josa_only(runners[-1]["name"], "이", "가")
+-                         + " 이름을 올렸다.")
+-        if mvp.get("rule"):
+-            paras.append(f"선정 기준은 {mvp['rule']}다.")
+-        raw = {"title": title[:120], "summary": summary[:300], "body": "\n\n".join(paras), "usedInsightIds": []}
+-        return validate_draft(raw, payload), raw
+-
+-
+ # ---------------------------------------------------------------------- 시뮬레이션
+ class Sim:
+     def __init__(self, client: TestClient, traveller):
+@@ -719,14 +330,14 @@ def main() -> None:
+     days = weekly(date(2026, 7, 1), date(2026, 10, 17))  # 토요일 16회
+     with time_machine.travel(at(date(2026, 6, 28), 21), tick=False) as traveller, TestClient(app) as client:
+         sim = Sim(client, traveller)
+-        writer = SampleArticleWriter(random.Random(SEED + 1))  # 기사 문구용 난수는 경기 난수와 분리
++        writer = TemplateArticleWriter(random.Random(SEED + 1))  # 기본형 기사 작성기. 문구용 난수는 경기 난수와 분리
+         article_service.get_writer = lambda: writer
+         sim.setup()
+         for week, d in enumerate(days):
+             sim.play_day(week, d, last=(week == len(days) - 1))
+             print(f"{d} 완료")
+     with engine.begin() as conn:  # 기사 작성기 표기(OpenAI가 아닌 샘플 템플릿)
+-        conn.execute(text("UPDATE AI_ARTICLE SET MODEL_NAME = 'sample-template'"))
++        conn.execute(text("UPDATE AI_ARTICLE SET MODEL_NAME = 'sample-template', ERROR_MESSAGE = NULL"))
+     print("done:", len(days), "sessions")
+ 
+ 
+diff --git a/tests/test_article_writer.py b/tests/test_article_writer.py
+new file mode 100644
+index 0000000..d51e40a
+--- /dev/null
++++ b/tests/test_article_writer.py
+@@ -0,0 +1,119 @@
++"""AI 기사 설정(창의성 · 답변 최대 길이)과 기본형 기사 대체(키 없음 · 연결/한도/검증 실패)."""
++import json
++from types import SimpleNamespace
++
++import httpx
++import openai
++import pytest
++
++from app.core.config import settings
++
++REQ = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
++GOOD = {"title": "AI가 쓴 프리뷰", "summary": "요약", "body": "본문 문단", "usedInsightIds": []}
++
++
++class FakeOpenAI:
++    """openai.OpenAI 대역. behaviour(kwargs, n) → 응답 dict(또는 예외 발생). 호출 인자를 calls에 남긴다."""
++    calls: list[dict] = []
++    behaviour = None
++
++    def __init__(self, **_):
++        self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
++
++    def _create(self, **kw):
++        FakeOpenAI.calls.append(kw)
++        out = FakeOpenAI.behaviour(kw, len(FakeOpenAI.calls))
++        finish = out.pop("_finish", "stop")
++        msg = SimpleNamespace(content=json.dumps(out, ensure_ascii=False))
++        return SimpleNamespace(choices=[SimpleNamespace(message=msg, finish_reason=finish)])
++
++
++@pytest.fixture
++def ai(monkeypatch):
++    """AI 사용 상태로 바꾸고 OpenAI 클라이언트를 대역으로."""
++    monkeypatch.setattr(settings, "AI_PROVIDER", "openai")
++    monkeypatch.setattr(settings, "OPENAI_API_KEY", "sk-test")
++    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI)
++    FakeOpenAI.calls = []
++    FakeOpenAI.behaviour = lambda kw, n: dict(GOOD)
++    return FakeOpenAI
++
++
++def _preview(api, slug_members=6):
++    """일정 → 참석 → 팀 확정(= 프리뷰 기사 생성, 테스트는 동기 생성). 관리자 목록에서 그 기사 반환."""
++    ids = [api.ok(api.post("/members", {"name": f"P{i}"}), 201)["memberId"] for i in range(slug_members)]
++    sid = api.ok(api.post("/sessions", {"sessionDate": "2026-12-05"}), 201)["sessionId"]
++    api.ok(api.post(f"/sessions/{sid}/members", {"memberIds": ids}))
++    gen = api.ok(api.post(f"/sessions/{sid}/teams/generate", {"teamCount": 2}))
++    api.ok(api.post(f"/sessions/{sid}/teams/confirm", {"generationId": gen["generationId"]}))
++    arts = api.ok(api.get("/articles", params={"all": "true", "sessionId": sid}))
++    return api.ok(api.get(f"/articles/{arts[0]['articleId']}"))
++
++
++def test_creativity_and_length_settings_are_sent(make_club, ai):
++    api = make_club("aiopt")
++    api.ok(api.patch("/admin/config", {"values": {"AI_TEMPERATURE": 0.3, "AI_MAX_OUTPUT_TOKENS": 900}}))
++    a = _preview(api)
++    kw = ai.calls[-1]
++    assert kw["temperature"] == 0.3 and kw["max_completion_tokens"] == 900
++    assert a["title"] == "AI가 쓴 프리뷰" and a["basic"] is False and a["errorMessage"] is None
++    assert a["modelName"] == settings.AI_ARTICLE_MODEL
++    # 범위 밖 값은 저장 안 됨
++    assert api.patch("/admin/config", {"values": {"AI_TEMPERATURE": 3}}).status_code == 400
++    assert api.patch("/admin/config", {"values": {"AI_MAX_OUTPUT_TOKENS": 100}}).status_code == 400
++
++
++def test_temperature_unsupported_model_retries_without_it(make_club, ai):
++    def behaviour(kw, n):
++        if "temperature" in kw:
++            raise openai.BadRequestError("Unsupported parameter: 'temperature' is not supported with this model.",
++                                         response=httpx.Response(400, request=REQ), body=None)
++        return dict(GOOD)
++    ai.behaviour = behaviour
++    a = _preview(make_club("aitemp"))
++    assert len(ai.calls) == 2 and "temperature" not in ai.calls[1] and "max_completion_tokens" in ai.calls[1]
++    assert a["basic"] is False
++
++
++@pytest.mark.parametrize("slug,error,reason", [
++    ("aiconn", lambda: openai.APIConnectionError(request=REQ), "AI 연결 실패"),
++    ("aiquota", lambda: openai.RateLimitError("Error code: 429 - insufficient_quota",
++                                              response=httpx.Response(429, request=REQ), body=None), "크레딧 · 지출 한도"),
++    ("aikey", lambda: openai.AuthenticationError("Incorrect API key", response=httpx.Response(401, request=REQ), body=None),
++     "AI 키 오류"),
++])
++def test_ai_failure_falls_back_to_basic_article(make_club, ai, slug, error, reason):
++    def behaviour(kw, n):
++        raise error()
++    ai.behaviour = behaviour
++    api = make_club(slug)
++    a = _preview(api)
++    # 기본형으로 작성(검토 대기 = 평소 게시 규칙 MANUAL), 원인은 관리자에게
++    assert a["status"] == "GENERATED" and a["basic"] is True and a["modelName"] == "template"
++    assert a["errorMessage"].startswith("기본형으로 작성: ") and reason in a["errorMessage"]
++    assert a["title"] and a["content"]
++
++    # 게시 방식이 '바로 게시'면 기본형도 바로 게시. [다시 쓰기]에서 AI가 돌아오면 AI 기사
++    api.ok(api.patch("/admin/config", {"values": {"ARTICLE_PUBLISH_MODE": "AUTO"}}))
++    ai.behaviour = lambda kw, n: dict(GOOD)
++    b = api.ok(api.post(f"/articles/{a['articleId']}/regenerate"), 201)
++    b = api.ok(api.get(f"/articles/{b['articleId']}"))
++    assert b["status"] == "PUBLISHED" and b["basic"] is False and b["title"] == "AI가 쓴 프리뷰"
++
++
++def test_truncated_answer_retries_then_basic(make_club, ai):
++    ai.behaviour = lambda kw, n: {**GOOD, "_finish": "length"}
++    a = _preview(make_club("aitrunc"))
++    assert len(ai.calls) == settings.AI_MAX_RETRY + 1
++    assert a["basic"] is True and "잘림" in a["errorMessage"]
++
++
++def test_no_key_writes_basic_article(make_club):
++    """키 없음(테스트 기본 = 기본형 작성기): 처음부터 기본형, 원인 표시. 공개 화면에도 basic 표시."""
++    api = make_club("nokey")
++    a = _preview(api)
++    assert a["basic"] is True and a["modelName"] == "template"
++    assert a["errorMessage"] in ("기본형으로 작성: AI 키 없음(OPENAI_API_KEY)", "기본형으로 작성: AI 사용 안 함(AI_PROVIDER)")
++    api.ok(api.post(f"/articles/{a['articleId']}/publish"))
++    pub = api.ok(api.get(f"/articles/{a['articleId']}", admin=False))
++    assert pub["basic"] is True and "errorMessage" not in pub and "modelName" not in pub

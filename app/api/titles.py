@@ -43,9 +43,11 @@ def update_type(title_type_id: int, body: TitleTypeUpdate, club: Club = Depends(
 
 @router.get("/awards", summary="타이틀 수여 이력(공개)")
 def list_awards(member_id: int | None = Query(None, alias="memberId"), date_from: date | None = Query(None, alias="from"),
-                date_to: date | None = Query(None, alias="to"), club: Club = Depends(club_dep),
-                db: Session = Depends(get_db)):
-    return title_service.list_awards(db, club.club_id, member_id=member_id, date_from=date_from, date_to=date_to)
+                date_to: date | None = Query(None, alias="to"),
+                title_code: str | None = Query(None, alias="titleCode", description="타이틀 코드. 'ATTEND_STREAK_'처럼 _로 끝나면 앞부분 일치"),
+                limit: int = Query(100, ge=1, le=1000), club: Club = Depends(club_dep), db: Session = Depends(get_db)):
+    return title_service.list_awards(db, club.club_id, member_id=member_id, date_from=date_from, date_to=date_to,
+                                     title_code=title_code, limit=limit)
 
 
 @router.post("/awards", status_code=201, summary="타이틀 수여(수동 타이틀. 기본 타이틀은 모두 자동 집계)")

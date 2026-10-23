@@ -21,9 +21,10 @@ def member_stats(club: Club = Depends(club_dep), db: Session = Depends(get_db)):
 
 
 @router.get("/stats/members/{member_id}", summary="개인 상세 통계: 최근 폼, 자주 같은 팀, 자주 만난 상대(공개)")
-def member_detail(member_id: int, club: Club = Depends(club_dep), db: Session = Depends(get_db)):
+def member_detail(member_id: int, top: int = Query(5, ge=1, le=20, description="자주 같은 팀 · 맞붙은 선수 몇 명까지"),
+                  club: Club = Depends(club_dep), db: Session = Depends(get_db)):
     m = get_member(db, club.club_id, member_id)
-    return stats_service.member_detail(db, club.club_id, m)
+    return stats_service.member_detail(db, club.club_id, m, top_n=top)
 
 
 @router.get("/stats/mvp-race", summary="이달의 MVP 후보 1~3위(실력 점수 상승률 %만, 점수 자체는 비공개) + 지난달 MVP(공개)")

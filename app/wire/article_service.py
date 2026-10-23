@@ -1,4 +1,8 @@
-"""AI 기사: 생성 요청 → (백그라운드) OpenAI 호출 → 검증 → 저장/태그 → 게시."""
+"""AI 기사: 생성 요청 → (백그라운드) OpenAI 호출 → 검증 → 저장/태그 → 게시.
+
+AI로 못 쓰면(키 없음 · 크레딧/한도 초과 · 연결 오류 · 검증 실패) 기본형 기사(템플릿)로 대신 쓰고 평소 게시 규칙을 따른다.
+기본형은 MODEL_NAME = 'template', 실패 원인은 ERROR_MESSAGE에 남겨 관리자 화면에 보여 준다([다시 쓰기]로 AI 재시도).
+"""
 import logging
 from typing import Any
 
@@ -21,7 +25,7 @@ from app.models import (
     Member,
 )
 from app.models.enums import ArticleStatus, ArticleType
-from app.integrations.openai.writer import PROMPT_VERSION, get_writer
+from app.integrations.openai.writer import PROMPT_VERSION, failure_reason, get_writer, template_writer
 from app.services.config_service import load_config
 from app.services.session_service import team_rosters
 
@@ -31,6 +35,9 @@ ARTICLE_TYPE_TAG = {ArticleType.PRE_MATCH: "프리뷰", ArticleType.SESSION_RECA
                     ArticleType.MONTHLY_MVP: "이달의 MVP"}
 # 게시 설정(ARTICLE_PUBLISH_MODE)과 상관없이 생성 즉시 게시하는 기사
 ALWAYS_PUBLISH = {ArticleType.MONTHLY_MVP}
+# 기본형(템플릿) 기사의 MODEL_NAME. sample-template = 샘플 데이터 생성기, stub = 예전 이름
+TEMPLATE_MODEL = "template"
+TEMPLATE_MODELS = {TEMPLATE_MODEL, "sample-template", "stub"}
 
 
 def _model_for(article_type: str) -> str:
@@ -78,7 +85,7 @@ def create_article(db: Session, club: Club, session: ClubSession, article_type: 
     provider = settings.ai_provider_resolved
     a = AiArticle(
         club_id=club.club_id, session_id=session.session_id, article_type=article_type,
-        model_name=_model_for(article_type) if provider == "openai" else "stub",
+        model_name=_model_for(article_type) if provider == "openai" else TEMPLATE_MODEL,
         prompt_version=PROMPT_VERSION, insight_rule_version=",".join(rule_versions)[:1000] or None,
         status=ArticleStatus.PENDING, published_yn=False, generation_no=1, request_json=payload,
     )
@@ -94,25 +101,37 @@ def run_generation(article_id: int) -> None:
         a = db.get(AiArticle, article_id)
         if not a or a.status != ArticleStatus.PENDING:
             return
+        cfg = load_config(db, a.club_id)
+        options = {"temperature": cfg["AI_TEMPERATURE"], "maxOutputTokens": cfg["AI_MAX_OUTPUT_TOKENS"]}
+        reason = None
         try:
             writer = get_writer()
-            draft, raw = writer.write(a.request_json or {}, a.model_name)
-        except Exception as e:  # noqa: BLE001
-            log.exception("article generation failed: %s", article_id)
-            a.status = ArticleStatus.FAILED
-            a.error_message = str(e)[:4000]
-            emit(db, a.club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
-            db.commit()
-            return
+            draft, raw = writer.write(a.request_json or {}, a.model_name, options)
+            if writer.provider != "openai":  # 처음부터 AI를 안 쓰는 설정
+                reason = "AI 키 없음(OPENAI_API_KEY)" if not settings.OPENAI_API_KEY else "AI 사용 안 함(AI_PROVIDER)"
+                a.model_name = TEMPLATE_MODEL
+        except Exception as e:  # noqa: BLE001  AI 실패 → 기본형 기사로 대신
+            log.warning("AI article failed, fallback to template: %s (%s)", article_id, e)
+            reason = failure_reason(e)
+            try:
+                draft, raw = template_writer().write(a.request_json or {}, TEMPLATE_MODEL)
+            except Exception as e2:  # noqa: BLE001  기본형까지 실패하면 실패로 남김
+                log.exception("template article failed: %s", article_id)
+                a.status = ArticleStatus.FAILED
+                a.error_message = f"{reason} / 기본형 작성 실패: {e2}"[:4000]
+                emit(db, a.club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
+                db.commit()
+                return
+            a.model_name = TEMPLATE_MODEL
         a.title, a.summary, a.content = draft.title, draft.summary, draft.body
         a.response_json = raw
         a.status = ArticleStatus.GENERATED
-        a.error_message = None
+        a.error_message = f"기본형으로 작성: {reason}" if reason else None
         for iid in draft.usedInsightIds:
             db.add(AiArticleInsight(article_id=a.article_id, insight_id=iid))
         db.flush()
         _apply_tags(db, a)
-        if a.article_type in ALWAYS_PUBLISH or load_config(db, a.club_id)["ARTICLE_PUBLISH_MODE"] == "AUTO":
+        if a.article_type in ALWAYS_PUBLISH or cfg["ARTICLE_PUBLISH_MODE"] == "AUTO":
             _publish(db, a)
         emit(db, a.club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
         db.commit()
@@ -187,7 +206,7 @@ def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
     provider = settings.ai_provider_resolved
     a = AiArticle(
         club_id=club_id, session_id=src.session_id, match_id=src.match_id, article_type=src.article_type,
-        model_name=_model_for(src.article_type) if provider == "openai" else "stub",
+        model_name=_model_for(src.article_type) if provider == "openai" else TEMPLATE_MODEL,
         prompt_version=PROMPT_VERSION, insight_rule_version=src.insight_rule_version,
         status=ArticleStatus.PENDING, published_yn=False, parent_article_id=root_id, generation_no=max_no + 1,
         request_json=src.request_json,
@@ -209,6 +228,7 @@ def serialize_article(db: Session, a: AiArticle, *, detail: bool = False, admin:
         "title": a.title, "summary": a.summary, "tags": tags, "status": a.status,
         "publishedAt": to_iso(a.published_at), "createdAt": to_iso(a.created_at),
         "generationNo": a.generation_no, "parentArticleId": a.parent_article_id,
+        "basic": a.model_name in TEMPLATE_MODELS,  # 기본형(템플릿) 기사 여부. 화면 안내 문구용
     }
     if detail:
         data["content"] = a.content

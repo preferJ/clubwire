@@ -1,20 +1,25 @@
-// S05 선수 기록 (+ 수상 이력) · 프로필(가입일 · 출생연도, 관리자 모드에서 입력)
+// S05 선수 기록 (+ 수상 이력: 최근 5개 가로 넘김) · 프로필(가입일 · 출생연도, 관리자 모드에서 입력) · 케미(풋살 피치 | 궁합 티어표)
 
 import { useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import type { Award, MemberProfile } from '../api/types'
+import { Chemistry } from '../components/Chemistry'
 import { ErrorBox, Loading, TopBar } from '../components/ui'
 import { useClub } from '../lib/club'
 import { fmtAwardPeriod, fmtAwardValue, fmtFullDate, initials, pct, RESULT_LABEL } from '../lib/format'
 import { useAction, useAsync } from '../lib/hooks'
 
 const EMPTY_PROFILE: MemberProfile = { joinedAt: null, birthYear: null }
+/** 수상 이력 카드로 보여 줄 개수(나머지는 [전체 보기]) */
+const AWARD_CARDS = 5
+/** 케미: 자주 같은 팀 · 맞붙은 선수 몇 명까지 받을지(피치는 5명, 티어표는 전부) */
+const CHEMISTRY_TOP = 10
 
 export function PlayerPage() {
   const { memberId } = useParams()
   const id = Number(memberId)
   const { api, slug, isAdmin } = useClub()
-  const detail = useAsync(() => api.memberDetail(id), [api, id])
+  const detail = useAsync(() => api.memberDetail(id, CHEMISTRY_TOP), [api, id])
   const awards = useAsync(() => api.awards({ memberId: id }), [api, id])
 
   if (detail.error) return <><TopBar title="선수 기록" back /><ErrorBox error={detail.error} onRetry={detail.reload} /></>
@@ -71,42 +76,59 @@ export function PlayerPage() {
           )}
         </section>
 
-        <section className="section">
-          <h2 style={{ fontSize: 15, fontWeight: 700 }}>수상 이력</h2>
-          {(awards.data ?? []).length === 0 ? <p className="small muted">아직 받은 타이틀이 없어요.</p> : (
-            (awards.data ?? []).slice(0, 10).map((a) => (
-              <div key={a.memberTitleId} className="list-row">
-                <span className="row"><span className="tag gold">{a.titleName}</span></span>
-                <span className="small muted">
-                  {fmtAwardPeriod(a)}{fmtAwardValue(a.facts) ? ` · ${fmtAwardValue(a.facts)}` : ''}
-                </span>
-              </div>
-            ))
-          )}
-        </section>
+        <AwardStrip awards={awards.data ?? []} />
 
         <section className="section">
-          <h2 style={{ fontSize: 15, fontWeight: 700 }}>자주 같은 팀이 된 선수</h2>
-          {d.frequentTeammates.length === 0 ? <p className="small muted">기록이 쌓이면 보여요.</p> : d.frequentTeammates.map((p) => (
-            <Link key={p.memberId} to={`/c/${slug}/members/${p.memberId}`} className="list-row">
-              <b>{p.name}</b>
-              <span className="muted">{p.matches}경기 · 함께 승률 {pct(p.winRate)}</span>
-            </Link>
-          ))}
-        </section>
-
-        <section className="section">
-          <h2 style={{ fontSize: 15, fontWeight: 700 }}>자주 맞붙은 선수</h2>
-          {d.frequentOpponents.length === 0 ? <p className="small muted">기록이 쌓이면 보여요.</p> : d.frequentOpponents.map((p) => (
-            <Link key={p.memberId} to={`/c/${slug}/members/${p.memberId}`} className="list-row">
-              <b>{p.name}</b>
-              <span className="muted">{p.matches}경기 · {p.wins}승 {p.draws}무 {p.losses}패</span>
-            </Link>
-          ))}
+          <h2 style={{ fontSize: 15, fontWeight: 700 }}>케미</h2>
+          <Chemistry slug={slug} me={s.name} teammates={d.frequentTeammates} opponents={d.frequentOpponents} />
         </section>
       </main>
     </>
   )
+}
+
+/** 수상 이력: 최근(기간 끝 날짜 순) 5개를 카드로 가로 넘김. 더 있으면 마지막 칸 [전체 n개] → 아래 목록 */
+function AwardStrip({ awards }: { awards: Award[] }) {
+  const [all, setAll] = useState(false)
+  const sorted = [...awards].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd) || b.createdAt.localeCompare(a.createdAt))
+  const cards = sorted.slice(0, AWARD_CARDS)
+  return (
+    <section className="section">
+      <div className="row between">
+        <h2 style={{ fontSize: 15, fontWeight: 700 }}>수상 이력</h2>
+        {sorted.length > 1 ? <span className="small muted">옆으로 넘겨 보기 · 전체 {sorted.length}개</span> : null}
+      </div>
+      {sorted.length === 0 ? <p className="small muted">아직 받은 타이틀이 없어요.</p> : (
+        <div className="award-strip" role="list" aria-label="최근 수상">
+          {cards.map((a) => (
+            <div key={a.memberTitleId} className="award-card" role="listitem">
+              <span className="tag gold">{a.titleName}</span>
+              <b className="num">{cardValue(a)}</b>
+              <span className="small muted">{fmtAwardPeriod(a)}{a.facts?.tied ? ' · 공동' : ''}</span>
+            </div>
+          ))}
+          {sorted.length > AWARD_CARDS ? (
+            <button type="button" className="award-card more" role="listitem" aria-expanded={all} onClick={() => setAll((v) => !v)}>
+              <b>{all ? '접기' : `전체 ${sorted.length}개`}</b>
+              <span className="small muted">{all ? '목록 닫기' : '아래에 목록으로'}</span>
+            </button>
+          ) : null}
+        </div>
+      )}
+      {all ? sorted.map((a) => (
+        <div key={a.memberTitleId} className="list-row">
+          <span className="row"><span className="tag gold">{a.titleName}</span></span>
+          <span className="small muted">{fmtAwardPeriod(a)}{fmtAwardValue(a.facts) ? ` · ${fmtAwardValue(a.facts)}` : ''}</span>
+        </div>
+      )) : null}
+    </section>
+  )
+}
+
+/** 카드 가운데 큰 글씨: '3골' · '+4.2%' · '10회 연속'('공동'은 아래 작은 글씨로) */
+function cardValue(a: Award): string {
+  if (a.facts?.metric === 'attendStreak') return `${a.facts.value}회 연속`
+  return fmtAwardValue(a.facts ? { ...a.facts, tied: false } : null) || '수상'
 }
 
 /** 관리자 모드: 가입일 · 출생연도 입력. 비우고 저장하면 지운다 */

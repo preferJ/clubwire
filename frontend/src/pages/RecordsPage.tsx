@@ -6,7 +6,7 @@ import type { Article, Award, MemberStat } from '../api/types'
 import { ArticleCard } from '../components/ArticleCard'
 import { ClubBar, Empty, ErrorBox, Loading } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
-import { fmtAwardValue, fmtDate, fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
+import { fmtAwardPeriod, fmtAwardValue, fmtDate, fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
 import { useAction, useAsync } from '../lib/hooks'
 
 type RecordsTab = 'stats' | 'awards' | 'articles'
@@ -51,7 +51,7 @@ export function RecordsPage() {
         {tab === 'stats' ? (
           <StatsTab stats={stats.data} awards={awards.data ?? []} error={stats.error} loading={stats.loading} reload={stats.reload} />
         ) : tab === 'awards' ? (
-          <AwardsTab awards={awards.data} error={awards.error} reload={awards.reload} />
+          <AwardsTab />
         ) : (
           <ArticlesTab />
         )}
@@ -145,43 +145,131 @@ function StatsTab({ stats, awards, error, loading, reload }: {
   )
 }
 
-function AwardsTab({ awards, error, reload }: { awards: Award[] | undefined; error: unknown; reload: () => void }) {
-  const { slug } = useClub()
-  if (error) return <ErrorBox error={error} onRetry={reload} />
-  if (!awards) return <Loading />
-  if (awards.length === 0) return <Empty>아직 수여된 타이틀이 없어요.<br />[일정마감] 때 득점왕 · 도움왕이 자동으로 정해져요.</Empty>
-  const weeks = new Map<string, Award[]>()
-  awards.forEach((a) => weeks.set(a.periodStart, [...(weeks.get(a.periodStart) ?? []), a]))
-  const tally = new Map<string, { name: string; n: number; memberId: number }>()
-  awards.forEach((a) => {
-    const t = tally.get(String(a.memberId)) ?? { name: a.memberName ?? '', n: 0, memberId: a.memberId }
-    t.n++
-    tally.set(String(a.memberId), t)
+// ------------------------------------------------------------------ 수상 내역: 기간(기본 이번 달) + 상 별 조회
+const ATTEND_PREFIX = 'ATTEND_STREAK_'  // 연속 참가 10~50회는 칩 하나로 묶음
+
+type Period = { kind: 'month'; month: string } | { kind: 'year' } | { kind: 'all' }
+
+/** 주소의 period: 'YYYY-MM' | 'year' | 'all'. 없으면 이번 달 */
+function parsePeriod(raw: string | null): Period {
+  if (raw === 'year' || raw === 'all') return { kind: raw }
+  if (raw && /^\d{4}-\d{2}$/.test(raw)) return { kind: 'month', month: raw }
+  return { kind: 'month', month: todayIso().slice(0, 7) }
+}
+
+function shiftMonth(month: string, n: number): string {
+  const [y, m] = month.split('-').map(Number)
+  const d = new Date(y, m - 1 + n, 1)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+}
+
+function periodRange(p: Period): { from?: string; to?: string } {
+  if (p.kind === 'all') return {}
+  if (p.kind === 'year') { const y = todayIso().slice(0, 4); return { from: `${y}-01-01`, to: `${y}-12-31` } }
+  const [y, m] = p.month.split('-').map(Number)
+  const last = new Date(y, m, 0).getDate()
+  return { from: `${p.month}-01`, to: `${p.month}-${String(last).padStart(2, '0')}` }
+}
+
+function periodLabel(p: Period): string {
+  if (p.kind === 'all') return '전체 기간'
+  if (p.kind === 'year') return `${todayIso().slice(0, 4)}년`
+  const [y, m] = p.month.split('-')
+  return `${y}년 ${Number(m)}월`
+}
+
+function AwardsTab() {
+  const { api, slug } = useClub()
+  const [params, setParams] = useSearchParams()
+  const period = parsePeriod(params.get('period'))
+  const title = params.get('title') ?? ''
+  const range = periodRange(period)
+  const types = useAsync(() => api.titleTypes(), [api])
+  const awards = useAsync(() => api.awards({ ...range, ...(title ? { titleCode: title } : {}), limit: 1000 }),
+    [api, range.from, range.to, title])
+  useClubEvent((m) => {
+    if (m.type === 'TITLE_UPDATED' || m.type === 'SESSION_UPDATED') awards.reload()
   })
-  const top = [...tally.values()].sort((a, b) => b.n - a.n).slice(0, 5)
+
+  const set = (next: { period?: string | null; title?: string | null }) => {
+    const q = new URLSearchParams(params)
+    q.set('tab', 'awards')
+    for (const [k, v] of Object.entries(next)) {
+      if (v) q.set(k, v)
+      else q.delete(k)
+    }
+    setParams(q, { replace: true })
+  }
+  const thisMonth = todayIso().slice(0, 7)
+  const month = period.kind === 'month' ? period.month : thisMonth
+  const goMonth = (n: number) => {
+    const m = period.kind === 'month' ? shiftMonth(month, n) : thisMonth
+    set({ period: m === thisMonth ? null : m })
+  }
+  // 상 칩: 활성 타이틀 종류(표시 순서), 연속 참가 n회는 하나로
+  const chips: { code: string; label: string }[] = []
+  for (const t of types.data ?? []) {
+    if (t.titleCode.startsWith(ATTEND_PREFIX)) {
+      if (!chips.some((c) => c.code === ATTEND_PREFIX)) chips.push({ code: ATTEND_PREFIX, label: '연속 참가' })
+    } else chips.push({ code: t.titleCode, label: t.titleName })
+  }
+
+  const list = [...(awards.data ?? [])].sort((a, b) => b.periodEnd.localeCompare(a.periodEnd) || a.titleCode.localeCompare(b.titleCode))
+  const groups = new Map<string, Award[]>()
+  list.forEach((a) => groups.set(fmtAwardPeriod(a), [...(groups.get(fmtAwardPeriod(a)) ?? []), a]))
+  const tally = new Map<number, { name: string; n: number }>()
+  list.forEach((a) => tally.set(a.memberId, { name: a.memberName ?? '', n: (tally.get(a.memberId)?.n ?? 0) + 1 }))
+  const top = [...tally.entries()].sort((x, y) => y[1].n - x[1].n).slice(0, 5)
 
   return (
     <>
-      <section className="card stack" style={{ gap: 8 }}>
-        <h2 style={{ fontSize: 15, fontWeight: 700 }}>타이틀 많이 받은 선수</h2>
-        {top.map((t, i) => (
-          <Link key={t.memberId} to={`/c/${slug}/members/${t.memberId}`} className="row between" style={{ color: 'var(--ink)', minHeight: 32 }}>
-            <span><b>{i + 1}</b>&nbsp;&nbsp;{t.name}</span>
-            <span className="tag gold">{t.n}회</span>
-          </Link>
+      <div className="period-bar" role="group" aria-label="기간">
+        <div className="month-nav" data-active={period.kind === 'month'}>
+          <button type="button" className="icon-btn" aria-label="이전 달" onClick={() => goMonth(-1)}>◀</button>
+          <button type="button" className="month-label" onClick={() => set({ period: null })}
+            aria-label={`월별 보기: ${periodLabel({ kind: 'month', month })}`}>
+            {Number(month.slice(5))}월{month.slice(0, 4) !== thisMonth.slice(0, 4) ? <small>{month.slice(0, 4)}</small> : null}
+          </button>
+          <button type="button" className="icon-btn" aria-label="다음 달" disabled={period.kind === 'month' && month >= thisMonth}
+            onClick={() => goMonth(1)}>▶</button>
+        </div>
+        <button type="button" className="chip" aria-pressed={period.kind === 'year'} onClick={() => set({ period: 'year' })}>올해</button>
+        <button type="button" className="chip" aria-pressed={period.kind === 'all'} onClick={() => set({ period: 'all' })}>전체</button>
+      </div>
+      <div className="chips" role="group" aria-label="상 종류">
+        <button type="button" className="chip" aria-pressed={!title} onClick={() => set({ title: null })}>전체</button>
+        {chips.map((c) => (
+          <button key={c.code} type="button" className="chip" aria-pressed={title === c.code} onClick={() => set({ title: c.code })}>{c.label}</button>
         ))}
-      </section>
-      {[...weeks.entries()].map(([start, list]) => (
-        <section key={start} className="section">
-          <h2 className="small muted" style={{ fontWeight: 700 }}>{fmtShortDate(start)} – {fmtShortDate(list[0].periodEnd)}</h2>
-          {list.map((a) => (
-            <Link key={a.memberTitleId} to={`/c/${slug}/members/${a.memberId}`} className="list-row">
-              <span className="row"><span className="tag gold">{a.titleName}</span><b>{a.memberName}</b></span>
-              <span className="small muted">{awardNote(a)}</span>
-            </Link>
+      </div>
+
+      {awards.error ? <ErrorBox error={awards.error} onRetry={awards.reload} /> : !awards.data ? <Loading /> : list.length === 0 ? (
+        <Empty>{periodLabel(period)}{title ? ` · ${chips.find((c) => c.code === title)?.label ?? ''}` : ''} 수상 기록이 없어요.</Empty>
+      ) : (
+        <>
+          <p className="small muted" style={{ margin: 0 }}>{periodLabel(period)} · 수상 {list.length}건 · {tally.size}명</p>
+          <section className="card stack" style={{ gap: 8 }}>
+            <h2 style={{ fontSize: 15, fontWeight: 700 }}>많이 받은 선수</h2>
+            {top.map(([memberId, t], i) => (
+              <Link key={memberId} to={`/c/${slug}/members/${memberId}`} className="row between" style={{ color: 'var(--ink)', minHeight: 32 }}>
+                <span><b>{i + 1}</b>&nbsp;&nbsp;{t.name}</span>
+                <span className="tag gold">{t.n}회</span>
+              </Link>
+            ))}
+          </section>
+          {[...groups.entries()].map(([label, items]) => (
+            <section key={label} className="section">
+              <h2 className="small muted" style={{ fontWeight: 700 }}>{label}</h2>
+              {items.map((a) => (
+                <Link key={a.memberTitleId} to={`/c/${slug}/members/${a.memberId}`} className="list-row">
+                  <span className="row"><span className="tag gold">{a.titleName}</span><b>{a.memberName}</b></span>
+                  <span className="small muted">{awardNote(a)}</span>
+                </Link>
+              ))}
+            </section>
           ))}
-        </section>
-      ))}
+        </>
+      )}
     </>
   )
 }

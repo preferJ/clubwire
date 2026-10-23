@@ -1,17 +1,18 @@
 """타이틀(이주의 득점왕 / 도움왕, 이달의 MVP …) 정의와 수여 이력. 비활성 타이틀(예: 제거된 주간 MVP)의 지난 이력은 조회에서 제외.
 
-이달의 MVP(MONTHLY)는 [일정마감]이 아니라 월 마감 때 mvp_service가 집계한다.
+이달의 MVP · 득점왕 · 도움왕(MONTHLY)은 [일정마감]이 아니라 월 마감 때 mvp_service가 집계한다.
+연속 참가 10 · 20 · 30 · 40 · 50회는 [일정마감] 때 compute_attendance_titles가 수여한다.
 """
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.database import emit
 from app.core.errors import BadRequest, Conflict, NotFound
 from app.core.timeutil import month_range, to_iso, utcnow, week_range
-from app.models import ClubSession, Member, MemberTitle, TitleType
-from app.models.enums import AwardMethod, SessionStatus, TitleAutoRule, TitlePeriodType
+from app.models import ClubSession, Member, MemberTitle, SessionMember, TitleType
+from app.models.enums import AttendanceStatus, AwardMethod, SessionStatus, TitleAutoRule, TitlePeriodType
 from app.services.common import get_member, get_session, member_names
 from app.services.history import load_history, member_totals
 from app.services.stats_service import rebuild_member_stats
@@ -123,8 +124,9 @@ def compute_auto_titles(db: Session, club_id: int, anchor: ClubSession) -> list[
     """
     created: list[MemberTitle] = []
     for t in list_title_types(db, club_id):
-        if t.award_method != AwardMethod.AUTO or t.period_type == TitlePeriodType.MONTHLY:
-            continue  # 이달의 MVP는 월 마감 때(mvp_service.close_month)
+        if (t.award_method != AwardMethod.AUTO or t.period_type == TitlePeriodType.MONTHLY
+                or t.auto_rule == TitleAutoRule.ATTENDANCE_STREAK):
+            continue  # 월간은 월 마감 때(mvp_service.close_month), 연속 참가는 compute_attendance_titles
         start, end = _period(t, anchor.session_date)
         sids = list(db.scalars(select(ClubSession.session_id).where(
             ClubSession.club_id == club_id, ClubSession.session_date.between(start, end),
@@ -155,12 +157,81 @@ def compute_auto_titles(db: Session, club_id: int, anchor: ClubSession) -> list[
     return created
 
 
+# ------------------------------------------------------------------ 연속 참가
+ATTEND_MILESTONES = (10, 20, 30, 40, 50)
+
+
+def attend_code(n: int) -> str:
+    return f"ATTEND_STREAK_{n}"
+
+
+def _attend_type(db: Session, club_id: int, n: int) -> TitleType | None:
+    """'연속 참가 n회' 정의. 없으면(기존 클럽 · 샘플 데이터 복원 후) 만든다. 비활성화했으면 None."""
+    t = db.scalar(select(TitleType).where(TitleType.club_id == club_id, TitleType.title_code == attend_code(n)))
+    if t is None:
+        t = TitleType(club_id=club_id, title_code=attend_code(n), title_name=f"연속 참가 {n}회",
+                      period_type=TitlePeriodType.SESSION, award_method=AwardMethod.AUTO,
+                      auto_rule=TitleAutoRule.ATTENDANCE_STREAK, counts_as_mvp_yn=False, display_order=4 + n // 10)
+        db.add(t)
+        db.flush()
+    return t if t.active_yn else None
+
+
+def attendance_streaks(db: Session, club_id: int, anchor: ClubSession) -> dict[int, int]:
+    """anchor 일정 참석자별 연속 참가 횟수(anchor 포함). 참가 = 마감된 일정의 참석 명단(ATTENDING).
+    취소된 일정은 세지도 끊지도 않는다. 빠진 일정이 나오면 거기서 끊긴다."""
+    sids = list(db.scalars(select(ClubSession.session_id).where(
+        ClubSession.club_id == club_id,
+        (ClubSession.status == SessionStatus.CLOSED) | (ClubSession.session_id == anchor.session_id),
+        tuple_(ClubSession.session_date, ClubSession.session_id) <= tuple_(anchor.session_date, anchor.session_id))
+        .order_by(ClubSession.session_date.desc(), ClubSession.session_id.desc())))
+    attend: dict[int, set[int]] = {}
+    for sid, mid in db.execute(select(SessionMember.session_id, SessionMember.member_id).where(
+            SessionMember.session_id.in_(sids), SessionMember.attendance_status == AttendanceStatus.ATTENDING)):
+        attend.setdefault(sid, set()).add(mid)
+    out = {}
+    for mid in attend.get(anchor.session_id, set()):
+        n = 0
+        for sid in sids:
+            if mid not in attend.get(sid, ()):
+                break
+            n += 1
+        out[mid] = n
+    return out
+
+
+def compute_attendance_titles(db: Session, club_id: int, anchor: ClubSession) -> list[MemberTitle]:
+    """[일정마감] 시 연속 참가가 정확히 10 · 20 · 30 · 40 · 50회가 된 선수에게 수여(호출 측 트랜잭션).
+    끊겼다가 다시 10회가 되면 또 수여한다. 같은 일정에서 두 번 주지 않는다."""
+    created: list[MemberTitle] = []
+    for mid, n in sorted(attendance_streaks(db, club_id, anchor).items()):
+        if n not in ATTEND_MILESTONES:
+            continue
+        t = _attend_type(db, club_id, n)
+        if not t or db.scalar(select(MemberTitle.member_title_id).where(
+                MemberTitle.title_type_id == t.title_type_id, MemberTitle.member_id == mid,
+                MemberTitle.session_id == anchor.session_id, MemberTitle.cancelled_yn.is_(False))):
+            continue
+        mt = MemberTitle(club_id=club_id, title_type_id=t.title_type_id, member_id=mid,
+                         period_start=anchor.session_date, period_end=anchor.session_date,
+                         session_id=anchor.session_id, award_method=AwardMethod.AUTO,
+                         facts_json={"metric": "attendStreak", "value": n})
+        db.add(mt)
+        created.append(mt)
+    db.flush()
+    return created
+
+
 def list_awards(db: Session, club_id: int, *, member_id: int | None = None, date_from: date | None = None,
-                date_to: date | None = None, include_cancelled: bool = False, limit: int = 100) -> list[dict]:
+                date_to: date | None = None, title_code: str | None = None, include_cancelled: bool = False,
+                limit: int = 100) -> list[dict]:
     stmt = (select(MemberTitle, TitleType).join(TitleType, TitleType.title_type_id == MemberTitle.title_type_id)
             .where(MemberTitle.club_id == club_id, TitleType.active_yn.is_(True)))  # 비활성 타이틀 이력은 숨김
     if member_id:
         stmt = stmt.where(MemberTitle.member_id == member_id)
+    if title_code:  # 'ATTEND_STREAK_'처럼 _로 끝나면 묶음(연속 참가 10~50회 전부)
+        stmt = stmt.where(TitleType.title_code.startswith(title_code) if title_code.endswith("_")
+                          else TitleType.title_code == title_code)
     if date_from:
         stmt = stmt.where(MemberTitle.period_end >= date_from)
     if date_to:
@@ -179,4 +250,4 @@ def list_awards(db: Session, club_id: int, *, member_id: int | None = None, date
 
 
 __all__ = ["list_title_types", "create_title_type", "update_title_type", "award_title", "cancel_award",
-           "compute_auto_titles", "list_awards", "Member"]
+           "compute_auto_titles", "compute_attendance_titles", "list_awards", "Member"]

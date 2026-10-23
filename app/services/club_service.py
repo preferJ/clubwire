@@ -18,6 +18,11 @@ DEFAULT_TITLES = (
     ("TOP_ASSIST", "이주의 도움왕", TitlePeriodType.WEEKLY, AwardMethod.AUTO, TitleAutoRule.TOP_ASSISTS, False),
     # 이달의 MVP: 월 마감 때 실력 점수 상승률 1위(mvp_service). 기존 클럽은 첫 월 마감 때 자동으로 만들어짐
     ("MONTHLY_MVP", "이달의 MVP", TitlePeriodType.MONTHLY, AwardMethod.AUTO, TitleAutoRule.MONTHLY_RATING_RISE, True),
+    # 이달의 득점왕 · 도움왕(월 마감) / 연속 참가 n회([일정마감]). 기존 클럽은 처음 필요할 때 자동으로 만들어짐
+    ("MONTHLY_TOP_SCORER", "이달의 득점왕", TitlePeriodType.MONTHLY, AwardMethod.AUTO, TitleAutoRule.TOP_GOALS, False),
+    ("MONTHLY_TOP_ASSIST", "이달의 도움왕", TitlePeriodType.MONTHLY, AwardMethod.AUTO, TitleAutoRule.TOP_ASSISTS, False),
+    *((f"ATTEND_STREAK_{n}", f"연속 참가 {n}회", TitlePeriodType.SESSION, AwardMethod.AUTO, TitleAutoRule.ATTENDANCE_STREAK,
+       False) for n in (10, 20, 30, 40, 50)),
 )
 
 
