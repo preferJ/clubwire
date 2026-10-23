@@ -1,4 +1,4 @@
-import type { GameStatus, SessionStatus } from '../api/types'
+import type { ArticleType, GameStatus, SessionStatus } from '../api/types'
 
 /** 팀(조끼) 색: 어두운 화면 위에서 보이고, 흰 글자가 읽히는 색(대비 4.5 이상) */
 const TEAM_COLORS: Record<string, string> = {
@@ -24,6 +24,13 @@ export function fmtDate(d: string | null | undefined, withWeekday = true): strin
   const [y, m, day] = d.split('-').map(Number)
   const dt = new Date(y, m - 1, day)
   return `${m}월 ${day}일${withWeekday ? ` (${WEEKDAYS[dt.getDay()]})` : ''}`
+}
+
+/** 'YYYY-MM-DD' → '2021.03.14' */
+export function fmtFullDate(d: string | null | undefined): string {
+  if (!d) return ''
+  const [y, m, day] = d.split('-')
+  return `${y}.${m}.${day}`
 }
 
 export function fmtShortDate(d: string | null | undefined): string {
@@ -65,6 +72,33 @@ export function weekRange(iso: string): [string, string] {
 export function initials(name: string | null | undefined): string {
   if (!name) return '?'
   return name.length >= 3 ? name.slice(-2) : name
+}
+
+export const ARTICLE_TYPE_LABEL: Record<ArticleType, string> = {
+  PRE_MATCH: '프리뷰',
+  POST_MATCH: '경기 기사',
+  SESSION_RECAP: '마감 기사',
+  MONTHLY_MVP: '이달의 MVP',
+}
+
+/** 상승률 표시: 4.2 → '+4.2%' */
+export function fmtRise(v: number | null | undefined): string {
+  if (v === null || v === undefined) return ''
+  return `${v > 0 ? '+' : ''}${v.toFixed(1)}%`
+}
+
+/** 타이틀 기간: 이달의 MVP는 '9월', 주간은 '9.21–9.27' */
+export function fmtAwardPeriod(a: { titleCode: string; periodStart: string; periodEnd: string }): string {
+  if (a.titleCode === 'MONTHLY_MVP') return `${Number(a.periodStart.slice(5, 7))}월`
+  return `${fmtShortDate(a.periodStart)}–${fmtShortDate(a.periodEnd)}`
+}
+
+/** 타이틀 수상 값: 득점왕 '3골', 도움왕 '2도움', 이달의 MVP '+4.2%' (+ 공동) */
+export function fmtAwardValue(facts: { metric?: string; value?: number; tied?: boolean } | null | undefined): string {
+  if (!facts || facts.value === undefined || facts.value === null) return ''
+  const v = facts.metric === 'risePercent' ? fmtRise(facts.value)
+    : `${facts.value}${facts.metric === 'assists' ? '도움' : facts.metric === 'wins' ? '승' : '골'}`
+  return `${v}${facts.tied ? ' · 공동' : ''}`
 }
 
 export const SESSION_STATUS_LABEL: Record<SessionStatus, string> = {

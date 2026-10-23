@@ -47,6 +47,9 @@ CONFIG_DEFS: tuple[ConfigDef, ...] = (
         choices=("MANUAL", "AUTO"),
     ),
     ConfigDef("WIRE_MAX_INSIGHTS", "INT", 15, "기사 1건에 AI로 넘기는 Insight 최대 개수", min_value=1, max_value=50),
+    # ---- 이달의 MVP ----
+    ConfigDef("MONTHLY_MVP_MIN_SESSIONS", "INT", 2, "이달의 MVP 후보 자격: 그 달 출전한 일정 수(이상)",
+              min_value=1, max_value=31),
 )
 
 CONFIG_DEF_MAP: dict[str, ConfigDef] = {d.key: d for d in CONFIG_DEFS}

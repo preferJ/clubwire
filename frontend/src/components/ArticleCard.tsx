@@ -2,7 +2,7 @@
 
 import { Link } from 'react-router-dom'
 import type { Article } from '../api/types'
-import { fmtDateTime } from '../lib/format'
+import { ARTICLE_TYPE_LABEL, fmtDateTime } from '../lib/format'
 import { Tags, type FromState } from './ui'
 
 export function ArticleCard({ a, slug, lead, from }: {
@@ -22,7 +22,7 @@ export function ArticleCard({ a, slug, lead, from }: {
       )}
       {lead && a.summary ? <p style={{ fontSize: 14, color: 'var(--ink-3)', lineHeight: 1.55 }}>{a.summary}</p> : null}
       <span className="small muted">
-        {fmtDateTime(a.publishedAt ?? a.createdAt)} · {a.articleType === 'PRE_MATCH' ? '프리뷰' : '마감 기사'}
+        {fmtDateTime(a.publishedAt ?? a.createdAt)} · {ARTICLE_TYPE_LABEL[a.articleType]}
       </span>
     </Link>
   )

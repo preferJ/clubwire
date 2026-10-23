@@ -290,6 +290,59 @@ SELECT TITLE_CODE, TITLE_NAME, ACTIVE_YN FROM TITLE_TYPE
 - `global.css` `.sheet`: `overscroll-behavior: contain`(시트 끝에서 뒤 화면으로 스크롤이 넘어가지 않음), `max-height: 92dvh`(모바일 주소창 높이 반영), 내용은 줄어들지 않고 시트가 스크롤
 - 같은 컴포넌트를 쓰는 시트 5개(다음 경기 · 관리자 PIN · 골 기록 · 출전 명단 · 팀 이동)에 함께 적용
 
+## 3-8. 요약 줄 링크 + 선수 프로필(가입일 · 출생연도) (2026-10-23)
+
+| 위치 | 변경 | 이유 |
+|---|---|---|
+| 와이어 요약 줄 | 숫자가 `–`로만 보이던 버그 수정. 칸을 누르면 이동: 멤버 → 선수단, 올해 일정 → 일정, 올해 기사 → 기록 탭 [기사] | 원인: `/summary`가 `ZoneInfo('Asia/Seoul')`을 쓰는데 Windows Python에는 시간대 DB가 없어 500 |
+| `app/core/timeutil.py` | `club_tz()`: ZoneInfo를 못 찾으면 고정 오프셋(Asia/Seoul = UTC+9, 서머타임 없음), 그것도 없으면 UTC | tzdata 설치 전에도 동작 |
+| `requirements.txt` | `tzdata` 추가 | Windows에서도 정식 시간대 DB 사용 |
+| 와이어 요약 줄 | 불러오기 실패 시 줄 아래 [다시 시도] | 실패를 `–`로만 숨기지 않음 |
+| `MEMBER.BIRTH_YEAR`(alembic 0005) | 출생연도 SMALLINT(NULL 허용). 가입일은 기존 `JOINED_AT` 사용 | 나이 대신 연도만 저장(해가 바뀌어도 그대로) |
+| `PATCH /members/{id}` | `joinedAt` · `birthYear` 추가. 보낸 항목만 반영, `null`을 보내면 지움(이름 등 다른 항목은 기존처럼 null = 변경 없음). 출생연도 1900~올해, 가입일은 미래 불가(서버 UTC 차이로 하루 여유) | 이름만 고칠 때 프로필 값이 지워지지 않게 |
+| `GET /stats/members/{id}` | `profile: {joinedAt, birthYear}` 추가(공개) | 선수 화면 표시용. 목록 API(`/stats/members`)에는 넣지 않음 |
+| 선수 화면 | 이름 아래 `2021.03.14 가입 · 1992년생`(있는 것만). 관리자 모드면 [선수 정보] 칸(가입일 날짜 · 출생연도 숫자 4자리, 비우고 저장하면 지움) | 관리자가 선수 화면에서 바로 입력, 결과는 모두에게 보임 |
+
+- 테스트: `test_member_profile_joined_and_birth_year`, `test_summary_without_tzdata`
+- DB 확인
+
+```sql
+SELECT NAME, JOINED_AT, BIRTH_YEAR FROM MEMBER
+ WHERE CLUB_ID = (SELECT CLUB_ID FROM CLUB WHERE CLUB_SLUG = 'sanha') ORDER BY NAME;
+```
+
+## 3-9. 이달의 MVP = 그 달 실력 점수 상승률 1위 (2026-10-23)
+
+운영진이 고르는 MVP는 없다(주간 수동 MVP는 3-7에서 제거). MVP는 **이달의 MVP** 하나이고 자동으로 뽑는다.
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 기준 | 상승률 = (그 달 마지막 경기 후 점수 − 그 달 첫 경기 전 점수) ÷ 첫 경기 전 점수 × 100. `PLAYER_RATING_HISTORY`(무효 아닌 경기 이력)에서 계산, 확정된 경기만 | 출발 점수가 달라도 비교되게 % 기준(요청). 재계산되면 새 이력 기준으로 다시 계산됨 |
+| 후보 자격 | 그 달 출전 일정 **2회 이상**(설정 `MONTHLY_MVP_MIN_SESSIONS`, 설정 화면 '이달의 MVP') + 상승률 > 0 | 한 번 나와 크게 오른 경우를 거름 |
+| 순위 · 동률 | 상승률(소수 둘째 자리) 높은 순, 같으면 경기 수 많은 순. 1위가 동률이면 공동 수여 | |
+| 월 마감 | 클럽 현지 날짜로 **다음 달 1일**이 되고 그 달 일정이 모두 마감/취소되면. 서버 루프(`jobs/monthly.py`, 시작 때 1번 + 10분마다) + 지난달 일정을 늦게 [일정마감]하면 그 자리에서 | 열린 일정이 있으면 그 일정의 경기가 아직 반영 안 됐으므로 기다림 |
+| 한 번만 | 그 달 수여 이력이 있으면(관리자가 취소한 것 포함) 다시 하지 않음 | 서버 재시작 · 여러 대에서 중복 방지(클럽 행 잠금 후 확인) |
+| 타이틀 | `TITLE_TYPE` `MONTHLY_MVP`(이달의 MVP, MONTHLY, AUTO, `MONTHLY_RATING_RISE`, `COUNTS_AS_MVP_YN = 1`). 기간 1일~말일, `FACTS_JSON = {metric: risePercent, value, sessions, games}` | 수상 내역 · 선수 화면에 '9월 · +4.4%'. `MVP_COUNT` = 이달의 MVP 수 |
+| 기사 | `MONTHLY_MVP`. 상승률 · 성적 · 특히 많이 오른 경기(최대 3) · 가장 크게 오른 날 · 2·3위 · 선정 기준. **게시 설정과 상관없이 바로 게시**, 그 달 마지막 일정에 붙임 | 요청: 마감되면 자동 발행 |
+| 홈 | **MVP RACE** 패널: 이번 달 후보 1~3위(이름 · 상승률 · 일정/경기 수), 아래 줄에 지난달 MVP → 발표 기사 | 요청 |
+| 공개 범위 | 화면 · API · 기사 · AI 입력 모두 **상승률(%)만**. 점수 자체는 계속 DB에서만. 기사 용어는 '실력 점수' | 3-6(레이팅 DB 전용) 유지 |
+
+- API: `GET /stats/mvp-race` → `{month, minSessions, candidates[{rank, memberId, name, risePercent, sessions, games}], lastMonth{month, articleId, winners[]}}`
+- 코드: `app/services/mvp_service.py`(집계 · 월 마감), `app/jobs/monthly.py`(루프), `writer.py` 프롬프트 v3 + 템플릿 작성기, `title_service`(주간 자동 집계에서 MONTHLY 제외 · 기간 계산), `stats_service`(비활성 타이틀은 타이틀 수 · MVP 수에서 제외)
+- alembic 0006: 컬럼 설명(COMMENT)만 변경. '이달의 MVP' 타이틀 정의는 새 클럽은 생성 때, 기존 클럽은 첫 월 마감 때 앱이 만든다(샘플 SQL을 다시 넣어도 동작)
+- 배포 직후: 서버가 켜지면 바로 지난달(9월)을 마감해 9월 MVP 기사가 올라온다(샘플 데이터 기준)
+
+```sql
+-- 이달의 MVP 이력
+SELECT MT.PERIOD_START, M.NAME, JSON_EXTRACT(MT.FACTS_JSON, '$.value') AS RISE_PCT, MT.CANCELLED_YN
+  FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_TYPE_ID JOIN MEMBER M ON M.MEMBER_ID = MT.MEMBER_ID
+ WHERE T.TITLE_CODE = 'MONTHLY_MVP' ORDER BY MT.PERIOD_START DESC;
+
+-- 한 달 다시 뽑기(예: 2026-09). 수여 이력을 지우면 다음 루프(10분 이내) 또는 서버 재시작 때 다시 마감
+DELETE MT FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_TYPE_ID
+ WHERE T.TITLE_CODE = 'MONTHLY_MVP' AND MT.PERIOD_START = '2026-09-01';
+```
+
 ## 4. 남은 이슈 / 다음 단계
 
 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)

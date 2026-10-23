@@ -1,4 +1,5 @@
 """일정 / 참석 / 게스트 / 팀 편성 / [일정확정] / [일정마감]."""
+import logging
 from datetime import date
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
@@ -18,9 +19,10 @@ from app.schemas.requests import (
     TeamConfirmRequest,
     TeamGenerateRequest,
 )
-from app.services import lifecycle_service, session_service, team_service
+from app.services import lifecycle_service, mvp_service, session_service, team_service
 from app.services.common import get_session
 
+log = logging.getLogger("clubwire.sessions")
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
@@ -142,6 +144,12 @@ def session_summary(session_id: int, club: Club = Depends(club_dep), db: Session
 def close_session(session_id: int, background: BackgroundTasks, club: Club = Depends(club_dep),
                   admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
     s, article_ids = lifecycle_service.close_session(db, club.club_id, session_id, admin.admin_id)
+    # 지난달 일정을 늦게 마감한 경우: 지난달이 이제 끝났으면 이달의 MVP도 바로 마감(평소엔 월 마감 루프가 처리)
+    try:
+        article_ids += mvp_service.close_due_month(db, club)
+    except Exception:  # noqa: BLE001  일정마감 자체는 이미 저장됨. 실패해도 월 마감 루프가 다시 시도
+        db.rollback()
+        log.exception("monthly close after session close failed: club %s", club.club_id)
     schedule_articles(background, article_ids)
     data = session_service.serialize_session(db, s, detail=True, admin=True)
     data["articleIds"] = article_ids

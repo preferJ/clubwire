@@ -16,6 +16,8 @@ DEFAULT_TITLES = (
     # code, name, period, method, auto_rule, counts_as_mvp  (MVP는 2026-10-22 제거: alembic 0004)
     ("TOP_SCORER", "이주의 득점왕", TitlePeriodType.WEEKLY, AwardMethod.AUTO, TitleAutoRule.TOP_GOALS, False),
     ("TOP_ASSIST", "이주의 도움왕", TitlePeriodType.WEEKLY, AwardMethod.AUTO, TitleAutoRule.TOP_ASSISTS, False),
+    # 이달의 MVP: 월 마감 때 실력 점수 상승률 1위(mvp_service). 기존 클럽은 첫 월 마감 때 자동으로 만들어짐
+    ("MONTHLY_MVP", "이달의 MVP", TitlePeriodType.MONTHLY, AwardMethod.AUTO, TitleAutoRule.MONTHLY_RATING_RISE, True),
 )
 
 

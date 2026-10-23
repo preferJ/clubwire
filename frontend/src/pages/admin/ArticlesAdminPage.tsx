@@ -6,7 +6,7 @@ import type { Article, ArticleStatus, InsightPayload } from '../../api/types'
 import { Icon } from '../../components/Icon'
 import { Empty, ErrorBox, Loading, Switch, Tags, TopBar } from '../../components/ui'
 import { useClub, useClubEvent } from '../../lib/club'
-import { fmtDateTime } from '../../lib/format'
+import { ARTICLE_TYPE_LABEL, fmtDateTime } from '../../lib/format'
 import { useAction, useAsync } from '../../lib/hooks'
 
 const TABS: { key: string; label: string; statuses: ArticleStatus[] }[] = [
@@ -92,7 +92,7 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction }: {
       <div className="row between">
         <span className="row">
           <span className={`status-badge ${a.status === 'PUBLISHED' ? 'green' : a.status === 'GENERATED' ? 'gold' : ''}`}>{STATUS_LABEL[a.status]}</span>
-          <span className="small muted">{a.articleType === 'PRE_MATCH' ? '프리뷰' : '마감 기사'} · {a.generationNo}차</span>
+          <span className="small muted">{ARTICLE_TYPE_LABEL[a.articleType]} · {a.generationNo}차</span>
         </span>
         <span className="small muted">{fmtDateTime(a.createdAt)}</span>
       </div>

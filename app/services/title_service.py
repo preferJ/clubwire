@@ -1,4 +1,7 @@
-"""타이틀(이주의 득점왕 / 도움왕 …) 정의와 수여 이력. 비활성 타이틀(예: 제거된 MVP)의 지난 이력은 조회에서 제외."""
+"""타이틀(이주의 득점왕 / 도움왕, 이달의 MVP …) 정의와 수여 이력. 비활성 타이틀(예: 제거된 주간 MVP)의 지난 이력은 조회에서 제외.
+
+이달의 MVP(MONTHLY)는 [일정마감]이 아니라 월 마감 때 mvp_service가 집계한다.
+"""
 from datetime import date
 
 from sqlalchemy import select
@@ -6,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import emit
 from app.core.errors import BadRequest, Conflict, NotFound
-from app.core.timeutil import to_iso, utcnow, week_range
+from app.core.timeutil import month_range, to_iso, utcnow, week_range
 from app.models import ClubSession, Member, MemberTitle, TitleType
 from app.models.enums import AwardMethod, SessionStatus, TitleAutoRule, TitlePeriodType
 from app.services.common import get_member, get_session, member_names
@@ -24,11 +27,13 @@ def list_title_types(db: Session, club_id: int, include_inactive: bool = False) 
 
 def _validate_type_fields(period_type: str, award_method: str, auto_rule: str | None) -> None:
     if period_type not in TitlePeriodType.__members__:
-        raise BadRequest("periodType은 WEEKLY/SESSION 중 하나입니다.")
+        raise BadRequest("periodType은 WEEKLY/SESSION/MONTHLY 중 하나입니다.")
     if award_method not in AwardMethod.__members__:
         raise BadRequest("awardMethod는 MANUAL/AUTO 중 하나입니다.")
-    if award_method == AwardMethod.AUTO and auto_rule not in TitleAutoRule.__members__:
-        raise BadRequest("AUTO 타이틀은 autoRule(TOP_GOALS/TOP_ASSISTS/TOP_WINS)이 필요합니다.")
+    weekly_rules = (TitleAutoRule.TOP_GOALS, TitleAutoRule.TOP_ASSISTS, TitleAutoRule.TOP_WINS)
+    if award_method == AwardMethod.AUTO and (auto_rule not in weekly_rules or period_type == TitlePeriodType.MONTHLY):
+        # MONTHLY_RATING_RISE(이달의 MVP)는 시스템 전용
+        raise BadRequest("AUTO 타이틀은 주간/일정 단위 + autoRule(TOP_GOALS/TOP_ASSISTS/TOP_WINS)만 만들 수 있습니다.")
 
 
 def create_title_type(db: Session, club_id: int, *, title_code: str, title_name: str, period_type: str = "WEEKLY",
@@ -58,6 +63,8 @@ def update_title_type(db: Session, club_id: int, title_type_id: int, **fields) -
 
 # ------------------------------------------------------------------ 수여
 def _period(t: TitleType, d: date) -> tuple[date, date]:
+    if t.period_type == TitlePeriodType.MONTHLY:
+        return month_range(d)
     return week_range(d) if t.period_type == TitlePeriodType.WEEKLY else (d, d)
 
 
@@ -116,8 +123,8 @@ def compute_auto_titles(db: Session, club_id: int, anchor: ClubSession) -> list[
     """
     created: list[MemberTitle] = []
     for t in list_title_types(db, club_id):
-        if t.award_method != AwardMethod.AUTO:
-            continue
+        if t.award_method != AwardMethod.AUTO or t.period_type == TitlePeriodType.MONTHLY:
+            continue  # 이달의 MVP는 월 마감 때(mvp_service.close_month)
         start, end = _period(t, anchor.session_date)
         sids = list(db.scalars(select(ClubSession.session_id).where(
             ClubSession.club_id == club_id, ClubSession.session_date.between(start, end),

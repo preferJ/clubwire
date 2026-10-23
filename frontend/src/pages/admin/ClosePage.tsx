@@ -22,7 +22,8 @@ export function ClosePage() {
   const d = session.data
   if (summary.error) return <ErrorBox error={summary.error} onRetry={summary.reload} />
   if (!s || !d) return <div className="page"><Loading /></div>
-  const autoTitles = (titles.data ?? []).filter((t) => t.awardMethod === 'AUTO' && t.active)
+  // 마감 때 다시 집계하는 건 주간 자동 타이틀만(이달의 MVP는 월 마감 때)
+  const autoTitles = (titles.data ?? []).filter((t) => t.awardMethod === 'AUTO' && t.active && t.periodType === 'WEEKLY')
 
   const close = async () => {
     if (!window.confirm('일정을 마감할까요? 마감 후에는 이 일정의 기록을 고칠 수 없어요.')) return

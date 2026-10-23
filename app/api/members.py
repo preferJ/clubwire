@@ -13,7 +13,7 @@ router = APIRouter(prefix="/members", tags=["members"])
 
 def _m(m: Member) -> dict:
     return {"memberId": m.member_id, "name": m.name, "active": m.active_yn, "joinedAt": m.joined_at,
-            "profileImageUrl": m.profile_image_url, "displayOrder": m.display_order}
+            "birthYear": m.birth_year, "profileImageUrl": m.profile_image_url, "displayOrder": m.display_order}
 
 
 @router.get("", summary="멤버 목록(공개)")
@@ -26,12 +26,16 @@ def list_members(include_inactive: bool = Query(False, alias="includeInactive"),
 def create_member(body: MemberCreate, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
                   db: Session = Depends(get_db)):
     return _m(member_service.create_member(db, club.club_id, body.name, body.joined_at, body.profile_image_url,
-                                           body.display_order, body.initial_rating))
+                                           body.display_order, body.initial_rating, body.birth_year))
 
 
-@router.patch("/{member_id}", summary="멤버 수정/비활성화(active=false). 삭제는 하지 않음")
+@router.patch("/{member_id}", summary="멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음")
 def update_member(member_id: int, body: MemberUpdate, club: Club = Depends(club_dep),
                   admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
-    return _m(member_service.update_member(db, club.club_id, member_id, name=body.name, joined_at=body.joined_at,
-                                           profile_image_url=body.profile_image_url,
-                                           display_order=body.display_order, active_yn=body.active))
+    fields = dict(name=body.name, profile_image_url=body.profile_image_url, display_order=body.display_order,
+                  active_yn=body.active)
+    # 가입일·출생연도: 보낸 항목만 반영(null = 지움). 안 보낸 항목은 그대로
+    for k in member_service.CLEARABLE:
+        if k in body.model_fields_set:
+            fields[k] = getattr(body, k)
+    return _m(member_service.update_member(db, club.club_id, member_id, **fields))

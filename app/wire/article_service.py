@@ -27,11 +27,15 @@ from app.services.session_service import team_rosters
 
 log = logging.getLogger("clubwire.wire")
 
-ARTICLE_TYPE_TAG = {ArticleType.PRE_MATCH: "프리뷰", ArticleType.SESSION_RECAP: "마감", ArticleType.POST_MATCH: "경기"}
+ARTICLE_TYPE_TAG = {ArticleType.PRE_MATCH: "프리뷰", ArticleType.SESSION_RECAP: "마감", ArticleType.POST_MATCH: "경기",
+                    ArticleType.MONTHLY_MVP: "이달의 MVP"}
+# 게시 설정(ARTICLE_PUBLISH_MODE)과 상관없이 생성 즉시 게시하는 기사
+ALWAYS_PUBLISH = {ArticleType.MONTHLY_MVP}
 
 
 def _model_for(article_type: str) -> str:
-    return settings.AI_RECAP_MODEL if article_type == ArticleType.SESSION_RECAP else settings.AI_ARTICLE_MODEL
+    recap = (ArticleType.SESSION_RECAP, ArticleType.MONTHLY_MVP)
+    return settings.AI_RECAP_MODEL if article_type in recap else settings.AI_ARTICLE_MODEL
 
 
 def build_payload(db: Session, club: Club, session: ClubSession, article_type: str, insights: list[Insight],
@@ -108,7 +112,7 @@ def run_generation(article_id: int) -> None:
             db.add(AiArticleInsight(article_id=a.article_id, insight_id=iid))
         db.flush()
         _apply_tags(db, a)
-        if load_config(db, a.club_id)["ARTICLE_PUBLISH_MODE"] == "AUTO":
+        if a.article_type in ALWAYS_PUBLISH or load_config(db, a.club_id)["ARTICLE_PUBLISH_MODE"] == "AUTO":
             _publish(db, a)
         emit(db, a.club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
         db.commit()
@@ -211,6 +215,9 @@ def serialize_article(db: Session, a: AiArticle, *, detail: bool = False, admin:
         used = list(db.scalars(select(AiArticleInsight.insight_id).where(AiArticleInsight.article_id == a.article_id)))
         data["usedInsightIds"] = used
         mids = set(db.scalars(select(InsightMember.member_id).where(InsightMember.insight_id.in_(used)))) if used else set()
+        if a.article_type == ArticleType.MONTHLY_MVP:  # Insight 없이 쓰는 기사: MVP · 2·3위를 '나온 선수'로
+            mvp = (a.request_json or {}).get("monthlyMvp") or {}
+            mids |= {p["memberId"] for p in mvp.get("winners", []) + mvp.get("runnersUp", []) if p.get("memberId")}
         data["members"] = [{"memberId": m.member_id, "name": m.name}
                            for m in db.scalars(select(Member).where(Member.member_id.in_(mids)))] if mids else []
     if admin:

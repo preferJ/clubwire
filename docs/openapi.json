@@ -517,7 +517,7 @@
         "tags": [
           "members"
         ],
-        "summary": "멤버 수정/비활성화(active=false). 삭제는 하지 않음",
+        "summary": "멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음",
         "operationId": "update_member_api_clubs__club_slug__members__member_id__patch",
         "security": [
           {
@@ -2535,6 +2535,48 @@
         }
       }
     },
+    "/api/clubs/{club_slug}/stats/mvp-race": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "이달의 MVP 후보 1~3위(실력 점수 상승률 %만, 점수 자체는 비공개) + 지난달 MVP(공개)",
+        "operationId": "mvp_race_api_clubs__club_slug__stats_mvp_race_get",
+        "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/clubs/{club_slug}/stats/pairs": {
       "get": {
         "tags": [
@@ -3800,6 +3842,20 @@
             ],
             "title": "Joinedat"
           },
+          "birthYear": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 1900.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Birthyear",
+            "description": "출생연도(예: 1992)"
+          },
           "profileImageUrl": {
             "anyOf": [
               {
@@ -3869,7 +3925,22 @@
                 "type": "null"
               }
             ],
-            "title": "Joinedat"
+            "title": "Joinedat",
+            "description": "가입일. null을 보내면 지움(안 보내면 그대로)"
+          },
+          "birthYear": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 2100.0,
+                "minimum": 1900.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Birthyear",
+            "description": "출생연도(예: 1992). null을 보내면 지움(안 보내면 그대로)"
           },
           "profileImageUrl": {
             "anyOf": [

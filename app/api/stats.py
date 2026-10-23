@@ -9,7 +9,7 @@ from app.api.deps import admin_dep, club_dep
 from app.core.database import get_db
 from app.core.security import AdminPrincipal
 from app.models import Club
-from app.services import lifecycle_service, stats_service
+from app.services import lifecycle_service, mvp_service, stats_service
 from app.services.common import get_member
 
 router = APIRouter(tags=["stats"])
@@ -24,6 +24,11 @@ def member_stats(club: Club = Depends(club_dep), db: Session = Depends(get_db)):
 def member_detail(member_id: int, club: Club = Depends(club_dep), db: Session = Depends(get_db)):
     m = get_member(db, club.club_id, member_id)
     return stats_service.member_detail(db, club.club_id, m)
+
+
+@router.get("/stats/mvp-race", summary="이달의 MVP 후보 1~3위(실력 점수 상승률 %만, 점수 자체는 비공개) + 지난달 MVP(공개)")
+def mvp_race(club: Club = Depends(club_dep), db: Session = Depends(get_db)):
+    return mvp_service.mvp_race(db, club)
 
 
 @router.get("/stats/pairs", summary="두 선수 관계(같이 뛴 기록 / 상대 전적, 공개)")

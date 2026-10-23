@@ -61,9 +61,10 @@
 | 5 | `DISPLAY_ORDER` | INTEGER | Y |  | 표시 순서 |
 | 6 | `ACTIVE_YN` | BOOL | N |  | 사용 여부(false=비활성, 삭제 대신 사용) |
 | 7 | `JOINED_AT` | DATE | Y |  | 가입일 |
-| 8 | `INITIAL_RATING` | DOUBLE | Y |  | 시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작 |
-| 9 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 10 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 8 | `BIRTH_YEAR` | SMALLINT | Y |  | 출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시 |
+| 9 | `INITIAL_RATING` | DOUBLE | Y |  | 시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작 |
+| 10 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 11 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 
@@ -422,7 +423,7 @@ Rating 변경 이력(감사 목적 보존, 재계산 시 VOIDED 처리)
 | 7 | `GOALS` | INTEGER | N |  | 골 |
 | 8 | `ASSISTS` | INTEGER | N |  | 도움 |
 | 9 | `OWN_GOALS` | INTEGER | N |  | 자책골 |
-| 10 | `MVP_COUNT` | INTEGER | N |  | MVP 타이틀 수 |
+| 10 | `MVP_COUNT` | INTEGER | N |  | 이달의 MVP 수(활성 타이틀 중 COUNTS_AS_MVP_YN = 1) |
 | 11 | `TITLE_COUNT` | INTEGER | N |  | 전체 타이틀 수 |
 | 12 | `SESSIONS_ATTENDED` | INTEGER | N |  | 출전 일정 수 |
 | 13 | `LAST_PLAYED_DATE` | DATE | Y |  | 마지막 출전 날짜 |
@@ -462,7 +463,7 @@ Rating 변경 이력(감사 목적 보존, 재계산 시 VOIDED 처리)
 
 ### TITLE_TYPE
 
-타이틀 정의(이주의 MVP/득점왕/도움왕 …)  
+타이틀 정의(이주의 득점왕/도움왕, 이달의 MVP …)  
 구분: **Config/Reference**
 
 | No | 컬럼 | 타입 | NULL | 키 | 설명 |
@@ -471,10 +472,10 @@ Rating 변경 이력(감사 목적 보존, 재계산 시 VOIDED 처리)
 | 2 | `CLUB_ID` | BIGINT | N | FK→CLUB | 클럽 ID |
 | 3 | `TITLE_CODE` | VARCHAR(30) | N |  | 타이틀 코드 |
 | 4 | `TITLE_NAME` | VARCHAR(50) | N |  | 타이틀명 |
-| 5 | `PERIOD_TYPE` | VARCHAR(10) | N |  | WEEKLY(월~일)/SESSION |
-| 6 | `AWARD_METHOD` | VARCHAR(10) | N |  | MANUAL(관리자)/AUTO(일정마감 시 자동 집계) |
-| 7 | `AUTO_RULE` | VARCHAR(30) | Y |  | 자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS |
-| 8 | `COUNTS_AS_MVP_YN` | BOOL | N |  | MVP 횟수 집계 대상 여부 |
+| 5 | `PERIOD_TYPE` | VARCHAR(10) | N |  | WEEKLY(월~일)/SESSION/MONTHLY(1일~말일) |
+| 6 | `AWARD_METHOD` | VARCHAR(10) | N |  | MANUAL(관리자)/AUTO(주간: 일정마감 시, 월간: 월 마감 시 자동 집계) |
+| 7 | `AUTO_RULE` | VARCHAR(30) | Y |  | 자동 규칙: TOP_GOALS/TOP_ASSISTS/TOP_WINS, MONTHLY_RATING_RISE(이달의 MVP 전용) |
+| 8 | `COUNTS_AS_MVP_YN` | BOOL | N |  | MVP 횟수(MVP_COUNT) 집계 대상 여부. 이달의 MVP = 1 |
 | 9 | `ACTIVE_YN` | BOOL | N |  | 사용 여부(false=비활성, 삭제 대신 사용) |
 | 10 | `DISPLAY_ORDER` | INTEGER | N |  | 표시 순서 |
 | 11 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
@@ -486,7 +487,7 @@ Rating 변경 이력(감사 목적 보존, 재계산 시 VOIDED 처리)
 
 ### MEMBER_TITLE
 
-타이틀 수여 이력(MVP 이력 포함)  
+타이틀 수여 이력(이달의 MVP 포함). 비활성 타이틀의 이력은 조회 · 집계에서 제외  
 구분: **Source(원본)**
 
 | No | 컬럼 | 타입 | NULL | 키 | 설명 |
@@ -599,7 +600,7 @@ AI 기사(재생성은 새 행, 기존 보존)
 | 2 | `CLUB_ID` | BIGINT | N | FK→CLUB | 클럽 ID |
 | 3 | `SESSION_ID` | BIGINT | Y | FK→SESSION | 일정 ID |
 | 4 | `MATCH_ID` | BIGINT | Y | FK→MATCH_GAME | 경기 ID |
-| 5 | `ARTICLE_TYPE` | VARCHAR(20) | N |  | PRE_MATCH/SESSION_RECAP(POST_MATCH 예약) |
+| 5 | `ARTICLE_TYPE` | VARCHAR(20) | N |  | PRE_MATCH/SESSION_RECAP/MONTHLY_MVP(POST_MATCH 예약) |
 | 6 | `TITLE` | VARCHAR(200) | Y |  | 제목 |
 | 7 | `SUMMARY` | VARCHAR(500) | Y |  | 요약 |
 | 8 | `CONTENT` | TEXT | Y |  | 본문 |

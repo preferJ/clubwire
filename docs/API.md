@@ -15,7 +15,7 @@
 | 🔓 | GET | `/summary` | 클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수 |
 | 🔓 | GET | `/members` | 멤버 목록(공개) |
 | 🔑 | POST | `/members` | 멤버 등록 |
-| 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 삭제는 하지 않음 |
+| 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음 |
 | 🔓 | GET | `/sessions` | 일정 목록(공개) |
 | 🔑 | POST | `/sessions` | 일정 생성 |
 | 🔓 | GET | `/sessions/{session_id}` | 일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함 |
@@ -50,6 +50,7 @@
 | 🔑 | POST | `/admin/rebuild` | [관리자] Rating/통계/Pair 전체 재계산 |
 | 🔓 | GET | `/stats/members` | 개인 통계 목록(공개) |
 | 🔓 | GET | `/stats/members/{member_id}` | 개인 상세 통계: 최근 폼, 자주 같은 팀, 자주 만난 상대(공개) |
+| 🔓 | GET | `/stats/mvp-race` | 이달의 MVP 후보 1~3위(실력 점수 상승률 %만, 점수 자체는 비공개) + 지난달 MVP(공개) |
 | 🔓 | GET | `/stats/pairs` | 두 선수 관계(같이 뛴 기록 / 상대 전적, 공개) |
 | 🔓 | GET | `/titles/awards` | 타이틀 수여 이력(공개) |
 | 🔑 | POST | `/titles/awards` | 타이틀 수여(수동 타이틀. 기본 타이틀은 모두 자동 집계) |

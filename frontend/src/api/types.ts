@@ -21,6 +21,29 @@ export interface ClubSummary {
   articles: number
 }
 
+export type ArticleType = 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP' | 'MONTHLY_MVP'
+
+/** 이달의 MVP 레이스: 실력 점수 상승률(%)만 공개(점수 자체는 비공개) */
+export interface MvpCandidate {
+  rank: number
+  memberId: number
+  name: string | null
+  risePercent: number
+  sessions: number
+  games: number
+}
+
+export interface MvpRace {
+  month: string // 'YYYY-MM'
+  minSessions: number
+  candidates: MvpCandidate[]
+  lastMonth: {
+    month: string
+    articleId: number | null
+    winners: { memberId: number; name: string | null; risePercent: number | null }[]
+  } | null
+}
+
 export interface AuthResponse {
   accessToken: string
   tokenType: string
@@ -32,6 +55,7 @@ export interface Member {
   name: string
   active: boolean
   joinedAt: string | null
+  birthYear: number | null
   profileImageUrl: string | null
   displayOrder: number | null
 }
@@ -252,8 +276,15 @@ export interface MemberStat {
   lastPlayedDate: string | null
 }
 
+/** 관리자가 입력하는 선수 정보(프로필에 공개) */
+export interface MemberProfile {
+  joinedAt: string | null
+  birthYear: number | null
+}
+
 export interface MemberDetail {
   summary: MemberStat
+  profile: MemberProfile
   recentForm: {
     matchId: number
     sessionDate: string
@@ -287,7 +318,7 @@ export interface TitleType {
   titleTypeId: number
   titleCode: string
   titleName: string
-  periodType: 'WEEKLY' | 'SESSION'
+  periodType: 'WEEKLY' | 'SESSION' | 'MONTHLY'
   awardMethod: 'MANUAL' | 'AUTO'
   autoRule: string | null
   countsAsMvp: boolean
@@ -297,7 +328,7 @@ export interface TitleType {
 
 export interface Article {
   articleId: number
-  articleType: 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP'
+  articleType: ArticleType
   sessionId: number | null
   /** 기사가 속한 일정 날짜(YYYY-MM-DD). 와이어·기록 탭에서 일정별로 묶을 때 사용 */
   sessionDate: string | null

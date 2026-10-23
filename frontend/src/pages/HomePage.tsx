@@ -1,14 +1,14 @@
 // S01 홈 · 와이어(E 시안: 매니저 게임형)
-// 클럽 바(엠블럼 · 날짜 · 다음 일정) → 요약 줄 → LIVE → NEXT FIXTURE → LAST MATCHDAY → INBOX(이번·지난 일정 기사)
+// 클럽 바(엠블럼 · 날짜 · 다음 일정) → 요약 줄 → LIVE → NEXT FIXTURE → LAST MATCHDAY → MVP RACE → INBOX(이번·지난 일정 기사)
 
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Api } from '../api/endpoints'
-import type { Article, LiveMatch, SessionListItem, SessionSummary } from '../api/types'
+import type { Article, LiveMatch, MvpRace, SessionListItem, SessionSummary } from '../api/types'
 import { Icon } from '../components/Icon'
 import { ClubBar, ErrorBox, Loading, TeamBadge } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
-import { dday, fmtClock, fmtDate, fmtShortDate, fmtToday, SESSION_STATUS_LABEL } from '../lib/format'
+import { ARTICLE_TYPE_LABEL, dday, fmtClock, fmtDate, fmtRise, fmtShortDate, fmtToday, SESSION_STATUS_LABEL } from '../lib/format'
 import { useAsync, useMatchClock } from '../lib/hooks'
 import { readArticleIds } from '../lib/readStore'
 
@@ -20,6 +20,7 @@ export function HomePage() {
   const live = useAsync(() => api.live(), [api])
   const sessions = useAsync(() => api.sessions(10), [api])
   const summary = useAsync(() => api.clubSummary(), [api])
+  const race = useAsync(() => api.mvpRace(), [api])
   const picked = pickWireSessions(sessions.data ?? [])
   const pickedIds = picked.map((p) => p.s.sessionId)
   const articles = useAsync(() => loadWireArticles(api, pickedIds), [api, pickedIds.join(',')])
@@ -29,11 +30,13 @@ export function HomePage() {
     if (m.type === 'SESSION_UPDATED' || m.type === 'TEAMS_UPDATED') {
       sessions.reload()
       summary.reload()
+      if (m.type === 'SESSION_UPDATED') race.reload()  // 일정마감 = 경기 확정 → 후보 순위 변동
     }
     if (m.type === 'ARTICLE_UPDATED') {
       articles.reload()
       summary.reload()
     }
+    if (m.type === 'TITLE_UPDATED') race.reload()  // 월 마감(이달의 MVP 발표)
   })
 
   const next = picked[0]?.label === '이번 일정' ? picked[0].s : null
@@ -57,11 +60,15 @@ export function HomePage() {
         </div>
       </ClubBar>
 
-      <div className="stat-ribbon" aria-label="클럽 요약">
-        <div><b>{summary.data?.activeMembers ?? '–'}</b><span>멤버</span></div>
-        <div><b>{summary.data?.sessions ?? '–'}</b><span>올해 일정</span></div>
-        <div><b>{summary.data?.articles ?? '–'}</b><span>올해 기사</span></div>
-      </div>
+      {/* 요약 줄: 누르면 해당 탭으로(멤버 → 선수단, 일정 → 일정, 기사 → 기록 탭 [기사]) */}
+      <nav className="stat-ribbon" aria-label="클럽 요약">
+        <Link to={`/c/${slug}/members`}><b>{summary.data?.activeMembers ?? '–'}</b><span>멤버</span></Link>
+        <Link to={`/c/${slug}/sessions`}><b>{summary.data?.sessions ?? '–'}</b><span>올해 일정</span></Link>
+        <Link to={`/c/${slug}/records?tab=articles`}><b>{summary.data?.articles ?? '–'}</b><span>올해 기사</span></Link>
+      </nav>
+      {summary.error ? (
+        <button type="button" className="ribbon-retry" onClick={summary.reload}>요약을 불러오지 못했어요 · 다시 시도</button>
+      ) : null}
 
       <main className="page" style={{ gap: 12, padding: '12px 12px 24px' }}>
         {(live.data ?? []).map((m) => (
@@ -74,6 +81,8 @@ export function HomePage() {
             {last ? <LastMatchday s={last} slug={slug} /> : null}
           </>
         )}
+
+        <MvpRacePanel slug={slug} race={race.data} error={race.error} onRetry={race.reload} />
 
         <Inbox slug={slug} loading={articlesLoading} error={articles.error} onRetry={articles.reload}
           items={(articles.data ?? []).slice(0, WIRE_ARTICLES)} />
@@ -258,13 +267,13 @@ function Inbox({ slug, items, loading, error, onRetry }: {
         <p className="panel-body muted" style={{ fontSize: 14 }}>아직 게시된 기사가 없어요. [일정확정] 때 프리뷰, [일정마감] 때 마감 기사가 들어와요.</p>
       ) : items.map((a, i) => {
         const isRead = read.has(a.articleId)
-        const topic = a.tags.find((t) => t !== '마감' && t !== '프리뷰')
+        const topic = a.tags.find((t) => !['마감', '프리뷰', '이달의 MVP'].includes(t))
         return (
           <Link key={a.articleId} to={`/c/${slug}/articles/${a.articleId}`} className={`inbox-row${i === 0 ? ' open' : ''}${isRead ? ' read' : ''}`}>
             {isRead ? <span className="dot" aria-hidden="true" /> : <span className="dot on" role="img" aria-label="새 소식" />}
             <span className="stack" style={{ flex: 1, gap: 4, minWidth: 0 }}>
               <span className="meta">
-                <span>The Wire · {a.articleType === 'PRE_MATCH' ? '프리뷰' : '마감 기사'}{topic ? ` · ${topic}` : ''}</span>
+                <span>The Wire · {ARTICLE_TYPE_LABEL[a.articleType]}{topic ? ` · ${topic}` : ''}</span>
                 <span>{fmtShortDate(a.sessionDate)}</span>
               </span>
               <span className="subject">{a.title}</span>
@@ -276,6 +285,50 @@ function Inbox({ slug, items, loading, error, onRetry }: {
       <Link to={`/c/${slug}/records?tab=articles`} className="panel-foot">
         소식 전체 보기 <span style={{ color: 'var(--accent-ink)', display: 'inline-flex' }}><Icon name="play" size={12} /></span>
       </Link>
+    </section>
+  )
+}
+
+/** MVP RACE: 이번 달 이달의 MVP 후보 1~3위(실력 점수 상승률 %만) + 지난달 MVP 발표 기사로 가는 줄 */
+function MvpRacePanel({ slug, race, error, onRetry }: { slug: string; race?: MvpRace | null; error: unknown; onRetry: () => void }) {
+  const month = race ? Number(race.month.slice(5, 7)) : new Date().getMonth() + 1
+  const last = race?.lastMonth
+  return (
+    <section className="panel" aria-label="이달의 MVP 후보">
+      <PanelHead en="MVP RACE" ko={`${month}월 MVP 후보`}
+        right={<span className="small muted">실력 점수 상승률</span>} />
+      {error ? <ErrorBox error={error} onRetry={onRetry} /> : !race ? <div className="panel-body"><Loading rows={1} /></div> : (
+        <>
+          {race.candidates.length === 0 ? (
+            <p className="panel-body muted" style={{ fontSize: 14 }}>
+              아직 후보가 없어요. 이번 달 일정에 {race.minSessions}번 이상 나오고 실력 점수가 오르면 후보가 돼요.
+            </p>
+          ) : (
+            <ol className="race">
+              {race.candidates.map((c) => (
+                <li key={c.memberId}>
+                  <Link to={`/c/${slug}/members/${c.memberId}`} className="race-row">
+                    <span className={`race-rank r${c.rank}`} aria-label={`${c.rank}위`}>{c.rank}</span>
+                    <span className="stack" style={{ gap: 2, flex: 1, minWidth: 0 }}>
+                      <b style={{ fontSize: 15 }}>{c.name}</b>
+                      <span className="small muted">일정 {c.sessions}회 · {c.games}경기</span>
+                    </span>
+                    <span className="race-rise">{fmtRise(c.risePercent)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ol>
+          )}
+          <p className="panel-note">이번 달 일정 {race.minSessions}회 이상 나온 선수 중 상승률 순 · 다음 달 1일 확정</p>
+          {last ? (
+            <Link to={last.articleId ? `/c/${slug}/articles/${last.articleId}` : `/c/${slug}/records?tab=awards`} className="panel-foot">
+              <span className="tag gold">{Number(last.month.slice(5, 7))}월 MVP</span>
+              {last.winners.map((w) => w.name).join(' · ')} {fmtRise(last.winners[0]?.risePercent)}
+              <span style={{ color: 'var(--accent-ink)', display: 'inline-flex' }}><Icon name="play" size={12} /></span>
+            </Link>
+          ) : null}
+        </>
+      )}
     </section>
   )
 }

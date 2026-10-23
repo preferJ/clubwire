@@ -17,7 +17,9 @@ import type {
   MatchState,
   Member,
   MemberDetail,
+  MemberProfile,
   MemberStat,
+  MvpRace,
   NextSuggestion,
   SessionDetail,
   SessionListItem,
@@ -39,7 +41,7 @@ export const makeApi = (slug: string) => ({
   members: (includeInactive = false) => request<Member[]>(slug, 'GET', '/members', { query: { includeInactive } }),
   createMember: (name: string, initialRating?: number) =>
     request<Member>(slug, 'POST', '/members', { body: { name, initialRating } }),
-  updateMember: (memberId: number, body: Partial<{ name: string; active: boolean; displayOrder: number }>) =>
+  updateMember: (memberId: number, body: Partial<{ name: string; active: boolean; displayOrder: number } & MemberProfile>) =>
     request<Member>(slug, 'PATCH', `/members/${memberId}`, { body }),
 
   // 일정
@@ -97,6 +99,7 @@ export const makeApi = (slug: string) => ({
   // 통계 / 타이틀
   memberStats: () => request<MemberStat[]>(slug, 'GET', '/stats/members'),
   memberDetail: (id: number) => request<MemberDetail>(slug, 'GET', `/stats/members/${id}`),
+  mvpRace: () => request<MvpRace>(slug, 'GET', '/stats/mvp-race'),
   titleTypes: () => request<TitleType[]>(slug, 'GET', '/titles/types'),
   awards: (query: { memberId?: number; from?: string; to?: string } = {}) =>
     request<Award[]>(slug, 'GET', '/titles/awards', { query }),

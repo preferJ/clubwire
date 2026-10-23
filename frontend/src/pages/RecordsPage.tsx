@@ -6,14 +6,14 @@ import type { Article, Award, MemberStat } from '../api/types'
 import { ArticleCard } from '../components/ArticleCard'
 import { ClubBar, Empty, ErrorBox, Loading } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
-import { fmtDate, fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
+import { fmtAwardValue, fmtDate, fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
 import { useAction, useAsync } from '../lib/hooks'
 
 type RecordsTab = 'stats' | 'awards' | 'articles'
 const RECORDS_TABS: RecordsTab[] = ['stats', 'awards', 'articles']
 
 /** 기사 태그 칩(와이어에서 옮겨 옴) */
-const TAGS = ['전체', '마감', '프리뷰', '복귀', '연승', '결승골', '역전', '타이틀',
+const TAGS = ['전체', '마감', '프리뷰', '이달의 MVP', '복귀', '연승', '결승골', '역전', '타이틀',
   '듀오', '천적', '콤비', '무패', '철벽', '신기록', '레이스', '개근', '징크스', '데뷔']
 const ARTICLE_PAGE = 20
 
@@ -260,6 +260,5 @@ function groupBySession(list: Article[]): [string, Article[]][] {
 
 function awardNote(a: Award): string {
   if (a.awardMethod === 'MANUAL') return '운영진 선정'
-  const unit = a.facts?.metric === 'assists' ? '도움' : a.facts?.metric === 'wins' ? '승' : '골'
-  return `${a.facts?.value ?? ''}${unit}${a.facts?.tied ? ' · 공동' : ''}`
+  return fmtAwardValue(a.facts)
 }

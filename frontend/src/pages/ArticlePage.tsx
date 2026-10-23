@@ -5,7 +5,7 @@ import { Link, useLocation, useParams } from 'react-router-dom'
 import { Icon } from '../components/Icon'
 import { ErrorBox, Loading, Tags, TopBar, type FromState } from '../components/ui'
 import { useClub } from '../lib/club'
-import { fmtDateTime, initials } from '../lib/format'
+import { ARTICLE_TYPE_LABEL, fmtDateTime, initials } from '../lib/format'
 import { useAsync } from '../lib/hooks'
 import { markArticleRead } from '../lib/readStore'
 import { useToast } from '../lib/toast'
@@ -37,7 +37,9 @@ export function ArticlePage() {
   }
 
   const a = art.data
-  const results = (session.data?.matches ?? []).filter((m) => m.status === 'FINISHED')
+  // 이달의 MVP 기사는 그 달 마지막 일정에 붙어 있을 뿐 한 일정의 기사가 아님 → 일정 제목 · 이날 경기 결과는 숨김
+  const monthly = a?.articleType === 'MONTHLY_MVP'
+  const results = monthly ? [] : (session.data?.matches ?? []).filter((m) => m.status === 'FINISHED')
 
   return (
     <>
@@ -52,8 +54,8 @@ export function ArticlePage() {
           <Tags tags={a.tags} />
           <h1 className="headline" style={{ fontSize: 28 }}>{a.title}</h1>
           <div className="small muted">
-            {session.data ? `${session.data.title} · ` : ''}
-            {a.articleType === 'PRE_MATCH' ? '프리뷰' : '마감 기사'} · {fmtDateTime(a.publishedAt ?? a.createdAt)}
+            {session.data && !monthly ? `${session.data.title} · ` : ''}
+            {ARTICLE_TYPE_LABEL[a.articleType]} · {fmtDateTime(a.publishedAt ?? a.createdAt)}
           </div>
           {a.summary ? <p style={{ fontSize: 16, fontWeight: 600, lineHeight: 1.6 }}>{a.summary}</p> : null}
           <div className="article-body">
@@ -91,7 +93,7 @@ export function ArticlePage() {
 
           <div className="row small muted">
             <Icon name="info" size={14} />
-            경기 기록을 바탕으로 AI가 작성하고 운영진이 게시했습니다.
+            {monthly ? '월 마감 때 경기 기록을 바탕으로 AI가 작성해 자동 게시했습니다.' : '경기 기록을 바탕으로 AI가 작성하고 운영진이 게시했습니다.'}
           </div>
           {isAdmin ? <Link className="btn sm" to={`/c/${slug}/admin/articles`}>기사 검토로</Link> : null}
         </article>

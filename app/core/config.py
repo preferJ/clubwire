@@ -30,8 +30,9 @@ class Settings(BaseSettings):
     AI_MAX_RETRY: int = 1
 
     # 백그라운드
-    ENABLE_BACKGROUND_JOBS: bool = True  # LIVE 타이머 자동 종료 감시 루프
+    ENABLE_BACKGROUND_JOBS: bool = True  # LIVE 타이머 자동 종료 + 이달의 MVP 월 마감 감시 루프
     TIMER_TICK_SEC: float = 1.0
+    MONTHLY_CHECK_SEC: float = 600.0  # 이달의 MVP 월 마감 확인 주기(초). 서버 시작 때 한 번 바로 확인
     ARTICLE_GENERATION_SYNC: bool = False  # True면 요청 안에서 기사를 바로 생성(테스트용)
 
     CORS_ORIGINS: str = "*"

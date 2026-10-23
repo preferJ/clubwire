@@ -19,7 +19,8 @@ def rebuild_member_stats(db: Session, club_id: int) -> None:
     title_rows = db.execute(
         select(MemberTitle.member_id, TitleType.counts_as_mvp_yn)
         .join(TitleType, TitleType.title_type_id == MemberTitle.title_type_id)
-        .where(MemberTitle.club_id == club_id, MemberTitle.cancelled_yn.is_(False))
+        .where(MemberTitle.club_id == club_id, MemberTitle.cancelled_yn.is_(False),
+               TitleType.active_yn.is_(True))  # 비활성 타이틀(제거된 주간 MVP) 이력은 세지 않음 → MVP_COUNT = 이달의 MVP 수
     ).all()
     mvp: dict[int, int] = defaultdict(int)
     titles: dict[int, int] = defaultdict(int)
@@ -196,6 +197,7 @@ def member_detail(db: Session, club_id: int, member: Member, recent_n: int = 5, 
 
     return {
         "summary": _summary_dict(member, s),
+        "profile": {"joinedAt": member.joined_at, "birthYear": member.birth_year},  # 관리자가 입력한 선수 정보(공개)
         "recentForm": recent,
         "frequentTeammates": [
             {"memberId": other(p), "name": names.get(other(p)), "matches": p.same_team_match_count,

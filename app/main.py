@@ -14,6 +14,7 @@ from app.api import clubs, matches, members, sessions, stats, titles, wire, ws
 from app.core.config import settings
 from app.core.errors import DomainError
 from app.core.ws import hub
+from app.jobs.monthly import monthly_loop
 from app.jobs.timer import timer_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -24,9 +25,9 @@ async def lifespan(app: FastAPI):
     if settings.SECRET_KEY == "change-me-in-production" or len(settings.SECRET_KEY) < 32:
         logging.getLogger("clubwire").warning("SECRET_KEY를 32자 이상의 임의 값으로 설정하세요(.env).")
     hub.bind_loop(asyncio.get_running_loop())
-    task = asyncio.create_task(timer_loop()) if settings.ENABLE_BACKGROUND_JOBS else None
+    tasks = [asyncio.create_task(timer_loop()), asyncio.create_task(monthly_loop())] if settings.ENABLE_BACKGROUND_JOBS else []
     yield
-    if task:
+    for task in tasks:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task

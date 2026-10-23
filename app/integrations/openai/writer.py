@@ -12,15 +12,16 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 
-PROMPT_VERSION = "wire_prompt_v2"  # v2: 천적·징크스·복수 사실 표현 규칙
+PROMPT_VERSION = "wire_prompt_v3"  # v2: 천적·징크스·복수 사실 표현 규칙 / v3: 이달의 MVP(MONTHLY_MVP)
 
 SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포츠 기자다. 한국어로 기사를 쓴다.
 
 [사실 규칙]
-- 입력의 insights와 context(teams, sessionSummary)에 있는 내용만 사실로 사용한다.
+- 입력의 insights와 context(teams, sessionSummary, monthlyMvp)에 있는 내용만 사실로 사용한다.
 - 제공되지 않은 기록, 수치, 인용, 감정, 사건을 만들어내지 않는다.
 - Rating, Confidence, Importance, 기대승률 같은 내부 점수/수치는 기사에 절대 쓰지 않는다.
   (insight의 importance는 뉴스 가치 판단에만 쓴다)
+  단, monthlyMvp의 risePercent(상승률 %)는 "실력 점수 상승률"이라는 말로 쓸 수 있다. 점수 자체는 입력에도 없고 쓰지 않는다.
 - 선수를 깎아내리거나 부정적으로 낙인찍는 표현(최악, 구멍, 악연 등)을 쓰지 않는다.
 - 천적·징크스·복수 사실(NEMESIS_MATCH, JINX_PAIR, REVENGE_RESULT)은 "설욕할까", "징크스를 깰까"처럼
   도전과 반전의 관점으로 가볍게 쓰고, 지는 쪽을 탓하거나 조롱하지 않는다.
@@ -32,6 +33,14 @@ SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포
 - 제목은 40자 이내, 요약은 1~2문장, 본문은 3~6개 문단.
 - articleType이 PRE_MATCH면 오늘 일정의 관전 포인트(프리뷰), SESSION_RECAP이면 오늘 일정 결과 정리(마감 기사)로 쓴다.
 - 사용한 insight의 id를 usedInsightIds에 반드시 모두 넣는다. 사용하지 않은 id는 넣지 않는다.
+
+[이달의 MVP: articleType = MONTHLY_MVP]
+- monthLabel(예: 9월)의 MVP를 발표하는 기사. sessionDate · sessionTitle · location은 쓰지 않는다.
+- monthlyMvp.winners(공동이면 모두)의 실력 점수 상승률, 출전 일정 · 경기 수, 승 · 무 · 패, 골 · 도움을 소개한다.
+- bestMatches는 "특히 많이 오른 경기"로 날짜 · 경기 번호 · 결과 · 스코어 · 본인 골/도움을 곁들여 1~3개 소개하고,
+  bestDay는 "가장 크게 오른 날"로 소개한다. 경기별 상승률(%)도 쓸 수 있다.
+- runnersUp(2 · 3위)은 마지막 문단에 짧게 언급한다. rule(선정 기준)을 한 문장으로 밝힌다.
+- 제목에 "이달의 MVP"와 선수 이름을 넣는다. insights는 비어 있으므로 usedInsightIds는 빈 배열.
 """
 
 ARTICLE_JSON_SCHEMA: dict[str, Any] = {
@@ -145,6 +154,8 @@ class StubArticleWriter:
     }
 
     def write(self, payload: dict[str, Any], model: str) -> tuple[ArticleDraft, dict[str, Any]]:
+        if payload.get("articleType") == "MONTHLY_MVP":
+            return self._monthly_mvp(payload)
         insights = sorted(payload.get("insights", []), key=lambda i: -i["importance"])
         used, lines, per_member = [], [], {}
         for ins in insights:
@@ -174,6 +185,43 @@ class StubArticleWriter:
             extra.append(f"{m['gameNo']}경기 TEAM {m['teamA']} {m['scoreA']} : {m['scoreB']} TEAM {m['teamB']}")
         body = "\n\n".join(lines + (["\n".join(extra)] if extra else [])) or "오늘의 경기 소식입니다."
         raw = {"title": title[:120], "summary": (lines[0] if lines else title)[:300], "body": body, "usedInsightIds": used}
+        return validate_draft(raw, payload), raw
+
+
+    RESULT = {"W": "승", "D": "무", "L": "패"}
+
+    def _monthly_mvp(self, payload: dict[str, Any]) -> tuple[ArticleDraft, dict[str, Any]]:
+        """이달의 MVP 템플릿: 상승률 · 성적 · 특히 많이 오른 경기 · 가장 크게 오른 날 · 2·3위."""
+        mvp = payload.get("monthlyMvp") or {}
+        month = payload.get("monthLabel") or payload.get("month") or ""
+        winners = mvp.get("winners") or []
+        names = " · ".join(w["name"] for w in winners)
+        paras = []
+        for w in winners:
+            paras.append(f"{w['name']}이(가) {month} 실력 점수를 {w['risePercent']:.1f}% 끌어올리며 {month} MVP에 올랐다. "
+                         f"{w['sessions']}번의 일정, {w['games']}경기에서 {w['wins']}승 {w['draws']}무 {w['losses']}패, "
+                         f"{w['goals']}골 {w['assists']}도움을 기록했다.")
+            best = [m for m in w.get("bestMatches", []) if m.get("result")]
+            if best:
+                lines = [f"{m['sessionDate'][5:].replace('-', '/')} {m['gameNo']}경기 TEAM {m['teamCode']} {m['score']} "
+                         f"TEAM {m['opponentTeamCode']}({self.RESULT[m['result']]}, {m['goals']}골 {m['assists']}도움, "
+                         f"+{m['risePercent']:.1f}%)" for m in best]
+                paras.append("특히 많이 오른 경기는 " + ", ".join(lines) + "이다.")
+            day = w.get("bestDay")
+            if day:
+                paras.append(f"가장 크게 오른 날은 {day['sessionDate'][5:].replace('-', '/')}. 이날 {day['games']}경기에서 "
+                             f"{day['wins']}승, {day['goals']}골 {day['assists']}도움으로 +{day['risePercent']:.1f}%를 쌓았다.")
+        runners = mvp.get("runnersUp") or []
+        if runners:
+            paras.append("뒤를 이어 " + ", ".join(f"{r['rank']}위 {r['name']}(+{r['risePercent']:.1f}%)" for r in runners)
+                         + "가 이름을 올렸다.")
+        if mvp.get("rule"):
+            paras.append(f"선정 기준: {mvp['rule']}.")
+        title = f"{month} 이달의 MVP, {names}" if names else f"{month} 이달의 MVP"
+        top = winners[0] if winners else None
+        summary = (f"{names}이(가) {month} 실력 점수 상승률 +{top['risePercent']:.1f}%로 이달의 MVP에 뽑혔다."
+                   if top else title)
+        raw = {"title": title[:120], "summary": summary[:300], "body": "\n\n".join(paras) or title, "usedInsightIds": []}
         return validate_draft(raw, payload), raw
 
 

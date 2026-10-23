@@ -21,6 +21,7 @@ export interface ConfigHelp {
 export const CONFIG_GROUPS: { title: string; keys: string[]; advanced?: boolean }[] = [
   { title: '경기', keys: ['MATCH_DURATION_SEC', 'MATCH_AUTO_END_YN', 'MATCH_EARLY_END_GOALS'] },
   { title: '기사(The Wire)', keys: ['ARTICLE_PUBLISH_MODE', 'WIRE_MAX_INSIGHTS'] },
+  { title: '이달의 MVP', keys: ['MONTHLY_MVP_MIN_SESSIONS'] },
   { title: '팀 자동 편성', keys: ['TEAM_RATING_TOLERANCE_PERCENT', 'TEAM_CANDIDATE_COUNT', 'PAIR_ALPHA', 'PAIR_PENALTY_EPSILON'] },
   {
     title: '실력 점수 계산 (고급)',
@@ -32,7 +33,7 @@ export const CONFIG_GROUPS: { title: string; keys: string[]; advanced?: boolean 
 
 /** 실력 점수 계산 묶음 위에 한 번 보여 주는 안내 */
 export const RATING_GROUP_NOTE =
-  '실력 점수는 팀 자동 편성의 균형을 맞추는 데만 쓰이고 화면·기사 어디에도 나오지 않아요. 바꾼 값은 다음에 [기록 확정]하는 경기부터 계산에 쓰여요.'
+  '실력 점수는 팀 자동 편성과 이달의 MVP 선정에 쓰여요. 점수 자체는 화면·기사 어디에도 나오지 않고, 이달의 MVP는 상승률(%)만 보여요. 바꾼 값은 다음에 [기록 확정]하는 경기부터 계산에 쓰여요.'
 
 export const CONFIG_HELP: Record<string, ConfigHelp> = {
   // ---------------------------------------------------------------- 경기
@@ -78,7 +79,7 @@ export const CONFIG_HELP: Record<string, ConfigHelp> = {
       ['검토 후 게시', '어색한 문장을 공개 전에 [다시 쓰기]나 [반려]로 거를 수 있어요. 대신 게시를 잊으면 기사가 안 보여요.'],
       ['바로 게시', '만들어지자마자 모두에게 보여요. 확인 없이 나가니 문장이 어색해도 그대로 공개돼요.'],
     ],
-    tip: '이미 만들어진 기사에는 적용되지 않아요.',
+    tip: '이미 만들어진 기사에는 적용되지 않아요. 이달의 MVP 기사는 이 설정과 상관없이 바로 게시돼요.',
     choiceLabels: { MANUAL: '관리자 검토 후 게시', AUTO: '만들어지면 바로 게시' },
   },
   WIRE_MAX_INSIGHTS: {
@@ -91,6 +92,19 @@ export const CONFIG_HELP: Record<string, ConfigHelp> = {
       ['내리면', '굵직한 소식만 남아 기사가 짧고 선명해져요. 개근·기록 도전 같은 작은 소식은 빠지기 쉬워요.'],
     ],
     tip: 'AI 키가 없을 때 쓰는 템플릿 작성기는 이 값과 상관없이 최대 6문장까지만 써요.',
+  },
+
+  // ---------------------------------------------------------------- 이달의 MVP
+  MONTHLY_MVP_MIN_SESSIONS: {
+    label: 'MVP 후보 최소 출전',
+    unit: '회',
+    summary: '그 달에 이 횟수 이상 일정에 나온 선수만 이달의 MVP 후보가 돼요.',
+    how: '그 달 첫 경기 전 실력 점수와 마지막 경기 후 실력 점수를 비교해 상승률(%)이 가장 높은 후보가 MVP예요. 다음 달 1일(그 달 일정이 모두 마감된 뒤) 타이틀과 기사가 자동으로 나가요. 홈 화면에는 이번 달 1~3위 후보가 보여요.',
+    effects: [
+      ['올리면', '꾸준히 나온 선수 중에서 뽑혀요. 출전이 적은 달에는 후보가 없어 MVP가 안 나올 수 있어요.'],
+      ['내리면', '한두 번 나와 크게 오른 선수도 MVP가 될 수 있어요.'],
+    ],
+    tip: '확정된 경기만 계산에 들어가요. 이미 발표된 달에는 적용되지 않아요.',
   },
 
   // ---------------------------------------------------------------- 팀 자동 편성

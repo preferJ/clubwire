@@ -8,10 +8,11 @@ from app.models.base import Base, CreatedAtMixin, Id, TimestampMixin, UtcDateTim
 
 
 class TitleType(TimestampMixin, Base):
-    """클럽이 운영하는 타이틀 정의(이주의 MVP, 이주의 득점왕 …).
+    """클럽이 운영하는 타이틀 정의(이주의 득점왕 · 도움왕, 이달의 MVP …).
 
     AWARD_METHOD=MANUAL : 관리자가 수여
-    AWARD_METHOD=AUTO   : [일정마감] 시 AUTO_RULE로 자동 집계(주 단위 재계산)
+    AWARD_METHOD=AUTO   : 주간 타이틀은 [일정마감] 시 AUTO_RULE로 자동 집계(주 단위 재계산),
+                          이달의 MVP(MONTHLY)는 월 마감 때 실력 점수 상승률 1위(app/services/mvp_service.py)
     """
 
     __tablename__ = "TITLE_TYPE"
@@ -30,7 +31,7 @@ class TitleType(TimestampMixin, Base):
 
 
 class MemberTitle(CreatedAtMixin, Base):
-    """타이틀 수여 이력(MVP 이력 포함). 취소는 CANCELLED_YN."""
+    """타이틀 수여 이력(이달의 MVP 포함). 취소는 CANCELLED_YN."""
 
     __tablename__ = "MEMBER_TITLE"
     __table_args__ = (

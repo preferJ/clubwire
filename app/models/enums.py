@@ -78,6 +78,7 @@ class ReferenceType(StrEnum):
 class TitlePeriodType(StrEnum):
     WEEKLY = "WEEKLY"
     SESSION = "SESSION"
+    MONTHLY = "MONTHLY"   # 이달의 MVP(월 마감 때 자동 집계)
 
 
 class AwardMethod(StrEnum):
@@ -89,6 +90,7 @@ class TitleAutoRule(StrEnum):
     TOP_GOALS = "TOP_GOALS"
     TOP_ASSISTS = "TOP_ASSISTS"
     TOP_WINS = "TOP_WINS"
+    MONTHLY_RATING_RISE = "MONTHLY_RATING_RISE"   # 이달의 MVP 전용(그 달 실력 점수 상승률 1위)
 
 
 class InsightPhase(StrEnum):
@@ -100,6 +102,7 @@ class ArticleType(StrEnum):
     PRE_MATCH = "PRE_MATCH"
     POST_MATCH = "POST_MATCH"   # 예약(현재 정책상 생성하지 않음)
     SESSION_RECAP = "SESSION_RECAP"
+    MONTHLY_MVP = "MONTHLY_MVP"   # 이달의 MVP(월 마감 때 자동 작성 · 바로 게시)
 
 
 class ArticleStatus(StrEnum):
