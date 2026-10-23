@@ -300,26 +300,30 @@ function topicOf(a: Article): string | undefined {
   return a.tags.find((t) => !['마감', '프리뷰', '이달의 MVP'].includes(t))
 }
 
-/** MVP 한 줄: 이번 달 후보 1~3위(실력 점수 상승률 %만). 후보가 없으면 지난달 MVP를 대신 보여 줌 */
+/** MVP 띠: 전체 영역에서 기록 > 기사 > 이달의 MVP로 이동 */
 function MvpStrip({ slug, race }: { slug: string; race?: MvpRace | null }) {
   if (!race) return null
   const month = Number(race.month.slice(5, 7))
   const last = race.lastMonth
   const rule = `이번 달 일정 ${race.minSessions}회 이상 나온 선수 중 실력 점수 상승률 순, 다음 달 1일 확정`
   return (
-    <section className="mvp-strip" aria-label={`${month}월 MVP 후보 · ${rule}`} title={rule}>
-      <span className="lbl">MVP<small>{month}월</small></span>
-      {race.candidates.length ? race.candidates.map((c) => (
-        <Link key={c.memberId} to={`/c/${slug}/members/${c.memberId}`} aria-label={`${c.rank}위 ${c.name} ${fmtRise(c.risePercent)}`}>
-          <span className={`rk r${c.rank}`}>{c.rank}</span>{c.name}<span className="up">{fmtRise(c.risePercent)}</span>
-        </Link>
-      )) : last ? (
-        <Link to={last.articleId ? `/c/${slug}/articles/${last.articleId}` : `/c/${slug}/records?tab=awards`}>
-          후보 아직 없음 · {Number(last.month.slice(5, 7))}월 MVP {last.winners.map((w) => w.name).join(' · ')}
-          <span className="up">{fmtRise(last.winners[0]?.risePercent)}</span>
-        </Link>
-      ) : <span className="muted">후보 아직 없음</span>}
-    </section>
+    <Link to={`/c/${slug}/records?${new URLSearchParams({ tab: 'articles', tag: '이달의 MVP' })}`}
+      className="mvp-strip" aria-label={`${month}월 MVP 후보 · 기록 · 기사 · 이달의 MVP 보기`} title={rule}>
+      <div className="mvp-strip-row">
+        <span className="lbl">MVP<small>{month}월</small></span>
+        {race.candidates.length ? race.candidates.map((c) => (
+          <span key={c.memberId} className="mvp-candidate" aria-label={`${c.rank}위 ${c.name} ${fmtRise(c.risePercent)}`}>
+            <span className={`rk r${c.rank}`}>{c.rank}</span>{c.name}<span className="up">{fmtRise(c.risePercent)}</span>
+          </span>
+        )) : last ? (
+          <span className="mvp-candidate">
+            후보 아직 없음 · {Number(last.month.slice(5, 7))}월 MVP {last.winners.map((w) => w.name).join(' · ')}
+            <span className="up">{fmtRise(last.winners[0]?.risePercent)}</span>
+          </span>
+        ) : <span className="muted">후보 아직 없음</span>}
+      </div>
+      <small className="mvp-rule">MVP선정기준 : 매월 실력지표 상승폭 순위</small>
+    </Link>
   )
 }
 

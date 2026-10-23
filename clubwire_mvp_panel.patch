@@ -1,0 +1,87 @@
+diff --git a/frontend/src/pages/HomePage.tsx b/frontend/src/pages/HomePage.tsx
+index 8e2e048..b74d45f 100644
+--- a/frontend/src/pages/HomePage.tsx
++++ b/frontend/src/pages/HomePage.tsx
+@@ -294,10 +294,13 @@ function MvpRacePanel({ slug, race, error, onRetry }: { slug: string; race?: Mvp
+   const month = race ? Number(race.month.slice(5, 7)) : new Date().getMonth() + 1
+   const last = race?.lastMonth
+   return (
+-    <section className="panel" aria-label="이달의 MVP 후보">
+-      <PanelHead en="MVP RACE" ko={`${month}월 MVP 후보`}
+-        right={<span className="small muted">실력 점수 상승률</span>} />
+-      {error ? <ErrorBox error={error} onRetry={onRetry} /> : !race ? <div className="panel-body"><Loading rows={1} /></div> : (
++    <section className="panel mvp-panel" aria-label="이달의 MVP 후보">
++      <Link to={`/c/${slug}/records?${new URLSearchParams({ tab: 'articles', tag: '이달의 MVP' })}`}
++        className="mvp-panel-link" aria-label="기록 · 기사 · 이달의 MVP 보기">
++        <PanelHead en="MVP RACE" ko={`${month}월 MVP 후보`} />
++      </Link>
++      <p className="panel-note">MVP선정기준 : 매월 실력지표 상승폭 순위</p>
++      {error ? <div className="mvp-panel-error"><ErrorBox error={error} onRetry={onRetry} /></div> : !race ? <div className="panel-body"><Loading rows={1} /></div> : (
+         <>
+           {race.candidates.length === 0 ? (
+             <p className="panel-body muted" style={{ fontSize: 14 }}>
+@@ -307,25 +310,25 @@ function MvpRacePanel({ slug, race, error, onRetry }: { slug: string; race?: Mvp
+             <ol className="race">
+               {race.candidates.map((c) => (
+                 <li key={c.memberId}>
+-                  <Link to={`/c/${slug}/members/${c.memberId}`} className="race-row">
++                  <div className="race-row">
+                     <span className={`race-rank r${c.rank}`} aria-label={`${c.rank}위`}>{c.rank}</span>
+                     <span className="stack" style={{ gap: 2, flex: 1, minWidth: 0 }}>
+-                      <b style={{ fontSize: 15 }}>{c.name}</b>
++                      <b className="race-name">{c.name}</b>
+                       <span className="small muted">일정 {c.sessions}회 · {c.games}경기</span>
+                     </span>
+                     <span className="race-rise">{fmtRise(c.risePercent)}</span>
+-                  </Link>
++                  </div>
+                 </li>
+               ))}
+             </ol>
+           )}
+           <p className="panel-note">이번 달 일정 {race.minSessions}회 이상 나온 선수 중 상승률 순 · 다음 달 1일 확정</p>
+           {last ? (
+-            <Link to={last.articleId ? `/c/${slug}/articles/${last.articleId}` : `/c/${slug}/records?tab=awards`} className="panel-foot">
++            <div className="panel-foot">
+               <span className="tag gold">{Number(last.month.slice(5, 7))}월 MVP</span>
+               {last.winners.map((w) => w.name).join(' · ')} {fmtRise(last.winners[0]?.risePercent)}
+               <span style={{ color: 'var(--accent-ink)', display: 'inline-flex' }}><Icon name="play" size={12} /></span>
+-            </Link>
++            </div>
+           ) : null}
+         </>
+       )}
+diff --git a/frontend/src/styles/global.css b/frontend/src/styles/global.css
+index 312908c..e69c76b 100644
+--- a/frontend/src/styles/global.css
++++ b/frontend/src/styles/global.css
+@@ -409,14 +409,24 @@ a.panel-body:hover { color: var(--ink); background: #222933; }
+ .panel-foot { min-height: 44px; display: flex; justify-content: flex-end; align-items: center; gap: 6px; padding: 0 12px; font-size: 13px; font-weight: 700; color: var(--ink); }
+ .panel-foot:hover { color: #fff; }
+ 
+-/* MVP RACE(이달의 MVP 후보) */
++/* MVP RACE(이달의 MVP 후보): 전체 영역에서 MVP 기사 필터로 이동 */
++.mvp-panel { position: relative; }
++.mvp-panel .panel-head { padding: 12px 18px; }
++.mvp-panel .panel-body { min-height: 90px; padding: 18px; justify-content: center; }
++.mvp-panel .panel-note { padding: 12px 18px; }
++.mvp-panel-link { display: block; color: inherit; }
++.mvp-panel-link::after { content: ''; position: absolute; inset: 0; z-index: 1; }
++.mvp-panel:focus-within { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
++.mvp-panel:hover { border-color: var(--line-strong); }
++.mvp-panel-error button { position: relative; z-index: 2; }
+ .race { list-style: none; margin: 0; padding: 0; }
+-.race-row { display: flex; align-items: center; gap: 12px; min-height: 60px; padding: 8px 12px; border-bottom: 1px solid var(--line); color: var(--ink); }
++.race-row { display: flex; align-items: center; gap: 18px; min-height: 90px; padding: 12px 18px; border-bottom: 1px solid var(--line); color: var(--ink); }
+ .race-row:hover { color: var(--ink); background: #222933; }
+-.race-rank { flex: none; width: 30px; height: 30px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center;
+-  font-family: var(--display); font-size: 19px; font-weight: 800; background: var(--soft); color: var(--muted); }
++.race-name { font-size: 18px; overflow-wrap: anywhere; }
++.race-rank { flex: none; width: 45px; height: 45px; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center;
++  font-family: var(--display); font-size: 28px; font-weight: 800; background: var(--soft); color: var(--muted); }
+ .race-rank.r1 { background: var(--draw); color: var(--on-light); }
+ .race-rank.r2 { background: #c3cad4; color: var(--on-light); }
+ .race-rank.r3 { background: #b9804f; color: var(--on-light); }
+-.race-rise { font-family: var(--display); font-size: 24px; font-weight: 800; color: var(--green); letter-spacing: 0.02em; }
++.race-rise { flex: none; font-family: var(--display); font-size: 36px; font-weight: 800; color: var(--green); letter-spacing: 0.02em; }
+ .panel-note { margin: 0; padding: 8px 12px; font-size: 11px; color: var(--muted); }

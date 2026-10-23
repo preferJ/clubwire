@@ -419,19 +419,21 @@ a.panel-body:hover { color: var(--ink); background: #222933; }
 .panel-foot { min-height: 44px; display: flex; justify-content: flex-end; align-items: center; gap: 6px; padding: 0 12px; font-size: 13px; font-weight: 700; color: var(--ink); }
 .panel-foot:hover { color: #fff; }
 
-/* MVP 한 줄 띠(이달의 MVP 후보 1~3위). 넘치면 옆으로 밀어 보기 */
-.mvp-strip { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 10px; border-radius: 10px;
-  background: var(--night-2); border: 1px solid var(--line); overflow-x: auto; white-space: nowrap; font-size: 13px; scrollbar-width: none; }
-.mvp-strip::-webkit-scrollbar { display: none; }
-.mvp-strip .lbl { font-family: var(--display); font-size: 14px; font-weight: 800; letter-spacing: 0.06em; color: var(--draw); line-height: 1; }
-.mvp-strip .lbl small { display: block; font-family: var(--body); font-size: 9px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
-.mvp-strip a { display: inline-flex; align-items: center; gap: 3px; min-height: 40px; color: var(--ink); font-weight: 600; }
-.mvp-strip .rk { width: 14px; height: 14px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center;
-  font-family: var(--display); font-size: 11px; font-weight: 800; background: var(--soft); color: var(--muted); }
+/* MVP 띠: 기존 42px에서 약 1.5배 확대, 전체가 MVP 기사 링크 */
+.mvp-strip { display: flex; flex-direction: column; justify-content: center; gap: 4px; min-height: 63px; padding: 6px 15px; border-radius: 10px;
+  background: var(--night-2); border: 1px solid var(--line); color: var(--ink); font-size: 15px; }
+.mvp-strip:hover { color: var(--ink); border-color: var(--line-strong); }
+.mvp-strip-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 13px; }
+.mvp-strip .lbl { flex: none; font-family: var(--display); font-size: 21px; font-weight: 800; letter-spacing: 0.06em; color: var(--draw); line-height: 1; }
+.mvp-strip .lbl small { display: block; font-family: var(--body); font-size: 11px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
+.mvp-strip .mvp-candidate { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 4px; min-height: 30px; color: var(--ink); font-weight: 600; }
+.mvp-strip .rk { flex: none; width: 21px; height: 21px; border-radius: 4px; display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-size: 16px; font-weight: 800; background: var(--soft); color: var(--muted); }
 .mvp-strip .rk.r1 { background: var(--draw); color: var(--on-light); }
 .mvp-strip .rk.r2 { background: #c3cad4; color: var(--on-light); }
 .mvp-strip .rk.r3 { background: #b9804f; color: var(--on-light); }
-.mvp-strip .up { font-family: var(--display); font-size: 14px; font-weight: 700; color: var(--green); }
+.mvp-strip .up { font-family: var(--display); font-size: 21px; font-weight: 700; color: var(--green); }
+.mvp-strip .mvp-rule { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
 
 /* 다음 일정이 없을 때 한 줄 */
 .panel.slim-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 44px; padding: 4px 12px; }
