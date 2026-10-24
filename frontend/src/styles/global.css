@@ -419,19 +419,26 @@ a.panel-body:hover { color: var(--ink); background: #222933; }
 .panel-foot { min-height: 44px; display: flex; justify-content: flex-end; align-items: center; gap: 6px; padding: 0 12px; font-size: 13px; font-weight: 700; color: var(--ink); }
 .panel-foot:hover { color: #fff; }
 
-/* MVP 한 줄 띠(이달의 MVP 후보 1~3위). 넘치면 옆으로 밀어 보기 */
-.mvp-strip { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 10px; border-radius: 10px;
-  background: var(--night-2); border: 1px solid var(--line); overflow-x: auto; white-space: nowrap; font-size: 13px; scrollbar-width: none; }
-.mvp-strip::-webkit-scrollbar { display: none; }
-.mvp-strip .lbl { font-family: var(--display); font-size: 14px; font-weight: 800; letter-spacing: 0.06em; color: var(--draw); line-height: 1; }
+/* MVP 한 줄 띠: 화면 대신 실제 패널 너비에 맞춰 글자와 순위 배지를 축소한다. */
+.mvp-strip { display: flex; flex-wrap: nowrap; align-items: center; gap: 6px; min-height: 42px; padding: 0 8px; border-radius: 10px;
+  background: var(--night-2); border: 1px solid var(--line); container-type: inline-size; min-width: 0; white-space: nowrap; font-size: 13px; }
+.mvp-strip .lbl { flex: none; font-family: var(--display); font-size: 14px; font-weight: 800; letter-spacing: 0.06em; color: var(--draw); line-height: 1; }
 .mvp-strip .lbl small { display: block; font-family: var(--body); font-size: 9px; font-weight: 500; letter-spacing: 0; color: var(--muted); }
-.mvp-strip a { display: inline-flex; align-items: center; gap: 3px; min-height: 40px; color: var(--ink); font-weight: 600; }
-.mvp-strip .rk { width: 14px; height: 14px; border-radius: 3px; display: inline-flex; align-items: center; justify-content: center;
-  font-family: var(--display); font-size: 11px; font-weight: 800; background: var(--soft); color: var(--muted); }
+.mvp-strip a { display: inline-flex; flex: 1 1 0; min-width: 0; align-items: center; justify-content: center; gap: 2px; min-height: 40px;
+  color: var(--ink); font-size: clamp(11px, 3.2cqi, 13px); font-weight: 600; white-space: nowrap; }
+.mvp-strip .name { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mvp-strip .rk { flex: none; width: clamp(11px, 3.2cqi, 14px); height: clamp(11px, 3.2cqi, 14px); border-radius: 3px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--display); font-size: clamp(9px, 2.7cqi, 11px); font-weight: 800; background: var(--soft); color: var(--muted); }
 .mvp-strip .rk.r1 { background: var(--draw); color: var(--on-light); }
 .mvp-strip .rk.r2 { background: #c3cad4; color: var(--on-light); }
 .mvp-strip .rk.r3 { background: #b9804f; color: var(--on-light); }
-.mvp-strip .up { font-family: var(--display); font-size: 14px; font-weight: 700; color: var(--green); }
+.mvp-strip .up { flex: none; font-family: var(--display); font-size: clamp(10px, 2.8cqi, 14px); font-weight: 700; color: var(--green); }
+
+/* 아주 좁은 폰에서는 순위와 이름을 우선 표시한다. 상승률은 링크의 접근성 이름에 유지한다. */
+@container (max-width: 300px) {
+  .mvp-strip .up { display: none; }
+}
 
 /* 다음 일정이 없을 때 한 줄 */
 .panel.slim-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 44px; padding: 4px 12px; }

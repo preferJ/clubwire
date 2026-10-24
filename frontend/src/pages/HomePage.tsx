@@ -311,11 +311,11 @@ function MvpStrip({ slug, race }: { slug: string; race?: MvpRace | null }) {
       <span className="lbl">MVP<small>{month}월</small></span>
       {race.candidates.length ? race.candidates.map((c) => (
         <Link key={c.memberId} to={`/c/${slug}/members/${c.memberId}`} aria-label={`${c.rank}위 ${c.name} ${fmtRise(c.risePercent)}`}>
-          <span className={`rk r${c.rank}`}>{c.rank}</span>{c.name}<span className="up">{fmtRise(c.risePercent)}</span>
+          <span className={`rk r${c.rank}`}>{c.rank}</span><span className="name" title={c.name ?? undefined}>{c.name}</span><span className="up">{fmtRise(c.risePercent)}</span>
         </Link>
       )) : last ? (
         <Link to={last.articleId ? `/c/${slug}/articles/${last.articleId}` : `/c/${slug}/records?tab=awards`}>
-          후보 아직 없음 · {Number(last.month.slice(5, 7))}월 MVP {last.winners.map((w) => w.name).join(' · ')}
+          <span className="name">후보 아직 없음 · {Number(last.month.slice(5, 7))}월 MVP {last.winners.map((w) => w.name).join(' · ')}</span>
           <span className="up">{fmtRise(last.winners[0]?.risePercent)}</span>
         </Link>
       ) : <span className="muted">후보 아직 없음</span>}
