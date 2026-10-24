@@ -45,13 +45,15 @@ export const makeApi = (slug: string) => ({
     request<Member>(slug, 'PATCH', `/members/${memberId}`, { body }),
 
   // 일정
-  sessions: (limit = 30) => request<SessionListItem[]>(slug, 'GET', '/sessions', { query: { limit } }),
+  sessions: (limit = 30, category?: 'upcoming' | 'completed' | 'deleted') =>
+    request<SessionListItem[]>(slug, 'GET', '/sessions', { query: { limit, category } }),
   session: (id: number) => request<SessionDetail>(slug, 'GET', `/sessions/${id}`),
   sessionSummary: (id: number) => request<SessionSummary>(slug, 'GET', `/sessions/${id}/summary`),
   createSession: (body: { sessionDate: string; title?: string; location?: string }) =>
     request<SessionDetail>(slug, 'POST', '/sessions', { body }),
   updateSession: (id: number, body: { sessionDate?: string; title?: string; location?: string }) =>
     request<SessionDetail>(slug, 'PATCH', `/sessions/${id}`, { body }),
+  deleteSession: (id: number) => request<SessionListItem>(slug, 'DELETE', `/sessions/${id}`),
   cancelSession: (id: number) => request<SessionListItem>(slug, 'POST', `/sessions/${id}/cancel`),
   addAttendees: (id: number, memberIds: number[]) =>
     request<SessionDetail>(slug, 'POST', `/sessions/${id}/members`, { body: { memberIds } }),

@@ -21,12 +21,12 @@ def lock_club(db: Session, club_id: int) -> Club:
     return db.execute(select(Club).where(Club.club_id == club_id).with_for_update()).scalar_one()
 
 
-def get_session(db: Session, club_id: int, session_id: int, *, lock: bool = False) -> ClubSession:
+def get_session(db: Session, club_id: int, session_id: int, *, lock: bool = False, include_deleted: bool = False) -> ClubSession:
     stmt = select(ClubSession).where(ClubSession.session_id == session_id, ClubSession.club_id == club_id)
     if lock:
         stmt = stmt.with_for_update()
     s = db.scalar(stmt)
-    if not s:
+    if not s or (s.deleted_at is not None and not include_deleted):
         raise NotFound("일정을 찾을 수 없습니다.", "SESSION_NOT_FOUND")
     return s
 
@@ -53,6 +53,8 @@ def get_member(db: Session, club_id: int, member_id: int, *, active_only: bool =
 
 
 def guard_not_closed(session: ClubSession) -> None:
+    if session.deleted_at is not None:
+        raise Conflict("삭제된 일정은 수정할 수 없습니다.", "SESSION_DELETED")
     if session.status == SessionStatus.CLOSED:
         raise Conflict("마감된 일정은 수정할 수 없습니다.", "SESSION_CLOSED")
     if session.status == SessionStatus.CANCELLED:

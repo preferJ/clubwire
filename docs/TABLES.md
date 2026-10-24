@@ -122,9 +122,10 @@
 | 7 | `TEAM_COUNT` | INTEGER | Y |  | 확정된 팀 수 |
 | 8 | `CONFIRMED_AT` | DATETIME(3) | Y |  | [일정확정] 일시 |
 | 9 | `CLOSED_AT` | DATETIME(3) | Y |  | [일정마감] 일시(이후 수정 불가) |
-| 10 | `CANCELLED_AT` | DATETIME(3) | Y |  | 취소 일시 |
-| 11 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 12 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 10 | `DELETED_AT` | DATETIME(3) | Y |  | 일정 삭제 시각(기록 보존) |
+| 11 | `CANCELLED_AT` | DATETIME(3) | Y |  | 취소 일시 |
+| 12 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 13 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 

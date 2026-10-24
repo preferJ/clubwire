@@ -43,7 +43,7 @@ CONFIG_DEFS: tuple[ConfigDef, ...] = (
     ConfigDef("MATCH_EARLY_END_GOALS", "INT", 0, "한 팀이 N골에 도달하면 조기 종료(0=사용 안 함)", min_value=0),
     # ---- The Wire ----
     ConfigDef(
-        "ARTICLE_PUBLISH_MODE", "STRING", "MANUAL", "기사 게시 방식: MANUAL=관리자 검토 후 게시, AUTO=생성 즉시 게시",
+        "ARTICLE_PUBLISH_MODE", "STRING", "MANUAL", "기사 게시 방식: MANUAL=관리자 검토 후 게시, AUTO=프리뷰 제외 생성 즉시 게시",
         choices=("MANUAL", "AUTO"),
     ),
     ConfigDef("WIRE_MAX_INSIGHTS", "INT", 15, "기사 1건에 AI로 넘기는 Insight 최대 개수", min_value=1, max_value=50),

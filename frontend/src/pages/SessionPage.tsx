@@ -7,7 +7,7 @@ import { Icon } from '../components/Icon'
 import { NextMatchSheet } from '../components/NextMatchSheet'
 import { AdminButton, ErrorBox, Loading, TopBar } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
-import { fmtDate, teamColor } from '../lib/format'
+import { fmtDate, fmtDateTime, teamColor } from '../lib/format'
 import { useAction, useAsync } from '../lib/hooks'
 
 const STEPS: { key: string; label: string }[] = [
@@ -42,7 +42,9 @@ export function SessionPage() {
       ) : (
         <>
           <main className="page">
-            {d.status === 'CANCELLED' ? (
+            {d.deletedAt ? (
+              <div className="notice gray">삭제한 일정입니다. {fmtDateTime(d.deletedAt)} · 기록은 보관되며 수정할 수 없어요.</div>
+            ) : d.status === 'CANCELLED' ? (
               <div className="notice gray">취소된 일정입니다.</div>
             ) : (
               <ol className="stepper-line" aria-label="일정 진행 단계">
@@ -72,7 +74,7 @@ export function SessionPage() {
               </section>
             ) : null}
           </main>
-          {isAdmin ? <AdminActions d={d} reload={s.reload} /> : null}
+          {isAdmin ? <AdminActions d={d} /> : null}
         </>
       )}
     </>
@@ -132,33 +134,38 @@ function MatchRow({ m, slug }: { m: SessionMatch; slug: string }) {
   )
 }
 
-function AdminActions({ d, reload }: { d: SessionDetail; reload: () => void }) {
+function AdminActions({ d }: { d: SessionDetail }) {
   const { api, slug } = useClub()
   const nav = useNavigate()
   const { busy, run } = useAction()
   const [nextOpen, setNextOpen] = useState(false)
   const active = d.matches.find((m) => ['READY', 'RUNNING', 'PAUSED'].includes(m.status))
 
+  const deleteSession = async () => {
+    if (!window.confirm('이 일정을 삭제할까요? 삭제한 일정에서 다시 볼 수 있고, 완료된 경기 기록과 통계는 보존됩니다.')) return
+    if (await run(() => api.deleteSession(d.sessionId), '일정을 삭제했어요')) nav(`/c/${slug}/sessions?tab=deleted`)
+  }
+  const deleteButton = <button type="button" className="btn sm danger block" disabled={busy} onClick={deleteSession}>일정 삭제</button>
+
+  if (d.deletedAt) return <div className="bar-actions"><Link className="btn block" to={`/c/${slug}/sessions?tab=deleted`}>삭제한 일정 목록으로</Link></div>
+
   if (d.status === 'CLOSED' || d.status === 'CANCELLED') {
     return (
       <div className="bar-actions">
         <p className="small muted center">{d.status === 'CLOSED' ? '마감된 일정은 고칠 수 없어요.' : '취소된 일정입니다.'}</p>
+        {deleteButton}
       </div>
     )
   }
 
   if (d.status === 'OPEN') {
-    const cancel = async () => {
-      if (!window.confirm('이 일정을 취소할까요?')) return
-      if (await run(() => api.cancelSession(d.sessionId), '일정을 취소했어요')) reload()
-    }
     return (
       <div className="bar-actions">
         <div className="grid2">
           <Link className="btn" to={`/c/${slug}/admin/sessions/${d.sessionId}/attendance`}>참석자 수정</Link>
           <Link className="btn primary" to={`/c/${slug}/admin/sessions/${d.sessionId}/teams`}>팀 편성</Link>
         </div>
-        <button type="button" className="link-btn" style={{ color: 'var(--warn-ink)' }} disabled={busy} onClick={cancel}>일정 취소</button>
+        {deleteButton}
       </div>
     )
   }
@@ -181,6 +188,7 @@ function AdminActions({ d, reload }: { d: SessionDetail; reload: () => void }) {
         <Link className="btn sm" to={`/c/${slug}/admin/sessions/${d.sessionId}/teams`}>팀 수동 변경</Link>
         <Link className="btn sm" to={`/c/${slug}/admin/sessions/${d.sessionId}/close`}>일정마감</Link>
       </div>
+      {deleteButton}
       <NextMatchSheet sessionId={d.sessionId} open={nextOpen} onClose={() => setNextOpen(false)} />
     </div>
   )

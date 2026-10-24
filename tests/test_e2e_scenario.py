@@ -255,7 +255,12 @@ def test_insights_return_player_and_close_order(make_club, client):
     assert all("rating" not in str(i["facts"]).lower() for i in pre)
     # 연승 선수(3연승) Insight
     assert any(i["type"] == "WIN_STREAK" and i["facts"]["streak"] == 3 for i in pre)
-    # AUTO 게시 모드 → 공개 목록에 바로 노출, 태그는 Backend 매핑
+    # 프리뷰는 AUTO 설정이어도 관리자 검토 후 게시해야 공개된다.
+    previews = api.ok(api.get("/articles", params={"all": "true", "sessionId": s2}))
+    preview = next(a for a in previews if a["articleType"] == "PRE_MATCH")
+    assert preview["status"] == "GENERATED"
+    api.ok(api.post(f"/articles/{preview['articleId']}/publish"))
+    # 마감 기사는 AUTO 게시, 태그는 Backend 매핑
     arts = api.ok(api.get("/articles", admin=False))
     assert arts and all(a["status"] == "PUBLISHED" for a in arts)
     assert any("복귀" in a["tags"] for a in arts)
@@ -264,7 +269,9 @@ def test_insights_return_player_and_close_order(make_club, client):
     new = api.ok(api.post(f"/articles/{aid}/regenerate"), 201)
     assert new["generationNo"] == 2 and new["parentArticleId"] in (aid, arts[0]["parentArticleId"])
     detail = api.ok(api.get(f"/articles/{new['articleId']}"))
-    assert detail["status"] == "PUBLISHED"
+    assert detail["status"] == "GENERATED"
+    assert api.ok(api.get(f"/articles/{aid}"))["status"] == "PUBLISHED"
+    api.ok(api.post(f"/articles/{new['articleId']}/publish"))
     old = api.ok(api.get(f"/articles/{aid}"))
     assert old["status"] == "SUPERSEDED"
     # 설정 변경 이력

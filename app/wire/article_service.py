@@ -28,6 +28,7 @@ from app.models.enums import ArticleStatus, ArticleType
 from app.integrations.openai.writer import PROMPT_VERSION, failure_reason, get_writer, template_writer
 from app.services.config_service import load_config
 from app.services.session_service import team_rosters
+from app.services.common import get_session
 
 log = logging.getLogger("clubwire.wire")
 
@@ -101,6 +102,9 @@ def run_generation(article_id: int) -> None:
         a = db.get(AiArticle, article_id)
         if not a or a.status != ArticleStatus.PENDING:
             return
+        session = db.get(ClubSession, a.session_id) if a.session_id else None
+        if session and session.deleted_at is not None:
+            return
         cfg = load_config(db, a.club_id)
         options = {"temperature": cfg["AI_TEMPERATURE"], "maxOutputTokens": cfg["AI_MAX_OUTPUT_TOKENS"]}
         reason = None
@@ -131,7 +135,7 @@ def run_generation(article_id: int) -> None:
             db.add(AiArticleInsight(article_id=a.article_id, insight_id=iid))
         db.flush()
         _apply_tags(db, a)
-        if a.article_type in ALWAYS_PUBLISH or cfg["ARTICLE_PUBLISH_MODE"] == "AUTO":
+        if a.article_type in ALWAYS_PUBLISH or (a.article_type != ArticleType.PRE_MATCH and cfg["ARTICLE_PUBLISH_MODE"] == "AUTO"):
             _publish(db, a)
         emit(db, a.club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
         db.commit()
@@ -176,6 +180,8 @@ def _get(db: Session, club_id: int, article_id: int, lock: bool = False) -> AiAr
 
 def update_article(db: Session, club_id: int, article_id: int, *, title: str, summary: str, content: str) -> AiArticle:
     a = _get(db, club_id, article_id, lock=True)
+    if a.session_id:
+        get_session(db, club_id, a.session_id)
     if a.published_at is not None or a.status not in (ArticleStatus.GENERATED, ArticleStatus.REJECTED):
         raise Conflict("게시 전 기사만 수정할 수 있습니다.", "INVALID_ARTICLE_STATUS")
     a.title, a.summary, a.content = title, summary, content
@@ -186,6 +192,8 @@ def update_article(db: Session, club_id: int, article_id: int, *, title: str, su
 
 def publish_article(db: Session, club_id: int, article_id: int) -> AiArticle:
     a = _get(db, club_id, article_id, lock=True)
+    if a.session_id:
+        get_session(db, club_id, a.session_id)
     if a.status not in (ArticleStatus.GENERATED, ArticleStatus.REJECTED, ArticleStatus.SUPERSEDED):
         raise Conflict(f"게시할 수 없는 상태입니다({a.status}).", "INVALID_ARTICLE_STATUS")
     _publish(db, a)
@@ -196,6 +204,8 @@ def publish_article(db: Session, club_id: int, article_id: int) -> AiArticle:
 
 def reject_article(db: Session, club_id: int, article_id: int) -> AiArticle:
     a = _get(db, club_id, article_id, lock=True)
+    if a.session_id:
+        get_session(db, club_id, a.session_id)
     if a.status not in (ArticleStatus.GENERATED, ArticleStatus.PUBLISHED, ArticleStatus.FAILED):
         raise Conflict(f"내릴 수 없는 상태입니다({a.status}).", "INVALID_ARTICLE_STATUS")
     a.status = ArticleStatus.REJECTED
@@ -208,6 +218,8 @@ def reject_article(db: Session, club_id: int, article_id: int) -> AiArticle:
 def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
     """같은 사실(REQUEST_JSON)로 새 버전을 만든다. 기존 기사는 그대로 둔다."""
     src = _get(db, club_id, article_id)
+    if src.session_id:
+        get_session(db, club_id, src.session_id)
     if src.status == ArticleStatus.PENDING:
         raise Conflict("생성 중인 기사입니다.", "ARTICLE_PENDING")
     root_id = src.parent_article_id or src.article_id
@@ -262,6 +274,8 @@ def list_articles(db: Session, club_id: int, *, published_only: bool = True, tag
                   member_id: int | None = None, session_id: int | None = None, status: str | None = None,
                   limit: int = 20, before_id: int | None = None) -> list[AiArticle]:
     stmt = select(AiArticle).where(AiArticle.club_id == club_id)
+    stmt = stmt.where((AiArticle.session_id.is_(None)) | AiArticle.session_id.in_(
+        select(ClubSession.session_id).where(ClubSession.deleted_at.is_(None))))
     if published_only:
         stmt = stmt.where(AiArticle.published_yn.is_(True))
     elif status:
@@ -290,7 +304,8 @@ def list_articles(db: Session, club_id: int, *, published_only: bool = True, tag
 
 def get_article(db: Session, club_id: int, article_id: int, *, admin: bool = False) -> AiArticle:
     a = _get(db, club_id, article_id)
-    if not admin and not a.published_yn:
+    session = db.get(ClubSession, a.session_id) if a.session_id else None
+    if not admin and (not a.published_yn or (session and session.deleted_at is not None)):
         raise NotFound("기사를 찾을 수 없습니다.", "ARTICLE_NOT_FOUND")
     return a
 

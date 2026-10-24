@@ -16,8 +16,9 @@
 | 🔓 | GET | `/members` | 멤버 목록(공개) |
 | 🔑 | POST | `/members` | 멤버 등록 |
 | 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음 |
-| 🔓 | GET | `/sessions` | 일정 목록(공개) |
+| 🔓 | GET | `/sessions` | 일정 목록(관리자: 예정/완료/삭제 구분) |
 | 🔑 | POST | `/sessions` | 일정 생성 |
+| 🔑 | DELETE | `/sessions/{session_id}` | 일정 삭제(관리자 보관함으로 이동, 완료 기록 보존) |
 | 🔓 | GET | `/sessions/{session_id}` | 일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함 |
 | 🔑 | PATCH | `/sessions/{session_id}` | 일정 수정 |
 | 🔑 | POST | `/sessions/{session_id}/cancel` | 일정 취소(경기 시작 전만) |
