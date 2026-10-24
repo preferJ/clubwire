@@ -80,9 +80,9 @@ def club_summary(db: Session, club: Club, today: date) -> dict:
                         .where(Member.club_id == club.club_id, Member.active_yn.is_(True)))
     sessions = db.scalar(select(func.count()).select_from(ClubSession)
                          .where(ClubSession.club_id == club.club_id, ClubSession.status != SessionStatus.CANCELLED,
-                                ClubSession.session_date.between(start, end)))
+                                ClubSession.session_date.between(start, end), ClubSession.deleted_at.is_(None)))
     articles = db.scalar(select(func.count()).select_from(AiArticle)
                          .join(ClubSession, ClubSession.session_id == AiArticle.session_id)
                          .where(AiArticle.club_id == club.club_id, AiArticle.published_yn.is_(True),
-                                ClubSession.session_date.between(start, end)))
+                                ClubSession.session_date.between(start, end), ClubSession.deleted_at.is_(None)))
     return {"year": today.year, "activeMembers": members or 0, "sessions": sessions or 0, "articles": articles or 0}

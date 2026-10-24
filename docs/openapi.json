@@ -583,8 +583,13 @@
         "tags": [
           "sessions"
         ],
-        "summary": "일정 목록(공개)",
+        "summary": "일정 목록(관리자: 예정/완료/삭제 구분)",
         "operationId": "list_sessions_api_clubs__club_slug__sessions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "parameters": [
           {
             "name": "club_slug",
@@ -604,6 +609,7 @@
             "schema": {
               "type": "integer",
               "maximum": 100,
+              "minimum": 1,
               "default": 30,
               "title": "Limit"
             }
@@ -623,6 +629,27 @@
                 }
               ],
               "title": "Before"
+            }
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "upcoming",
+                    "completed",
+                    "deleted"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Category"
             }
           }
         ],
@@ -801,6 +828,60 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "일정 삭제(관리자 보관함으로 이동, 완료 기록 보존)",
+        "operationId": "delete_session_api_clubs__club_slug__sessions__session_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -3296,6 +3377,70 @@
             }
           }
         }
+      },
+      "patch": {
+        "tags": [
+          "wire"
+        ],
+        "summary": "관리자 게시 전 기사 수정",
+        "operationId": "update_api_clubs__club_slug__articles__article_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "article_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Article Id"
+            }
+          },
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArticleUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/clubs/{club_slug}/articles/{article_id}/publish": {
@@ -4397,6 +4542,35 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "ArticleUpdate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Summary"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 16000,
+            "minLength": 1,
+            "title": "Content"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "summary",
+          "content"
+        ],
+        "title": "ArticleUpdate"
       }
     },
     "securitySchemes": {

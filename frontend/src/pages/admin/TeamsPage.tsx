@@ -37,8 +37,8 @@ function Generate({ d }: { d: SessionDetail }) {
     if (!gen) return
     const r = await run(() => api.confirmTeams(d.sessionId, gen.generationId))
     if (r) {
-      toast.show('일정확정! 프리뷰 기사를 만들고 있어요')
-      nav(`/c/${slug}/sessions/${d.sessionId}`)
+      toast.show('일정을 확정했어요. 프리뷰를 검토한 뒤 게시해 주세요')
+      nav(`/c/${slug}/admin/articles?sessionId=${d.sessionId}&articleType=PRE_MATCH&articleId=${r.articleIds?.[0] ?? ''}`)
     }
   }
   const sizes = gen ? gen.teams.map((t) => t.headcount).join(' · ') : splitSizes(headcount, count).join(' · ')
@@ -90,7 +90,7 @@ function Generate({ d }: { d: SessionDetail }) {
               <button type="button" className="btn" disabled={busy} onClick={generate}><Icon name="shuffle" size={18} />다시 섞기</button>
               <button type="button" className="btn primary lg" disabled={busy} onClick={confirm}>일정확정</button>
             </div>
-            <span className="small muted center">확정하면 프리뷰 기사가 만들어지고 멤버에게 팀이 공개돼요</span>
+            <span className="small muted center">확정하면 팀이 공개되고, 프리뷰 기사 검토 화면으로 이동해요</span>
           </>
         ) : (
           <button type="button" className="btn primary lg block" disabled={busy || headcount < count * 2} onClick={generate}>

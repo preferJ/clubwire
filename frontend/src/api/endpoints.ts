@@ -45,13 +45,15 @@ export const makeApi = (slug: string) => ({
     request<Member>(slug, 'PATCH', `/members/${memberId}`, { body }),
 
   // 일정
-  sessions: (limit = 30) => request<SessionListItem[]>(slug, 'GET', '/sessions', { query: { limit } }),
+  sessions: (limit = 30, category?: 'upcoming' | 'completed' | 'deleted') =>
+    request<SessionListItem[]>(slug, 'GET', '/sessions', { query: { limit, category } }),
   session: (id: number) => request<SessionDetail>(slug, 'GET', `/sessions/${id}`),
   sessionSummary: (id: number) => request<SessionSummary>(slug, 'GET', `/sessions/${id}/summary`),
   createSession: (body: { sessionDate: string; title?: string; location?: string }) =>
     request<SessionDetail>(slug, 'POST', '/sessions', { body }),
   updateSession: (id: number, body: { sessionDate?: string; title?: string; location?: string }) =>
     request<SessionDetail>(slug, 'PATCH', `/sessions/${id}`, { body }),
+  deleteSession: (id: number) => request<SessionListItem>(slug, 'DELETE', `/sessions/${id}`),
   cancelSession: (id: number) => request<SessionListItem>(slug, 'POST', `/sessions/${id}/cancel`),
   addAttendees: (id: number, memberIds: number[]) =>
     request<SessionDetail>(slug, 'POST', `/sessions/${id}/members`, { body: { memberIds } }),
@@ -110,6 +112,8 @@ export const makeApi = (slug: string) => ({
   articles: (query: { tag?: string; memberId?: number; sessionId?: number; all?: boolean; limit?: number; beforeId?: number } = {}) =>
     request<Article[]>(slug, 'GET', '/articles', { query }),
   article: (id: number) => request<ArticleDetail>(slug, 'GET', `/articles/${id}`),
+  updateArticle: (id: number, body: { title: string; summary: string; content: string }) =>
+    request<ArticleDetail>(slug, 'PATCH', `/articles/${id}`, { body }),
   publishArticle: (id: number) => request<ArticleDetail>(slug, 'POST', `/articles/${id}/publish`),
   rejectArticle: (id: number) => request<ArticleDetail>(slug, 'POST', `/articles/${id}/reject`),
   regenerateArticle: (id: number) => request<ArticleDetail>(slug, 'POST', `/articles/${id}/regenerate`),

@@ -93,12 +93,12 @@ def test_ai_failure_falls_back_to_basic_article(make_club, ai, slug, error, reas
     assert a["errorMessage"].startswith("기본형으로 작성: ") and reason in a["errorMessage"]
     assert a["title"] and a["content"]
 
-    # 게시 방식이 '바로 게시'면 기본형도 바로 게시. [다시 쓰기]에서 AI가 돌아오면 AI 기사
+    # 프리뷰는 AUTO 설정에서도 검토 대기. [다시 쓰기]에서 AI가 돌아오면 AI 기사
     api.ok(api.patch("/admin/config", {"values": {"ARTICLE_PUBLISH_MODE": "AUTO"}}))
     ai.behaviour = lambda kw, n: dict(GOOD)
     b = api.ok(api.post(f"/articles/{a['articleId']}/regenerate"), 201)
     b = api.ok(api.get(f"/articles/{b['articleId']}"))
-    assert b["status"] == "PUBLISHED" and b["basic"] is False and b["title"] == "AI가 쓴 프리뷰"
+    assert b["status"] == "GENERATED" and b["basic"] is False and b["title"] == "AI가 쓴 프리뷰"
 
 
 def test_truncated_answer_retries_then_basic(make_club, ai):

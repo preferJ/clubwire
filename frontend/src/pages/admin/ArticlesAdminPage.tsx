@@ -1,7 +1,7 @@
 // A08 기사 검토: 게시 / 반려 / 다시 쓰기, 자동 게시 설정
 
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import type { Article, ArticleStatus, InsightPayload } from '../../api/types'
 import { Icon } from '../../components/Icon'
 import { Empty, ErrorBox, Loading, Switch, Tags, TopBar } from '../../components/ui'
@@ -26,9 +26,12 @@ const STATUS_LABEL: Record<ArticleStatus, string> = {
 
 export function ArticlesAdminPage() {
   const { api, slug } = useClub()
+  const [params] = useSearchParams()
+  const sessionId = Number(params.get('sessionId')) || undefined
+  const previewOnly = params.get('articleType') === 'PRE_MATCH'
   const [tab, setTab] = useState('review')
-  const [open, setOpen] = useState<number | null>(null)
-  const list = useAsync(() => api.articles({ all: true, limit: 100 }), [api])
+  const [open, setOpen] = useState<number | null>(() => Number(params.get('articleId')) || null)
+  const list = useAsync(() => api.articles({ all: true, limit: 100, sessionId }), [api, sessionId])
   const config = useAsync(() => api.config(), [api])
   const { busy, run } = useAction()
   useClubEvent((m) => {
@@ -37,18 +40,19 @@ export function ArticlesAdminPage() {
 
   const auto = config.data?.items.find((i) => i.key === 'ARTICLE_PUBLISH_MODE')?.value === 'AUTO'
   const toggleAuto = async (v: boolean) => {
-    const r = await run(() => api.updateConfig({ ARTICLE_PUBLISH_MODE: v ? 'AUTO' : 'MANUAL' }), v ? '이제 기사가 바로 게시돼요' : '이제 검토 후 게시해요')
+    const r = await run(() => api.updateConfig({ ARTICLE_PUBLISH_MODE: v ? 'AUTO' : 'MANUAL' }), v ? '프리뷰를 제외한 기사는 바로 게시돼요' : '이제 검토 후 게시해요')
     if (r) config.setData(r)
   }
 
   const current = TABS.find((t) => t.key === tab)!
-  const rows = (list.data ?? []).filter((a) => current.statuses.includes(a.status))
-  const count = (key: string) => (list.data ?? []).filter((a) => TABS.find((t) => t.key === key)!.statuses.includes(a.status)).length
+  const articles = (list.data ?? []).filter((a) => !previewOnly || a.articleType === 'PRE_MATCH')
+  const rows = articles.filter((a) => current.statuses.includes(a.status))
+  const count = (key: string) => articles.filter((a) => TABS.find((t) => t.key === key)!.statuses.includes(a.status)).length
 
   return (
     <>
-      <TopBar title="기사 검토" back={`/c/${slug}/admin`}
-        right={<span className="row small muted">자동 게시<Switch checked={!!auto} onChange={toggleAuto} label="자동 게시" /></span>} />
+      <TopBar title="기사 검토" back={sessionId ? `/c/${slug}/sessions/${sessionId}` : `/c/${slug}/admin`}
+        right={<span className="row small muted">자동 게시(프리뷰 제외)<Switch checked={!!auto} onChange={toggleAuto} label="자동 게시" /></span>} />
       <div className="tabs" role="tablist" aria-label="기사 상태" style={{ background: 'var(--card)' }}>
         {TABS.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}>
@@ -57,11 +61,13 @@ export function ArticlesAdminPage() {
         ))}
       </div>
       <main className="page">
+        {sessionId ? <div className="row between small"><span>{previewOnly ? '이 일정의 프리뷰 기사' : '이 일정의 기사'}</span><Link to={`/c/${slug}/admin/articles`}>전체 기사 보기</Link></div> : null}
         {list.error ? <ErrorBox error={list.error} onRetry={list.reload} />
           : !list.data ? <Loading />
             : rows.length === 0 ? <Empty>해당하는 기사가 없어요.</Empty>
               : rows.map((a) => (
                 <ArticleReviewCard key={a.articleId} a={a} open={open === a.articleId} busy={busy}
+                  onSaved={list.reload}
                   onToggle={() => setOpen(open === a.articleId ? null : a.articleId)}
                   onAction={async (action) => {
                     const fn = action === 'publish' ? api.publishArticle : action === 'reject' ? api.rejectArticle : api.regenerateArticle
@@ -74,16 +80,31 @@ export function ArticlesAdminPage() {
   )
 }
 
-function ArticleReviewCard({ a, open, busy, onToggle, onAction }: {
+function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
   a: Article
   open: boolean
   busy: boolean
   onToggle: () => void
+  onSaved: () => void
   onAction: (action: 'publish' | 'reject' | 'regenerate') => void
 }) {
   const { api, slug } = useClub()
   const detail = useAsync(() => (open ? api.article(a.articleId) : Promise.resolve(null)), [api, a.articleId, open, a.status])
   const d = detail.data
+  const [draft, setDraft] = useState<{ title: string; summary: string; content: string } | null>(null)
+  const save = useAction()
+  const editable = !a.publishedAt && ['GENERATED', 'REJECTED'].includes(a.status)
+  const editing = !!draft && open && editable
+  const locked = busy || save.busy
+  const saveDraft = async () => {
+    if (!draft) return
+    const updated = await save.run(() => api.updateArticle(a.articleId, draft), '기사 수정을 저장했어요')
+    if (updated) {
+      detail.setData(updated)
+      setDraft(null)
+      onSaved()
+    }
+  }
   const insights = d?.requestJson?.insights ?? []
   const used = new Set(d?.usedInsightIds ?? [])
 
@@ -98,7 +119,7 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction }: {
         <span className="small muted">{fmtDateTime(a.createdAt)}</span>
       </div>
       <Tags tags={a.tags} />
-      <button type="button" onClick={onToggle} aria-expanded={open}
+      <button type="button" onClick={() => { setDraft(null); onToggle() }} disabled={locked || editing} aria-expanded={open}
         style={{ border: 0, background: 'transparent', padding: 0, textAlign: 'left', color: 'var(--ink)' }}>
         <div className="headline" style={{ fontSize: 20 }}>{a.title ?? (a.status === 'PENDING' ? 'AI가 기사를 쓰는 중…' : '(제목 없음)')}</div>
         {a.summary ? <p style={{ fontSize: 14, fontWeight: 600, marginTop: 6 }}>{a.summary}</p> : null}
@@ -110,9 +131,30 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction }: {
       ) : null}
 
       {open ? (
-        !d ? <Loading rows={1} /> : (
+        detail.error ? <ErrorBox error={detail.error} onRetry={detail.reload} /> : !d ? <Loading rows={1} /> : (
           <>
-            <div className="article-body">{(d.content ?? '').split(/\n{2,}/).map((p, i) => <p key={i} style={{ fontSize: 14 }}>{p}</p>)}</div>
+            {editing && draft ? (
+              <form className="stack" onSubmit={(e) => { e.preventDefault(); void saveDraft() }}>
+                <label className="field">제목
+                  <input aria-label="제목" className="input" required maxLength={200} value={draft.title} disabled={locked}
+                    onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+                </label>
+                <label className="field">요약
+                  <textarea aria-label="요약" className="input" style={{ height: 'auto', padding: 12 }} rows={3} maxLength={500} value={draft.summary} disabled={locked}
+                    onChange={(e) => setDraft({ ...draft, summary: e.target.value })} />
+                </label>
+                <label className="field">본문
+                  <textarea aria-label="본문" className="input" style={{ height: 'auto', padding: 12 }} required rows={12} maxLength={16000} value={draft.content} disabled={locked}
+                    onChange={(e) => setDraft({ ...draft, content: e.target.value })} />
+                </label>
+                <div className="grid2">
+                  <button type="button" className="btn sm" disabled={locked} onClick={() => setDraft(null)}>취소</button>
+                  <button type="submit" className="btn sm primary" disabled={locked || !draft.title.trim() || !draft.content.trim()}>수정 저장</button>
+                </div>
+              </form>
+            ) : <div className="article-body">{(d.content ?? '').split(/\n{2,}/).map((p, i) => <p key={i} style={{ fontSize: 14 }}>{p}</p>)}</div>}
+            {editable && !editing ? <button type="button" className="btn sm" disabled={locked || detail.loading}
+              onClick={() => setDraft({ title: d.title ?? '', summary: d.summary ?? '', content: d.content ?? '' })}>기사 수정</button> : null}
             {insights.length ? (
               <details className="card flat" open>
                 <summary>기사에 쓴 사실 {insights.filter((i) => used.has(i.id)).length}건 · 미사용 {insights.filter((i) => !used.has(i.id)).length}건</summary>
@@ -133,11 +175,11 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction }: {
       ) : null}
 
       <div className="grid3">
-        <button type="button" className="btn sm danger" disabled={busy || !['GENERATED', 'PUBLISHED', 'FAILED'].includes(a.status)} onClick={() => onAction('reject')}>반려</button>
-        <button type="button" className="btn sm" disabled={busy || a.status === 'PENDING'} onClick={() => onAction('regenerate')}>
+        <button type="button" className="btn sm danger" disabled={locked || editing || !['GENERATED', 'PUBLISHED', 'FAILED'].includes(a.status)} onClick={() => onAction('reject')}>반려</button>
+        <button type="button" className="btn sm" disabled={locked || editing || a.status === 'PENDING'} onClick={() => onAction('regenerate')}>
           <Icon name="refresh" size={16} stroke={2} />다시 쓰기
         </button>
-        <button type="button" className="btn sm primary" disabled={busy || !['GENERATED', 'REJECTED', 'SUPERSEDED'].includes(a.status)} onClick={() => onAction('publish')}>게시</button>
+        <button type="button" className="btn sm primary" disabled={locked || editing || !['GENERATED', 'REJECTED', 'SUPERSEDED'].includes(a.status)} onClick={() => onAction('publish')}>게시</button>
       </div>
     </article>
   )

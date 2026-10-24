@@ -16,8 +16,9 @@
 | 🔓 | GET | `/members` | 멤버 목록(공개) |
 | 🔑 | POST | `/members` | 멤버 등록 |
 | 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음 |
-| 🔓 | GET | `/sessions` | 일정 목록(공개) |
+| 🔓 | GET | `/sessions` | 일정 목록(관리자: 예정/완료/삭제 구분) |
 | 🔑 | POST | `/sessions` | 일정 생성 |
+| 🔑 | DELETE | `/sessions/{session_id}` | 일정 삭제(관리자 보관함으로 이동, 완료 기록 보존) |
 | 🔓 | GET | `/sessions/{session_id}` | 일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함 |
 | 🔑 | PATCH | `/sessions/{session_id}` | 일정 수정 |
 | 🔑 | POST | `/sessions/{session_id}/cancel` | 일정 취소(경기 시작 전만) |
@@ -61,6 +62,7 @@
 | 🔑 | GET | `/admin/insights` | [관리자] Insight 목록 |
 | 🔓 | GET | `/articles` | 기사 목록(공개: 게시본 / 관리자: all=true면 전체) |
 | 🔓 | GET | `/articles/{article_id}` | 기사 상세 |
+| 🔑 | PATCH | `/articles/{article_id}` | 관리자 게시 전 기사 수정 |
 | 🔑 | POST | `/articles/{article_id}/publish` | 기사 게시(같은 일정/종류의 기존 게시본은 SUPERSEDED) |
 | 🔑 | POST | `/articles/{article_id}/regenerate` | 기사 재생성(새 버전, 기존 보존) |
 | 🔑 | POST | `/articles/{article_id}/reject` | 기사 반려/내리기 |

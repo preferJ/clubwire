@@ -1,6 +1,6 @@
 // 일정 탭: 일정 목록
 
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Icon } from '../components/Icon'
 import { ClubBar, Empty, ErrorBox, Loading } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
@@ -9,7 +9,14 @@ import { useAsync } from '../lib/hooks'
 
 export function SessionsPage() {
   const { api, slug, isAdmin } = useClub()
-  const list = useAsync(() => api.sessions(50), [api])
+  const [params, setParams] = useSearchParams()
+  const tabs = [
+    { key: 'upcoming', label: '예정된 일정' },
+    { key: 'completed', label: '완료된 일정' },
+    { key: 'deleted', label: '삭제한 일정' },
+  ] as const
+  const category = tabs.find((t) => t.key === params.get('tab'))?.key ?? 'upcoming'
+  const list = useAsync(() => api.sessions(100, isAdmin ? category : undefined), [api, isAdmin, category])
   useClubEvent((m) => {
     if (m.type === 'SESSION_UPDATED') list.reload()
   })
@@ -17,6 +24,10 @@ export function SessionsPage() {
   return (
     <>
       <ClubBar title="일정" />
+      {isAdmin ? <div className="tabs" role="tablist" aria-label="일정 구분">
+        {tabs.map((t) => <button key={t.key} type="button" role="tab" aria-selected={category === t.key}
+          onClick={() => setParams({ tab: t.key })}>{t.label}</button>)}
+      </div> : null}
       <main className="page tight">
         {isAdmin ? (
           <Link to={`/c/${slug}/admin/sessions/new`} className="btn primary block">
@@ -25,10 +36,10 @@ export function SessionsPage() {
         ) : null}
         {list.error ? (
           <ErrorBox error={list.error} onRetry={list.reload} />
-        ) : list.loading && !list.data ? (
+        ) : list.loading ? (
           <Loading />
         ) : (list.data ?? []).length === 0 ? (
-          <Empty>아직 일정이 없어요.</Empty>
+          <Empty>{isAdmin ? category === 'upcoming' ? '예정된 일정이 없어요.' : category === 'completed' ? '완료된 일정이 없어요.' : '삭제한 일정이 없어요.' : '아직 일정이 없어요.'}</Empty>
         ) : (
           (list.data ?? []).map((s) => (
             <Link key={s.sessionId} to={`/c/${slug}/sessions/${s.sessionId}`} className="list-row" style={{ minHeight: 64 }}>
@@ -40,8 +51,8 @@ export function SessionsPage() {
                 </span>
               </div>
               <span className={`status-badge ${s.status === 'IN_PROGRESS' ? 'green' : ''}`}
-                style={s.status === 'CANCELLED' ? { textDecoration: 'line-through' } : undefined}>
-                {SESSION_STATUS_LABEL[s.status]}
+                style={s.deletedAt || s.status === 'CANCELLED' ? { textDecoration: 'line-through' } : undefined}>
+                {s.deletedAt ? '삭제됨' : s.status === 'CLOSED' ? '완료' : SESSION_STATUS_LABEL[s.status]}
               </span>
             </Link>
           ))
