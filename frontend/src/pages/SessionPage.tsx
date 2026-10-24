@@ -174,6 +174,9 @@ function AdminActions({ d, reload }: { d: SessionDetail; reload: () => void }) {
           <Icon name="plus" size={18} stroke={2} />다음 경기 만들기
         </button>
       )}
+      <Link className="btn block" to={`/c/${slug}/admin/articles?sessionId=${d.sessionId}&articleType=PRE_MATCH`}>
+        프리뷰 기사 올리기
+      </Link>
       <div className="grid2">
         <Link className="btn sm" to={`/c/${slug}/admin/sessions/${d.sessionId}/teams`}>팀 수동 변경</Link>
         <Link className="btn sm" to={`/c/${slug}/admin/sessions/${d.sessionId}/close`}>일정마감</Link>

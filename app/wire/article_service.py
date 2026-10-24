@@ -174,6 +174,16 @@ def _get(db: Session, club_id: int, article_id: int, lock: bool = False) -> AiAr
     return a
 
 
+def update_article(db: Session, club_id: int, article_id: int, *, title: str, summary: str, content: str) -> AiArticle:
+    a = _get(db, club_id, article_id, lock=True)
+    if a.published_at is not None or a.status not in (ArticleStatus.GENERATED, ArticleStatus.REJECTED):
+        raise Conflict("게시 전 기사만 수정할 수 있습니다.", "INVALID_ARTICLE_STATUS")
+    a.title, a.summary, a.content = title, summary, content
+    emit(db, club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
+    db.commit()
+    return a
+
+
 def publish_article(db: Session, club_id: int, article_id: int) -> AiArticle:
     a = _get(db, club_id, article_id, lock=True)
     if a.status not in (ArticleStatus.GENERATED, ArticleStatus.REJECTED, ArticleStatus.SUPERSEDED):

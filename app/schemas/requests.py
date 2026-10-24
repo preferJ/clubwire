@@ -1,8 +1,8 @@
 """API Request DTO. JSON은 camelCase(memberId), 파이썬은 snake_case."""
 from datetime import date
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from pydantic.alias_generators import to_camel
 
 
@@ -130,3 +130,9 @@ class TitleAwardRequest(CamelModel):
     session_id: int | None = None
     award_date: date | None = None
     note: str | None = Field(default=None, max_length=200)
+
+
+class ArticleUpdate(CamelModel):
+    title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    summary: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
+    content: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=16000)]
