@@ -61,6 +61,7 @@
 | 🔑 | GET | `/admin/insights` | [관리자] Insight 목록 |
 | 🔓 | GET | `/articles` | 기사 목록(공개: 게시본 / 관리자: all=true면 전체) |
 | 🔓 | GET | `/articles/{article_id}` | 기사 상세 |
+| 🔑 | PATCH | `/articles/{article_id}` | 관리자 게시 전 기사 수정 |
 | 🔑 | POST | `/articles/{article_id}/publish` | 기사 게시(같은 일정/종류의 기존 게시본은 SUPERSEDED) |
 | 🔑 | POST | `/articles/{article_id}/regenerate` | 기사 재생성(새 버전, 기존 보존) |
 | 🔑 | POST | `/articles/{article_id}/reject` | 기사 반려/내리기 |

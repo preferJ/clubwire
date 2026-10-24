@@ -6,6 +6,7 @@ from app.api.deps import admin_dep, club_dep, optional_admin, schedule_articles
 from app.core.database import get_db
 from app.core.security import AdminPrincipal
 from app.models import Club
+from app.schemas.requests import ArticleUpdate
 from app.wire import article_service
 
 router = APIRouter(tags=["wire"])
@@ -28,6 +29,13 @@ def get_article(article_id: int, club: Club = Depends(club_dep), admin: AdminPri
                 db: Session = Depends(get_db)):
     a = article_service.get_article(db, club.club_id, article_id, admin=admin is not None)
     return article_service.serialize_article(db, a, detail=True, admin=admin is not None)
+
+
+@router.patch("/articles/{article_id}", summary="관리자 게시 전 기사 수정")
+def update(article_id: int, body: ArticleUpdate, club: Club = Depends(club_dep),
+           admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
+    a = article_service.update_article(db, club.club_id, article_id, **body.model_dump())
+    return article_service.serialize_article(db, a, detail=True, admin=True)
 
 
 @router.post("/articles/{article_id}/publish", summary="기사 게시(같은 일정/종류의 기존 게시본은 SUPERSEDED)")
