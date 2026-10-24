@@ -30,7 +30,7 @@ export function ArticlesAdminPage() {
   const sessionId = Number(params.get('sessionId')) || undefined
   const previewOnly = params.get('articleType') === 'PRE_MATCH'
   const [tab, setTab] = useState('review')
-  const [open, setOpen] = useState<number | null>(null)
+  const [open, setOpen] = useState<number | null>(() => Number(params.get('articleId')) || null)
   const list = useAsync(() => api.articles({ all: true, limit: 100, sessionId }), [api, sessionId])
   const config = useAsync(() => api.config(), [api])
   const { busy, run } = useAction()
@@ -40,7 +40,7 @@ export function ArticlesAdminPage() {
 
   const auto = config.data?.items.find((i) => i.key === 'ARTICLE_PUBLISH_MODE')?.value === 'AUTO'
   const toggleAuto = async (v: boolean) => {
-    const r = await run(() => api.updateConfig({ ARTICLE_PUBLISH_MODE: v ? 'AUTO' : 'MANUAL' }), v ? '이제 기사가 바로 게시돼요' : '이제 검토 후 게시해요')
+    const r = await run(() => api.updateConfig({ ARTICLE_PUBLISH_MODE: v ? 'AUTO' : 'MANUAL' }), v ? '프리뷰를 제외한 기사는 바로 게시돼요' : '이제 검토 후 게시해요')
     if (r) config.setData(r)
   }
 
@@ -51,8 +51,8 @@ export function ArticlesAdminPage() {
 
   return (
     <>
-      <TopBar title="기사 검토" back={`/c/${slug}/admin`}
-        right={<span className="row small muted">자동 게시<Switch checked={!!auto} onChange={toggleAuto} label="자동 게시" /></span>} />
+      <TopBar title="기사 검토" back={sessionId ? `/c/${slug}/sessions/${sessionId}` : `/c/${slug}/admin`}
+        right={<span className="row small muted">자동 게시(프리뷰 제외)<Switch checked={!!auto} onChange={toggleAuto} label="자동 게시" /></span>} />
       <div className="tabs" role="tablist" aria-label="기사 상태" style={{ background: 'var(--card)' }}>
         {TABS.map((t) => (
           <button key={t.key} type="button" role="tab" aria-selected={tab === t.key} onClick={() => setTab(t.key)}>

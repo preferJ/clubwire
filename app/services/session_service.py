@@ -63,13 +63,43 @@ def cancel_session(db: Session, club_id: int, session_id: int) -> ClubSession:
         raise Conflict("이미 경기가 진행된 일정은 취소할 수 없습니다. [일정마감]을 사용하세요.", "SESSION_HAS_MATCHES")
     s.status = SessionStatus.CANCELLED
     s.cancelled_at = utcnow()
+    s.deleted_at = s.cancelled_at
     emit(db, club_id, "SESSION_UPDATED", {"sessionId": s.session_id, "status": s.status})
     db.commit()
     return s
 
 
-def list_sessions(db: Session, club_id: int, limit: int = 30, before: date | None = None) -> list[ClubSession]:
+def delete_session(db: Session, club_id: int, session_id: int) -> ClubSession:
+    s = get_session(db, club_id, session_id, lock=True, include_deleted=True)
+    if s.deleted_at is not None:
+        return s
+    if s.status != SessionStatus.CLOSED:
+        # 경기 기록이 있으면 기존 마감·통계 확정 절차를 먼저 거친다.
+        started = db.scalar(select(func.count()).select_from(MatchGame).where(
+            MatchGame.session_id == session_id, MatchGame.started_at.is_not(None),
+            MatchGame.game_status != GameStatus.CANCELLED))
+        if started:
+            raise Conflict("경기 기록이 있는 일정은 먼저 마감한 뒤 삭제하세요.", "SESSION_HAS_MATCHES")
+        s.status = SessionStatus.CANCELLED
+        s.cancelled_at = utcnow()
+    s.deleted_at = utcnow()
+    emit(db, club_id, "SESSION_UPDATED", {"sessionId": s.session_id, "status": s.status})
+    db.commit()
+    db.refresh(s)
+    return s
+
+
+def list_sessions(db: Session, club_id: int, limit: int = 30, before: date | None = None,
+                  category: str | None = None) -> list[ClubSession]:
     stmt = select(ClubSession).where(ClubSession.club_id == club_id)
+    if category == "deleted":
+        stmt = stmt.where(ClubSession.deleted_at.is_not(None))
+    else:
+        stmt = stmt.where(ClubSession.deleted_at.is_(None))
+        if category == "upcoming":
+            stmt = stmt.where(ClubSession.status != SessionStatus.CLOSED)
+        elif category == "completed":
+            stmt = stmt.where(ClubSession.status == SessionStatus.CLOSED)
     if before:
         stmt = stmt.where(ClubSession.session_date < before)
     return list(db.scalars(stmt.order_by(ClubSession.session_date.desc(), ClubSession.session_id.desc()).limit(limit)))
@@ -177,7 +207,7 @@ def team_rosters(db: Session, session_id: int) -> dict[int, dict]:
 def serialize_session(db: Session, s: ClubSession, *, detail: bool = False, admin: bool = False) -> dict:
     data = {
         "sessionId": s.session_id, "sessionDate": s.session_date, "title": s.title, "location": s.location,
-        "status": s.status, "teamCount": s.team_count,
+        "status": s.status, "teamCount": s.team_count, "deletedAt": to_iso(s.deleted_at),
         "confirmedAt": to_iso(s.confirmed_at), "closedAt": to_iso(s.closed_at),
     }
     if not detail:

@@ -22,6 +22,7 @@ class ClubSession(TimestampMixin, Base):
     team_count: Mapped[int | None] = mapped_column("TEAM_COUNT", Integer)
     confirmed_at: Mapped[datetime | None] = mapped_column("CONFIRMED_AT", UtcDateTime)
     closed_at: Mapped[datetime | None] = mapped_column("CLOSED_AT", UtcDateTime)
+    deleted_at: Mapped[datetime | None] = mapped_column("DELETED_AT", UtcDateTime, comment="일정 삭제 시각(기록 보존)")
     cancelled_at: Mapped[datetime | None] = mapped_column("CANCELLED_AT", UtcDateTime)
 
 

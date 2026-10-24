@@ -74,6 +74,7 @@ export interface SessionListItem {
   teamCount: number | null
   confirmedAt: string | null
   closedAt: string | null
+  deletedAt: string | null
   attendeeCount: number
   guestCount: number
 }

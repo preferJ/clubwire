@@ -1,12 +1,14 @@
 """일정 / 참석 / 게스트 / 팀 편성 / [일정확정] / [일정마감]."""
 import logging
 from datetime import date
+from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.api.deps import admin_dep, club_dep, optional_admin, schedule_articles
 from app.core.database import get_db
+from app.core.errors import Unauthorized
 from app.core.security import AdminPrincipal
 from app.core.timeutil import to_iso
 from app.models import Club
@@ -26,10 +28,15 @@ log = logging.getLogger("clubwire.sessions")
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
-@router.get("", summary="일정 목록(공개)")
-def list_sessions(limit: int = Query(30, le=100), before: date | None = None, club: Club = Depends(club_dep),
+@router.get("", summary="일정 목록(관리자: 예정/완료/삭제 구분)")
+def list_sessions(limit: int = Query(30, ge=1, le=100), before: date | None = None,
+                  category: Literal["upcoming", "completed", "deleted"] | None = None,
+                  club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depends(optional_admin),
                   db: Session = Depends(get_db)):
-    return [session_service.serialize_session(db, s) for s in session_service.list_sessions(db, club.club_id, limit, before)]
+    if category == "deleted" and not admin:
+        raise Unauthorized("삭제한 일정은 관리자만 볼 수 있습니다.", "ADMIN_REQUIRED")
+    return [session_service.serialize_session(db, s) for s in
+            session_service.list_sessions(db, club.club_id, limit, before, category)]
 
 
 @router.post("", status_code=201, summary="일정 생성")
@@ -42,7 +49,7 @@ def create_session(body: SessionCreate, club: Club = Depends(club_dep), admin: A
 @router.get("/{session_id}", summary="일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함")
 def get_session_detail(session_id: int, club: Club = Depends(club_dep),
                        admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
-    s = get_session(db, club.club_id, session_id)
+    s = get_session(db, club.club_id, session_id, include_deleted=admin is not None)
     return session_service.serialize_session(db, s, detail=True, admin=admin is not None)
 
 
@@ -58,6 +65,13 @@ def update_session(session_id: int, body: SessionUpdate, club: Club = Depends(cl
 def cancel_session(session_id: int, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
                    db: Session = Depends(get_db)):
     s = session_service.cancel_session(db, club.club_id, session_id)
+    return session_service.serialize_session(db, s)
+
+
+@router.delete("/{session_id}", summary="일정 삭제(관리자 보관함으로 이동, 완료 기록 보존)")
+def delete_session(session_id: int, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
+                   db: Session = Depends(get_db)):
+    s = session_service.delete_session(db, club.club_id, session_id)
     return session_service.serialize_session(db, s)
 
 
