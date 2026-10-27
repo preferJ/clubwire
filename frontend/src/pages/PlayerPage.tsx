@@ -1,4 +1,4 @@
-// S05 선수 기록 (+ 수상 이력: 최근 5개 가로 넘김) · 프로필(가입일 · 출생연도, 관리자 모드에서 입력) · 케미(풋살 피치 | 궁합 티어표)
+// S05 선수 기록 (+ 수상 이력: 최근 5개 가로 넘김) · 프로필(등번호 · 가입일 · 출생연도, 관리자 모드에서 입력) · 케미(풋살 피치 | 궁합 티어표)
 
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
@@ -8,8 +8,9 @@ import { ErrorBox, Loading, TopBar } from '../components/ui'
 import { useClub } from '../lib/club'
 import { fmtAwardPeriod, fmtAwardValue, fmtFullDate, initials, pct, RESULT_LABEL } from '../lib/format'
 import { useAction, useAsync } from '../lib/hooks'
+import '../styles/member-numbers.css'
 
-const EMPTY_PROFILE: MemberProfile = { joinedAt: null, birthYear: null }
+const EMPTY_PROFILE: MemberProfile = { joinedAt: null, birthYear: null, jerseyNumber: null }
 /** 수상 이력 카드로 보여 줄 개수(나머지는 [전체 보기]) */
 const AWARD_CARDS = 5
 /** 케미: 자주 같은 팀 · 맞붙은 선수 몇 명까지 받을지(피치는 5명, 티어표는 전부) */
@@ -38,8 +39,11 @@ export function PlayerPage() {
       <header className="stack" style={{ gap: 12, padding: '16px 16px 18px', background: 'var(--card)', borderBottom: '1px solid var(--line)' }}>
         <div className="row" style={{ gap: 14 }}>
           <span className="avatar" style={{ width: 64, height: 64, fontSize: 18 }}>{initials(s.name)}</span>
-          <div className="stack" style={{ gap: 6 }}>
-            <h1 className="club-name">{s.name}</h1>
+          <div className="stack member-profile-copy" style={{ gap: 6 }}>
+            <div className="member-name-line">
+              <h1 className="club-name">{s.name}</h1>
+              {profile.jerseyNumber != null ? <span className="member-jersey member-jersey-large" aria-label={`등번호 ${profile.jerseyNumber}`}>#{profile.jerseyNumber}</span> : null}
+            </div>
             {meta ? <span className="small muted">{meta}</span> : null}
             <div className="tags">
               {titleCounts.map(([name, n]) => <span key={name} className="tag gold">{name} ×{n}</span>)}
@@ -51,7 +55,7 @@ export function PlayerPage() {
       </header>
 
       <main className="page">
-        {isAdmin ? <ProfileEditor key={`${id}-${profile.joinedAt}-${profile.birthYear}`} memberId={id} profile={profile} onSaved={detail.reload} /> : null}
+        {isAdmin ? <ProfileEditor key={`${id}-${profile.joinedAt}-${profile.birthYear}-${profile.jerseyNumber}`} memberId={id} profile={profile} onSaved={detail.reload} /> : null}
 
         <div className="grid3">
           <Stat label="경기" value={s.games} />
@@ -131,19 +135,23 @@ function cardValue(a: Award): string {
   return fmtAwardValue(a.facts ? { ...a.facts, tied: false } : null) || '수상'
 }
 
-/** 관리자 모드: 가입일 · 출생연도 입력. 비우고 저장하면 지운다 */
+/** 관리자 모드: 등번호 · 가입일 · 출생연도 입력. 비우고 저장하면 지운다 */
 function ProfileEditor({ memberId, profile, onSaved }: { memberId: number; profile: MemberProfile; onSaved: () => void }) {
   const { api } = useClub()
   const { busy, run } = useAction()
   const [joined, setJoined] = useState(profile.joinedAt ?? '')
   const [birth, setBirth] = useState(profile.birthYear ? String(profile.birthYear) : '')
+  const [jersey, setJersey] = useState(profile.jerseyNumber != null ? String(profile.jerseyNumber) : '')
   const thisYear = new Date().getFullYear()
   const birthYear = birth ? Number(birth) : null
   const birthBad = birthYear !== null && (birth.length !== 4 || birthYear < 1900 || birthYear > thisYear)
-  const dirty = joined !== (profile.joinedAt ?? '') || birthYear !== profile.birthYear
+  const jerseyNumber = jersey === '' ? null : Number(jersey)
+  const jerseyBad = jersey !== '' && !/^\d{1,2}$/.test(jersey)
+  const dirty = joined !== (profile.joinedAt ?? '') || birthYear !== profile.birthYear || jerseyNumber !== (profile.jerseyNumber ?? null)
 
   const save = async () => {
-    const done = await run(() => api.updateMember(memberId, { joinedAt: joined || null, birthYear }), '선수 정보를 저장했어요')
+    if (birthBad || jerseyBad || busy) return
+    const done = await run(() => api.updateMember(memberId, { joinedAt: joined || null, birthYear, jerseyNumber }), '선수 정보를 저장했어요')
     if (done) onSaved()
   }
 
@@ -154,18 +162,23 @@ function ProfileEditor({ memberId, profile, onSaved }: { memberId: number; profi
         <span className="admin-pill">관리자</span>
       </div>
       <div className="grid2">
-        <label className="field">가입일
-          <input className="input" type="date" value={joined} onChange={(e) => setJoined(e.target.value)} />
+        <label className="field">등번호
+          <input className="input" inputMode="numeric" pattern="[0-9]{1,2}" placeholder="미지정" value={jersey}
+            aria-invalid={jerseyBad} onChange={(e) => setJersey(e.target.value)} />
         </label>
         <label className="field">출생연도
           <input className="input" inputMode="numeric" placeholder="예: 1992" value={birth} aria-invalid={birthBad}
             onChange={(e) => setBirth(e.target.value.replace(/\D/g, '').slice(0, 4))} />
         </label>
+        <label className="field">가입일
+          <input className="input" type="date" value={joined} onChange={(e) => setJoined(e.target.value)} />
+        </label>
       </div>
+      {jerseyBad ? <span className="small" style={{ color: 'var(--loss)' }}>등번호는 0~99 사이의 정수로 입력하세요.</span> : null}
       {birthBad
         ? <span className="small" style={{ color: 'var(--loss)' }}>출생연도는 1900~{thisYear} 사이 4자리로 입력하세요.</span>
-        : <span className="small muted">저장하면 프로필에 '가입일 · n년생'으로 보여요. 칸을 비우고 저장하면 지워져요.</span>}
-      <button type="button" className="btn primary block" disabled={busy || !dirty || birthBad} onClick={save}>
+        : <span className="small muted">등번호는 0~99로 입력하세요. 칸을 비우고 저장하면 해당 정보가 지워져요.</span>}
+      <button type="button" className="btn primary block" disabled={busy || !dirty || birthBad || jerseyBad} onClick={save}>
         {busy ? '저장 중…' : '저장'}
       </button>
     </section>

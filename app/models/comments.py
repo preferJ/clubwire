@@ -25,6 +25,10 @@ COMMENTS: dict[str, dict[str, str]] = {
         "SPORT_TYPE": "종목(현재 FUTSAL만 업무 규칙 구현)",
         "TIMEZONE": "표시용 시간대(기본 Asia/Seoul)",
         "CONFIG_VERSION": "운영 설정 버전(SYSTEM_CONFIG 변경마다 +1)",
+        "OPERATING_RULES": "클럽 운영수칙. NULL이면 기존 YPR 원문 사용",
+        "OPERATING_RULES_UPDATED_AT": "운영수칙 수정 시각(UTC)",
+        "ANNOUNCEMENT": "와이어 상단 한 줄 공지. NULL 또는 빈 값이면 숨김",
+        "ANNOUNCEMENT_UPDATED_AT": "상단 공지 수정 시각(UTC)",
     },
     "CLUB_ADMIN": {
         "__table__": "클럽 관리자 PIN(Argon2 해시). 회원 로그인은 추후 확장",
@@ -40,6 +44,7 @@ COMMENTS: dict[str, dict[str, str]] = {
         "DISPLAY_ORDER": "표시 순서",
         "JOINED_AT": "가입일",
         "BIRTH_YEAR": "출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시",
+        "JERSEY_NUMBER": "등번호(0~99). 미지정이면 NULL",
         "INITIAL_RATING": "시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작",
     },
     "SYSTEM_CONFIG": {

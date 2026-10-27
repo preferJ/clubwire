@@ -1,6 +1,7 @@
 from datetime import date, datetime
 
-from sqlalchemy import Boolean, Date, Double, ForeignKey, Index, Integer, SmallInteger, String
+from sqlalchemy import Boolean, Date, Double, ForeignKey, Index, Integer, SmallInteger, String, Text
+from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, Id, TimestampMixin, UtcDateTime
@@ -19,6 +20,11 @@ class Club(TimestampMixin, Base):
     timezone: Mapped[str] = mapped_column("TIMEZONE", String(50), nullable=False, default="Asia/Seoul")
     config_version: Mapped[int] = mapped_column("CONFIG_VERSION", Integer, nullable=False, default=1)
     active_yn: Mapped[bool] = mapped_column("ACTIVE_YN", Boolean, nullable=False, default=True)
+
+    operating_rules: Mapped[str | None] = mapped_column("OPERATING_RULES", Text().with_variant(mysql.MEDIUMTEXT(), "mysql"))
+    operating_rules_updated_at: Mapped[datetime | None] = mapped_column("OPERATING_RULES_UPDATED_AT", UtcDateTime)
+    announcement: Mapped[str | None] = mapped_column("ANNOUNCEMENT", String(500))
+    announcement_updated_at: Mapped[datetime | None] = mapped_column("ANNOUNCEMENT_UPDATED_AT", UtcDateTime)
 
 
 class ClubAdmin(TimestampMixin, Base):
@@ -48,6 +54,7 @@ class Member(TimestampMixin, Base):
     active_yn: Mapped[bool] = mapped_column("ACTIVE_YN", Boolean, nullable=False, default=True)
     joined_at: Mapped[date | None] = mapped_column("JOINED_AT", Date)
     birth_year: Mapped[int | None] = mapped_column("BIRTH_YEAR", SmallInteger)
+    jersey_number: Mapped[int | None] = mapped_column("JERSEY_NUMBER", SmallInteger)
     # 시작 Rating(이관·수동 지정). NULL이면 클럽 설정 INITIAL_RATING에서 시작. 재계산(rebuild)도 이 값에서 출발한다.
     initial_rating: Mapped[float | None] = mapped_column("INITIAL_RATING", Double)
 

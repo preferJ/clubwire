@@ -8,6 +8,7 @@
   TEAMS_UPDATED   {sessionId}
   ARTICLE_UPDATED {articleId, status}
   TITLE_UPDATED   {memberTitleId}
+  CLUB_CONTENT_UPDATED  {} 운영수칙 또는 상단 공지 변경
 클라이언트 → 서버: "ping" 텍스트를 보내면 {"type":"PONG"} 응답.
 
 타이머는 매초 보내지 않는다. 클라이언트는 MATCH_UPDATED의 startedAt/pausedSeconds/serverTime으로 직접 계산한다.

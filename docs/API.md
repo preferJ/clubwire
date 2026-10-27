@@ -10,12 +10,14 @@
 | 🔑 | GET | `/admin/config` | 운영 설정 조회 |
 | 🔑 | PATCH | `/admin/config` | 운영 설정 변경(이력/버전 기록) |
 | 🔑 | GET | `/admin/config/history` | 설정 변경 이력 |
+| 🔑 | PATCH | `/admin/content` | 운영수칙·상단 공지 수정 |
 | 🔑 | GET | `/admin/me` | 관리자 모드 확인 |
 | 🔑 | POST | `/admin/pin` | 관리자 암호 변경 |
+| 🔓 | GET | `/content` | 운영수칙과 상단 공지(공개) |
 | 🔓 | GET | `/summary` | 클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수 |
 | 🔓 | GET | `/members` | 멤버 목록(공개) |
 | 🔑 | POST | `/members` | 멤버 등록 |
-| 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음 |
+| 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제는 하지 않음 |
 | 🔓 | GET | `/sessions` | 일정 목록(관리자: 예정/완료/삭제 구분) |
 | 🔑 | POST | `/sessions` | 일정 생성 |
 | 🔑 | DELETE | `/sessions/{session_id}` | 일정 삭제(관리자 보관함으로 이동, 완료 기록 보존) |

@@ -1,0 +1,18 @@
+.member-name-line { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; min-width: 0; }
+.member-name-line > b, .member-name-line > .club-name { min-width: 0; overflow-wrap: anywhere; }
+.member-jersey {
+  display: inline-flex; flex: none; align-items: center; justify-content: center;
+  min-width: 30px; padding: 2px 6px; border-radius: 5px;
+  background: var(--accent-soft); color: var(--accent-ink);
+  font-family: var(--display); font-size: 13px; font-weight: 800; line-height: 1.35;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.member-jersey-large { min-width: 44px; padding: 3px 8px; font-size: clamp(21px, 6vw, 28px); }
+.member-roster-person { flex: 1; min-width: 0; }
+.member-roster-copy, .member-profile-copy { min-width: 0; }
+.member-roster-copy > .small { overflow-wrap: anywhere; }
+.member-admin-row { display: flex; align-items: stretch; flex-direction: column; gap: 8px; padding: 12px; }
+.member-admin-fields { display: grid; grid-template-columns: minmax(0, 1fr) 86px; gap: 10px; }
+.member-admin-fields .field { min-width: 0; }
+.member-admin-fields .input { height: 40px; }
+.member-admin-actions { min-height: 34px; }

@@ -8,6 +8,7 @@ import type {
   AuthResponse,
   Award,
   Club,
+  ClubContent,
   ClubSummary,
   ConfigItem,
   Generation,
@@ -31,6 +32,9 @@ export const makeApi = (slug: string) => ({
   // 클럽 / 관리자
   club: () => request<Club>(slug, 'GET', ''),
   clubSummary: () => request<ClubSummary>(slug, 'GET', '/summary'),
+  clubContent: () => request<ClubContent>(slug, 'GET', '/content'),
+  updateClubContent: (body: Partial<Pick<ClubContent, 'operatingRules' | 'announcement'>>) =>
+    request<ClubContent>(slug, 'PATCH', '/admin/content', { body }),
   adminAuth: (password: string) => request<AuthResponse>(slug, 'POST', '/admin/auth', { body: { password } }),
   changePin: (newPassword: string) => request<{ ok: boolean }>(slug, 'POST', '/admin/pin', { body: { newPassword } }),
   config: () => request<{ configVersion: number; items: ConfigItem[] }>(slug, 'GET', '/admin/config'),
@@ -39,8 +43,8 @@ export const makeApi = (slug: string) => ({
 
   // 멤버
   members: (includeInactive = false) => request<Member[]>(slug, 'GET', '/members', { query: { includeInactive } }),
-  createMember: (name: string, initialRating?: number) =>
-    request<Member>(slug, 'POST', '/members', { body: { name, initialRating } }),
+  createMember: (name: string, initialRating?: number, jerseyNumber?: number | null) =>
+    request<Member>(slug, 'POST', '/members', { body: { name, initialRating, jerseyNumber } }),
   updateMember: (memberId: number, body: Partial<{ name: string; active: boolean; displayOrder: number } & MemberProfile>) =>
     request<Member>(slug, 'PATCH', `/members/${memberId}`, { body }),
 

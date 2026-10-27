@@ -22,6 +22,7 @@ class MemberCreate(CamelModel):
     name: str = Field(min_length=1, max_length=50)
     joined_at: date | None = None
     birth_year: int | None = Field(default=None, ge=1900, le=2100, description="출생연도(예: 1992)")
+    jersey_number: Annotated[int, Field(strict=True, ge=0, le=99)] | None = Field(default=None, description="등번호(0~99). 비우면 미지정")
     profile_image_url: str | None = Field(default=None, max_length=500)
     display_order: int | None = None
     initial_rating: float | None = Field(default=None, gt=0, le=5000,
@@ -33,6 +34,7 @@ class MemberUpdate(CamelModel):
     joined_at: date | None = Field(default=None, description="가입일. null을 보내면 지움(안 보내면 그대로)")
     birth_year: int | None = Field(default=None, ge=1900, le=2100,
                                    description="출생연도(예: 1992). null을 보내면 지움(안 보내면 그대로)")
+    jersey_number: Annotated[int, Field(strict=True, ge=0, le=99)] | None = Field(default=None, description="등번호(0~99). null을 보내면 지움(안 보내면 그대로)")
     profile_image_url: str | None = Field(default=None, max_length=500)
     display_order: int | None = None
     active: bool | None = None
@@ -137,3 +139,10 @@ class ArticleUpdate(CamelModel):
     summary: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
     content: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=16000)]
     used_insight_ids: list[Annotated[int, Field(strict=True, gt=0)]] | None = Field(default=None, max_length=100)
+
+
+class ClubContentUpdate(CamelModel):
+    operating_rules: Annotated[str, StringConstraints(strip_whitespace=True, max_length=20000)] | None = Field(
+        default=None, description="운영수칙. null이면 YPR 원문을 사용하며, 생략하면 유지")
+    announcement: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = Field(
+        default=None, description="와이어 상단 한 줄 공지. 빈 문자열 또는 null로 숨김, 생략하면 유지")

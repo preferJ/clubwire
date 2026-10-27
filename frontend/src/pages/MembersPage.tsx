@@ -8,6 +8,7 @@ import { ClubBar, Empty, ErrorBox, Loading } from '../components/ui'
 import { useClub } from '../lib/club'
 import { initials, pct } from '../lib/format'
 import { useAsync } from '../lib/hooks'
+import '../styles/member-numbers.css'
 
 export function MembersPage() {
   const { api, slug, isAdmin } = useClub()
@@ -25,7 +26,7 @@ export function MembersPage() {
           <input type="search" placeholder="이름 검색" aria-label="이름 검색" value={q} onChange={(e) => setQ(e.target.value)}
             style={{ flex: 1, border: 0, outline: 'none', background: 'transparent', fontSize: 15 }} />
         </label>
-        {isAdmin ? <Link to={`/c/${slug}/admin/members`} className="btn sm">멤버 관리(추가 · 비활성화)</Link> : null}
+        {isAdmin ? <Link to={`/c/${slug}/admin/members`} className="btn sm">멤버 관리(등번호 · 추가 · 비활성화)</Link> : null}
         {stats.error ? (
           <ErrorBox error={stats.error} onRetry={stats.reload} />
         ) : stats.loading && !stats.data ? (
@@ -35,10 +36,13 @@ export function MembersPage() {
         ) : (
           list.map((m) => (
             <Link key={m.memberId} to={`/c/${slug}/members/${m.memberId}`} className="list-row" style={{ minHeight: 60 }}>
-              <div className="row" style={{ gap: 12 }}>
+              <div className="row member-roster-person" style={{ gap: 12 }}>
                 <span className="avatar" style={{ width: 40, height: 40, fontSize: 13 }}>{initials(m.name)}</span>
-                <div className="stack" style={{ gap: 0 }}>
-                  <b>{m.name}</b>
+                <div className="stack member-roster-copy" style={{ gap: 0 }}>
+                  <span className="member-name-line">
+                    <b>{m.name}</b>
+                    {m.jerseyNumber != null ? <span className="member-jersey" aria-label={`등번호 ${m.jerseyNumber}`}>#{m.jerseyNumber}</span> : null}
+                  </span>
                   <span className="small muted">{m.games}경기 · 승률 {pct(m.winRate)} · {m.goals}골 {m.assists}도움</span>
                 </div>
               </div>

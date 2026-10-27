@@ -95,7 +95,8 @@ def test_member_profile_joined_and_birth_year(make_club):
     mid = api.ok(api.post("/members", {"name": "홍길동"}), 201)["memberId"]
     m = api.ok(api.patch(f"/members/{mid}", {"joinedAt": "2021-03-14", "birthYear": 1992}))
     assert m["joinedAt"] == "2021-03-14" and m["birthYear"] == 1992
-    assert api.ok(api.get(f"/stats/members/{mid}", admin=False))["profile"] == {"joinedAt": "2021-03-14", "birthYear": 1992}
+    assert api.ok(api.get(f"/stats/members/{mid}", admin=False))["profile"] == {
+        "joinedAt": "2021-03-14", "birthYear": 1992, "jerseyNumber": None}
 
     # 이름만 바꾸면 가입일 · 출생연도는 그대로
     m = api.ok(api.patch(f"/members/{mid}", {"name": "홍길동A"}))

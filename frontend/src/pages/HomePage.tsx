@@ -7,6 +7,7 @@ import { Link } from 'react-router-dom'
 import type { Api } from '../api/endpoints'
 import type { Article, LiveMatch, MvpRace, SessionListItem, SessionSummary } from '../api/types'
 import { Icon } from '../components/Icon'
+import { AnnouncementTicker } from '../components/AnnouncementTicker'
 import { ClubBar, ErrorBox, Loading, TeamBadge } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
 import { ARTICLE_TYPE_LABEL, dday, fmtClock, fmtDate, fmtRise, fmtShortDate, fmtToday, SESSION_STATUS_LABEL } from '../lib/format'
@@ -22,6 +23,7 @@ export function HomePage() {
   const sessions = useAsync(() => api.sessions(10), [api])
   const summary = useAsync(() => api.clubSummary(), [api])
   const race = useAsync(() => api.mvpRace(), [api])
+  const content = useAsync(() => api.clubContent(), [api])
   const picked = pickWireSessions(sessions.data ?? [])
   const pickedIds = picked.map((p) => p.s.sessionId)
   const articles = useAsync(() => loadWireArticles(api, pickedIds), [api, pickedIds.join(',')])
@@ -38,6 +40,7 @@ export function HomePage() {
       summary.reload()
     }
     if (m.type === 'TITLE_UPDATED') race.reload()  // 월 마감(이달의 MVP 발표)
+    if (m.type === 'CLUB_CONTENT_UPDATED') content.reload()
   })
 
   const next = picked[0]?.label === '이번 일정' ? picked[0].s : null
@@ -60,6 +63,8 @@ export function HomePage() {
           ) : null}
         </div>
       </ClubBar>
+
+      <AnnouncementTicker text={content.data?.announcement} />
 
       {/* 요약 줄: 누르면 해당 탭으로(멤버 → 선수단, 일정 → 일정, 기사 → 기록 탭 [기사]) */}
       <nav className="stat-ribbon" aria-label="클럽 요약">

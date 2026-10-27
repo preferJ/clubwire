@@ -1,0 +1,48 @@
+.announcement-ticker {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0;
+  min-height: 29px; padding: 0 12px; overflow: hidden;
+  background: var(--night-2); border-bottom: 1px solid var(--line); color: var(--ink-3);
+  font-size: 11px; line-height: 1.4;
+}
+.announcement-label { flex: none; color: var(--accent-ink); font-size: 10px; font-weight: 800; letter-spacing: .05em; }
+.announcement-window { flex: 1; min-width: 0; overflow: hidden; }
+.announcement-track {
+  display: flex; width: max-content; min-width: 200%; white-space: nowrap;
+  animation: club-announcement-scroll var(--announcement-duration, 24s) linear infinite;
+}
+.announcement-copy { flex: 1 0 auto; min-width: 0; padding-right: 64px; }
+.announcement-pause {
+  flex: none; display: grid; place-items: center; width: 28px; height: 28px; margin-right: -6px;
+  padding: 0; border: 0; background: transparent; color: var(--muted);
+}
+.announcement-pause:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: -3px; }
+.announcement-window:focus-visible { outline: 1px solid var(--accent-ink); outline-offset: 1px; }
+.announcement-window:hover .announcement-track,
+.announcement-window:focus .announcement-track,
+.announcement-ticker.is-paused .announcement-track { animation-play-state: paused; }
+@keyframes club-announcement-scroll { to { transform: translateX(-50%); } }
+
+.club-content-editor { min-width: 0; }
+.club-content-editor .card { min-width: 0; }
+.club-content-editor h2 { margin: 0; font-size: 16px; }
+.club-content-editor .content-textarea {
+  display: block; width: 100%; min-height: 96px; resize: vertical;
+  padding: 12px; border: 1px solid var(--line-strong); border-radius: 10px;
+  background: var(--night-2); color: var(--ink); font-size: 14px; line-height: 1.7;
+}
+.club-content-editor .content-textarea.rules { min-height: 340px; }
+.club-content-editor .content-textarea:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+.club-content-counter { margin: 0; text-align: right; font-size: 11px; color: var(--muted); }
+.club-content-editor .announcement-ticker { border: 1px solid var(--line); border-radius: 6px; }
+.club-content-preview { overflow-wrap: anywhere; }
+.club-content-preview summary { cursor: pointer; font-size: 13px; font-weight: 700; }
+.club-content-preview .members-guide-rules { margin-top: 16px; }
+.club-content-error { color: var(--loss); font-size: 13px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .announcement-track { animation: none; display: block; width: max-content; min-width: 100%; }
+  .announcement-copy { display: block; padding-right: 0; }
+  .announcement-copy + .announcement-copy { display: none; }
+  .announcement-window { overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+  .announcement-pause { display: none; }
+}
