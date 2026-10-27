@@ -1,10 +1,12 @@
 """클럽 생성/관리자 인증."""
+import re
 from datetime import date, datetime, time, timezone
 
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.core.errors import BadRequest, Conflict, Unauthorized
+from app.core.errors import BadRequest, Conflict, NotFound, Unauthorized
 from app.core.security import create_admin_token, hash_password, login_limiter, verify_password
 from app.core.timeutil import club_tz, utcnow
 from app.models import AiArticle, Club, ClubAdmin, ClubSession, Member, TitleType
@@ -47,6 +49,39 @@ def create_club(db: Session, slug: str, name: str, admin_pin: str, sport_type: s
                          award_method=method, auto_rule=rule, counts_as_mvp_yn=mvp, display_order=i))
     db.commit()
     return club
+
+
+def rename_club(db: Session, old_slug: str, new_slug: str, new_name: str | None = None) -> Club:
+    """클럽 ID와 모든 기록을 유지하고 주소/표시 이름만 변경한다."""
+    if not re.fullmatch(r"[a-z0-9_-]{1,50}", new_slug):
+        raise BadRequest("클럽 주소는 영문 소문자, 숫자, - 또는 _로 1~50자 입력하세요.", "INVALID_SLUG")
+    if new_name is not None:
+        new_name = new_name.strip()
+        if not 1 <= len(new_name) <= 100:
+            raise BadRequest("클럽 이름은 1~100자 입력하세요.", "INVALID_CLUB_NAME")
+
+    try:
+        clubs = list(db.scalars(
+            select(Club).where(Club.club_slug.in_({old_slug, new_slug}))
+            .order_by(Club.club_id).with_for_update().execution_options(populate_existing=True)
+        ))
+        club = next((c for c in clubs if c.club_slug == old_slug), None)
+        if club is None:
+            raise NotFound("클럽을 찾을 수 없습니다.", "CLUB_NOT_FOUND")
+        if any(c.club_slug == new_slug and c.club_id != club.club_id for c in clubs):
+            raise Conflict(f"이미 사용 중인 클럽 주소입니다: {new_slug}", "SLUG_TAKEN")
+        club.club_slug = new_slug
+        if new_name is not None:
+            club.club_name = new_name
+        db.commit()
+        return club
+    except IntegrityError as exc:
+        # 확인 직후 다른 트랜잭션이 같은 주소를 선점한 경우에도 변경을 남기지 않는다.
+        db.rollback()
+        raise Conflict(f"이미 사용 중인 클럽 주소입니다: {new_slug}", "SLUG_TAKEN") from exc
+    except Exception:
+        db.rollback()
+        raise
 
 
 def set_admin_pin(db: Session, club_id: int, new_pin: str) -> None:

@@ -44,7 +44,7 @@ from app.services.match_service import auto_end_due_matches  # noqa: E402
 
 KST = timezone(timedelta(hours=9))
 SEED = 20260705
-CLUB_SLUG, CLUB_NAME, PIN = "sanha", "YPR", "7777"
+CLUB_SLUG, CLUB_NAME, PIN = "ypr", "YPR", "7777"
 
 # 순위, 이름, 시작 Rating (7월 시작값)
 ROSTER = [

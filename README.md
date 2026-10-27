@@ -25,18 +25,30 @@ cp .env.example .env
 alembic upgrade head            # 또는 docs/schema.sql 실행
 
 # 4) 클럽 생성 (관리자 PIN 7777)
-python -m app.cli create-club --slug sanha --name "산하 FC" --pin 7777
+python -m app.cli create-club --slug ypr --name "YPR" --pin 7777
 
 # 5) 서버
 uvicorn app.main:app --reload --port 8000
 # API 문서: http://localhost:8000/docs
 
 # 6) 프론트(개발): Vite가 /api, /ws 를 8000으로 프록시
-cd frontend && npm install && npm run dev      # http://localhost:5173/c/sanha
+cd frontend && npm install && npm run dev      # http://localhost:5173/c/ypr
 ```
 
 배포할 때는 `cd frontend && npm run build` 후 백엔드만 띄우면 `frontend/dist`를 같은 서버에서 서빙한다
-(`http://서버/c/sanha`). 관리자 모드는 화면 오른쪽 위 자물쇠 → PIN 입력.
+(`http://서버/c/ypr`). 관리자 모드는 화면 오른쪽 위 자물쇠 → PIN 입력.
+
+첫 화면(`/`)은 기본으로 `/c/ypr`로 이동한다. `frontend/.env`가 있다면 `VITE_DEFAULT_CLUB=ypr`로 변경한 뒤 프론트엔드를 다시 빌드한다. 이 변수를 명시적으로 비우면 클럽 주소 입력 화면을 표시한다.
+
+### 기존 sanha 클럽을 YPR로 변경
+
+기존 선수·일정·경기·기사 기록을 유지하려면 DB 초기화 대신 프로젝트 루트에서 다음 명령을 한 번 실행한다. `.env`의 `DATABASE_URL`에 연결된 DB에서 클럽 주소와 이름만 바꾸며, 클럽 ID·관리자 PIN과 모든 기록은 유지한다.
+
+```bash
+python -m app.cli rename-club --from-slug sanha --to-slug ypr --name YPR
+```
+
+백엔드를 다시 시작하고 `frontend/.env`의 `VITE_DEFAULT_CLUB`도 위와 같이 변경한 뒤 프론트엔드를 다시 빌드한다. 이후 공유 주소는 `/c/ypr`를 사용한다.
 
 `OPENAI_API_KEY`가 없으면 기사는 **기본형 기사**(템플릿, `app/integrations/openai/template_writer.py`)로 만들어진다. 키를 넣으면 자동으로 OpenAI를 쓰고, AI 호출이 실패해도(크레딧 · 한도 초과, 연결 오류, 응답 검증 실패) 기본형으로 대신 쓴다. AI 창의성 · 답변 최대 길이는 관리자 설정 화면 '기사' 묶음.
 
@@ -179,7 +191,7 @@ python -m scripts.reset_ypr_test
 python -m scripts.reset_ypr_test --apply
 ```
 
-`--apply`는 기본 클럽 `sanha`의 선수·일정·경기·통계·레이팅 이력·기사·수상 기록을 지우고, 전달받은 초기 표의 23명을 다시 등록한다. 선수의 초기·현재 레이팅을 같은 원본 값으로 설정하며 경기 수는 0부터 시작한다. 기존 선수 프로필도 초기화되므로 미리보기와 백업 위치를 확인한다. 관리자 PIN·클럽 설정·타이틀 정의와 다른 클럽은 보존한다. 대상 클럽이 다르면 `--club 클럽주소`로 지정한다.
+`--apply`는 기본 클럽 `ypr`의 선수·일정·경기·통계·레이팅 이력·기사·수상 기록을 지우고, 전달받은 초기 표의 23명을 다시 등록한다. 선수의 초기·현재 레이팅을 같은 원본 값으로 설정하며 경기 수는 0부터 시작한다. 기존 선수 프로필도 초기화되므로 미리보기와 백업 위치를 확인한다. 관리자 PIN·클럽 설정·타이틀 정의와 다른 클럽은 보존한다. 대상 클럽이 다르면 `--club 클럽주소`로 지정한다.
 
 실제 삭제 전에 `.venv/clubwire-reset-backups/`에 복구 SQL을 반드시 저장한다. 백업이 실패하면 초기화하지 않으며, 적용 중 오류는 트랜잭션을 롤백한다. 백업에는 초기화 전 선수·경기·기사 데이터가 포함되므로 Git에 올리지 않는다. 다른 위치를 쓰려면 `--backup-dir 경로`를 지정한다. 복구는 백엔드를 종료하고 **같은 스키마·DB·클럽**에서 MySQL 클라이언트를 `--abort-source-on-error` 옵션으로 실행한 뒤 `SOURCE 복구파일경로;`로 수행한다. DB/클럽 식별자가 다르면 복구 SQL은 변경을 건너뛴다.
 

@@ -231,7 +231,7 @@ def reset_club(db: Session, club: Club, backup_dir: Path = DEFAULT_BACKUP_DIR) -
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="YPR 선수단 원본·테스트 안내 기사로 클럽 기록 초기화(기본: 미리보기)")
-    parser.add_argument("--club", default="sanha", help="초기화할 클럽 slug (기본: sanha)")
+    parser.add_argument("--club", default="ypr", help="초기화할 클럽 slug (기본: ypr)")
     parser.add_argument("--backup-dir", type=Path, default=DEFAULT_BACKUP_DIR, help="초기화 전 복구 SQL 저장 폴더")
     parser.add_argument("--apply", action="store_true", help="백업 후 실제 초기화. 먼저 백엔드를 종료하세요.")
     args = parser.parse_args()
