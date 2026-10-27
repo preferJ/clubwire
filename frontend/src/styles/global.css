@@ -527,3 +527,25 @@ a.panel-body:hover { color: var(--ink); background: #222933; }
 .article-milestones tbody a { color: inherit; }
 .article-milestones tbody a:hover { color: var(--blue-ink); }
 .article-milestones .remaining { font-variant-numeric: tabular-nums; }
+
+/* 선수단 상단 팀 안내: 기존 바텀시트 안에서 읽는 원문 안내 */
+.members-guide-actions { gap: 8px; }
+.members-guide-actions .btn { min-width: 0; font-size: 14px; }
+.members-guide { min-width: 0; display: flex; flex-direction: column; gap: 14px; line-height: 1.7; }
+.members-guide-heading { gap: 12px; }
+.members-guide-heading .icon-btn { flex: none; }
+.members-guide-points { display: flex; flex-direction: column; gap: 20px; }
+.members-guide h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
+.members-guide h4 { margin: 10px 0 4px; font-size: 14px; color: var(--blue-ink); }
+.members-guide p, .members-guide li { overflow-wrap: anywhere; font-size: 14px; }
+.members-guide table { width: 100%; margin: 12px 0; border-collapse: collapse; table-layout: fixed; font-size: 14px; }
+.members-guide th, .members-guide td { padding: 9px 8px; text-align: left; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.members-guide thead th { color: var(--muted); font-size: 12px; }
+.members-guide tbody th { font-weight: 600; }
+.members-guide-rule { margin-top: 14px; }
+.members-guide-rules h3 { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); }
+.members-guide-rules h3:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.members-guide-rules ul { margin: 5px 0 14px; padding-left: 20px; }
+.members-guide-rules li + li { margin-top: 5px; }
+.members-guide-warning { flex-direction: column; align-items: stretch; gap: 8px; }
+.members-guide-source { align-self: flex-start; }
