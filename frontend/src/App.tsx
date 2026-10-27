@@ -76,7 +76,7 @@ function Landing() {
         >
           <label className="field">
             클럽 주소
-            <input className="input" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="예: sanha" autoCapitalize="off" />
+            <input className="input" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="예: ypr" autoCapitalize="off" />
           </label>
           <button className="btn primary lg" type="submit">들어가기</button>
         </form>

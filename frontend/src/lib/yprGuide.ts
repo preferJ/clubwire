@@ -83,8 +83,7 @@ export const YPR_DEFAULT_RULES_TEXT = `# 1. 팀 운영
 
 ## 3.3 예약 참여 독려
 - 특정 회원에게 부담이 몰리지 않도록 참여 혜택을 제공합니다.
-
-- MOM(이달의 선수) 제도에 대한 자세한 내용은 [승점제 안내] 탭을 참고하세요.`
+`
 
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('운영 수칙 형식이 올바르지 않습니다.')

@@ -1,0 +1,870 @@
+diff --git a/README.md b/README.md
+index 8ac618e9eb50a4b826dd7ad4fce5b55b890dc1c0..23507bb040ce4b5ef0be2cc5845f1f69539ce96a 100644
+--- a/README.md
++++ b/README.md
+@@ -164,8 +164,33 @@ PIN(오답→정답) → 멤버 18명 → 일정·게스트 → 3팀 편성·[
+ - 관리자 기사 수정 시 **기사에 쓴 사실** 선택도 함께 맞추면 이정표 표에 반영된다. 미사용 마일스톤이 없거나 예전 기사의 저장된 근거가 없으면 표는 숨겨진다. 공개 기사와 관리자 검토 화면에 같은 표를 제공한다.
+ - API: 기사 상세 응답에 `unusedMilestones`를 추가한다. 기사 수정 요청의 선택 필드 `usedInsightIds`를 생략하면 기존 사용 사실을 유지하고, 빈 배열이면 선택을 모두 해제한다. 새 의존성이나 DB 마이그레이션은 필요하지 않다.
+ 
+-## 선수단의 승점제·운영 수칙 안내
++## 선수단의 운영 수칙 안내
+ 
+-선수단 탭의 이름 검색 위에 **승점제 안내 / 운영 수칙** 버튼을 제공한다. 방문자와 관리자 모두 안내를 열어 읽을 수 있다. 승점·동률·페어플레이·배지는 [YPR 원문](https://hesse429.github.io/YPR/)의 정적 안내를 반영했다(출처 커밋 `63804e179ce75a223ea44d317eca14ecc7430191`). 원문에 함께 기재된 월별 시상·초기화와 '해당 분기' 동점 제외 문구는 그대로 보존한다. 이 기능은 안내 표시이며 경기 점수나 통계 계산을 변경하지 않는다.
++선수단 탭의 이름 검색 위에 **운영 수칙** 버튼을 제공한다. 방문자와 관리자 모두 안내를 열어 읽을 수 있다. 내용은 [YPR 원문](https://hesse429.github.io/YPR/)의 운영 수칙을 읽어 표시한다. 이전 승점제 안내·배지 표는 내용이 변경되어 제거했다.
+ 
+ 운영 수칙은 안내를 열 때 공개 Firestore 문서를 읽기 전용으로 조회한다. 배포한 프론트엔드가 `firestore.googleapis.com`에 접근할 수 있어야 하며, 별도 API 키·Firebase 패키지·쓰기 권한은 필요하지 않다. 6초 안에 읽지 못하거나 데이터가 잘못되면 원문 소스의 **2026-06-08 기본 수칙**을 날짜·실패 안내와 함께 표시한다. 기본 수칙을 최신 수칙으로 표시하지 않으며 재시도와 원문 보기 링크를 제공한다. 외부 수칙의 HTML은 실행하지 않고 제목·문단·목록을 텍스트로 렌더링한다.
++
++## YPR 테스트 시작용 로컬 DB 초기화
++
++먼저 백엔드를 종료하고 MySQL은 실행한 상태로 둔다. 프로젝트 루트에서 가상환경을 활성화한 뒤 아래 명령으로 **대상 DB와 삭제 범위만 미리 확인**한다. `.env`의 `DATABASE_URL`을 사용하며 원격/다른 PC의 DB에 자동 연결하지 않는다.
++
++```bash
++python -m scripts.reset_ypr_test
++python -m scripts.reset_ypr_test --apply
++```
++
++`--apply`는 기본 클럽 `sanha`의 선수·일정·경기·통계·레이팅 이력·기사·수상 기록을 지우고, 전달받은 초기 표의 23명을 다시 등록한다. 선수의 초기·현재 레이팅을 같은 원본 값으로 설정하며 경기 수는 0부터 시작한다. 기존 선수 프로필도 초기화되므로 미리보기와 백업 위치를 확인한다. 관리자 PIN·클럽 설정·타이틀 정의와 다른 클럽은 보존한다. 대상 클럽이 다르면 `--club 클럽주소`로 지정한다.
++
++실제 삭제 전에 `.venv/clubwire-reset-backups/`에 복구 SQL을 반드시 저장한다. 백업이 실패하면 초기화하지 않으며, 적용 중 오류는 트랜잭션을 롤백한다. 백업에는 초기화 전 선수·경기·기사 데이터가 포함되므로 Git에 올리지 않는다. 다른 위치를 쓰려면 `--backup-dir 경로`를 지정한다. 복구는 백엔드를 종료하고 **같은 스키마·DB·클럽**에서 MySQL 클라이언트를 `--abort-source-on-error` 옵션으로 실행한 뒤 `SOURCE 복구파일경로;`로 수행한다. DB/클럽 식별자가 다르면 복구 SQL은 변경을 건너뛴다.
++
++초기화 후에는 **YPR clubWire 테스트 기간 돌입** 안내 기사 한 건을 바로 게시한다. 일정이 없어도 와이어에 표시되며 운영진 작성 안내로 표기한다. 문구는 `scripts/reset_ypr_test.py`의 `NOTICE_TITLE / NOTICE_SUMMARY / NOTICE_BODY`에서 확인할 수 있다. 새 DB 마이그레이션은 필요 없으며, 코드 적용 후 프론트엔드를 빌드하고 백엔드를 재시작한다.
++
++## 로컬 .env 파일 생성
++
++`.env`는 키를 담는 로컬 파일이므로 Git에서 제외한다. 저장소에 `.env.example`만 있는 경우 프로젝트 루트에서 다음 명령으로 생성한다. 기존 `.env`의 설정값은 유지하며, 서명 키가 비어 있거나 없을 때만 생성한다. 새 파일에는 임의의 토큰 서명 키를 넣고 OpenAI 키는 비워 둔다.
++
++```bash
++python -m scripts.init_local_env
++```
++
++생성한 `.env`의 `OPENAI_API_KEY=`에 발급받은 키를 넣고 `AI_PROVIDER=auto`를 유지한다. `DATABASE_URL`의 DB명·계정이 로컬 MySQL과 일치하는지 확인한 뒤 백엔드를 완전히 다시 시작한다. `.env`는 프로젝트 루트(`.env.example`과 같은 위치)에 두며 `frontend` 폴더에는 넣지 않는다.
+diff --git a/app/models/enums.py b/app/models/enums.py
+index 75476b5aa0416f50a0de0541f3314ef7ec6b5405..c41b84338d29d51f0c540c4041eb9a0dc0979fc6 100644
+--- a/app/models/enums.py
++++ b/app/models/enums.py
+@@ -100,6 +100,7 @@ class InsightPhase(StrEnum):
+ 
+ 
+ class ArticleType(StrEnum):
++    NOTICE = "NOTICE"          # 일정 없이 게시하는 운영진 안내
+     PRE_MATCH = "PRE_MATCH"
+     POST_MATCH = "POST_MATCH"   # 예약(현재 정책상 생성하지 않음)
+     SESSION_RECAP = "SESSION_RECAP"
+diff --git a/app/services/club_service.py b/app/services/club_service.py
+index cb52ceb5650ba861c5c81303a22bcc4443dcc0db..5e14c404945ffdb4880df7a6c860fc2071d4db6a 100644
+--- a/app/services/club_service.py
++++ b/app/services/club_service.py
+@@ -1,12 +1,12 @@
+ """클럽 생성/관리자 인증."""
+-from datetime import date
++from datetime import date, datetime, time, timezone
+ 
+ from sqlalchemy import func, select
+ from sqlalchemy.orm import Session
+ 
+ from app.core.errors import BadRequest, Conflict, Unauthorized
+ from app.core.security import create_admin_token, hash_password, login_limiter, verify_password
+-from app.core.timeutil import utcnow
++from app.core.timeutil import club_tz, utcnow
+ from app.models import AiArticle, Club, ClubAdmin, ClubSession, Member, TitleType
+ from app.models.enums import AwardMethod, SessionStatus, TitleAutoRule, TitlePeriodType
+ from app.services.config_service import seed_club_config
+@@ -74,15 +74,19 @@ def admin_login(db: Session, club: Club, pin: str, client_key: str) -> tuple[str
+ 
+ 
+ def club_summary(db: Session, club: Club, today: date) -> dict:
+-    """와이어 상단 요약 줄: 활동 멤버 수 · 올해 일정 수(취소 제외) · 올해 일정의 게시 기사 수."""
++    """와이어 상단 요약 줄: 활동 멤버 수 · 올해 일정 수(취소 제외) · 올해 일정의 게시 기사와 올해 게시된 공지 수."""
+     start, end = date(today.year, 1, 1), date(today.year, 12, 31)
+     members = db.scalar(select(func.count()).select_from(Member)
+                         .where(Member.club_id == club.club_id, Member.active_yn.is_(True)))
+     sessions = db.scalar(select(func.count()).select_from(ClubSession)
+                          .where(ClubSession.club_id == club.club_id, ClubSession.status != SessionStatus.CANCELLED,
+                                 ClubSession.session_date.between(start, end), ClubSession.deleted_at.is_(None)))
++    year_start = datetime.combine(start, time.min, club_tz(club.timezone)).astimezone(timezone.utc).replace(tzinfo=None)
++    year_end = datetime.combine(date(today.year + 1, 1, 1), time.min, club_tz(club.timezone)).astimezone(timezone.utc).replace(tzinfo=None)
+     articles = db.scalar(select(func.count()).select_from(AiArticle)
+-                         .join(ClubSession, ClubSession.session_id == AiArticle.session_id)
++                         .outerjoin(ClubSession, ClubSession.session_id == AiArticle.session_id)
+                          .where(AiArticle.club_id == club.club_id, AiArticle.published_yn.is_(True),
+-                                ClubSession.session_date.between(start, end), ClubSession.deleted_at.is_(None)))
++                                ((ClubSession.session_date.between(start, end) & ClubSession.deleted_at.is_(None))
++                                 | (AiArticle.session_id.is_(None) & (AiArticle.published_at >= year_start)
++                                    & (AiArticle.published_at < year_end)))))
+     return {"year": today.year, "activeMembers": members or 0, "sessions": sessions or 0, "articles": articles or 0}
+diff --git a/app/wire/article_service.py b/app/wire/article_service.py
+index b865bd84d8d9861c88a5100e3ed1a5fdbf1875df..274e044aa0daa52d244dbad2f0ee8281226d91dd 100644
+--- a/app/wire/article_service.py
++++ b/app/wire/article_service.py
+@@ -233,6 +233,8 @@ def reject_article(db: Session, club_id: int, article_id: int) -> AiArticle:
+ def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
+     """같은 사실(REQUEST_JSON)로 새 버전을 만든다. 기존 기사는 그대로 둔다."""
+     src = _get(db, club_id, article_id)
++    if src.article_type == ArticleType.NOTICE:
++        raise BadRequest("운영진 안내 기사는 다시 쓰기를 지원하지 않습니다.", "NOTICE_REGENERATE_NOT_SUPPORTED")
+     if src.session_id:
+         get_session(db, club_id, src.session_id)
+     if src.status == ArticleStatus.PENDING:
+diff --git a/frontend/src/api/types.ts b/frontend/src/api/types.ts
+index e7c07cf7eccecdeef5bf8476505165cca350de5a..f7ff3a5ad76c3be943ac4f892fce6be7400a33bb 100644
+--- a/frontend/src/api/types.ts
++++ b/frontend/src/api/types.ts
+@@ -21,7 +21,7 @@ export interface ClubSummary {
+   articles: number
+ }
+ 
+-export type ArticleType = 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP' | 'MONTHLY_MVP'
++export type ArticleType = 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP' | 'MONTHLY_MVP' | 'NOTICE'
+ 
+ /** 이달의 MVP 레이스: 실력 점수 상승률(%)만 공개(점수 자체는 비공개) */
+ export interface MvpCandidate {
+diff --git a/frontend/src/components/MembersGuide.tsx b/frontend/src/components/MembersGuide.tsx
+index 990eb179d48bbda9a5318a3230621800ed58c61b..bc4b1a8ccb8d1e72155a68c62beb1c79cbe9a3e8 100644
+--- a/frontend/src/components/MembersGuide.tsx
++++ b/frontend/src/components/MembersGuide.tsx
+@@ -6,32 +6,16 @@ import {
+   type YprRules,
+ } from '../lib/yprGuide'
+ 
+-// 승점제 정적 원문: hesse429/YPR index.html#panel-info
+-// 출처 커밋: 63804e179ce75a223ea44d317eca14ecc7430191. 운영 수칙은 이 안내와 달리 공개 문서를 매번 읽는다.
+-const POINTS_RULES = [
+-  ['동률 처리', '승수가 같으면 상위 등수로 공동 배정합니다. 예) A팀 3승, B팀 3승, C팀 1승 → A·B팀 공동 1위로 각 3점, C팀은 3위로 1점.'],
+-  ['무승부', '무승부 경기는 승점에 반영하지 않습니다.'],
+-  ['원정매칭', '원정 매칭일 경우 참여선수는 전원 승점 3점을 획득합니다.'],
+-  ['🪽 페어플레이', '매주 팀별로 선정된 페어플레이 선수는 소속 팀 순위 점수에 +1점 보너스를 받습니다. 동점표가 나오면 동점자 전원이 보너스를 받습니다. 경기종료 후 한 시간내로 페어플레이어를 선정해주세요.'],
+-  ['시상 시기', '시상은 매달 말에 진행하며, 시상 후 승점은 매달 초기화됩니다.'],
+-  ['시상 제외', '누적 승점이 동점일 경우 해당 분기 수상자는 선정하지 않습니다.'],
+-] as const
+-
+-const BADGES = [
+-  ['1회', '🥉 동메달'], ['2회', '🥈 은메달'], ['3회', '🥇 금메달'], ['4회', '🏆 트로피'],
+-  ['5회', '👑 왕관'], ['6회 이상', '👽 외계인'], ['이 주의 페어플레이어', '🪽 날개'],
+-] as const
+-
+ type RulesState = { status: 'loading' | 'live' | 'fallback'; data: YprRules | null }
+ 
+ export function MembersGuide() {
+-  const [active, setActive] = useState<'points' | 'rules' | null>(null)
++  const [open, setOpen] = useState(false)
+   const [attempt, setAttempt] = useState(0)
+   const [rules, setRules] = useState<RulesState>({ status: 'loading', data: null })
+-  const close = useCallback(() => setActive(null), [])
++  const close = useCallback(() => setOpen(false), [])
+ 
+   useEffect(() => {
+-    if (active !== 'rules') return
++    if (!open) return
+     const controller = new AbortController()
+     setRules({ status: 'loading', data: null })
+     fetchYprRules(controller.signal).then((data) => {
+@@ -42,37 +26,32 @@ export function MembersGuide() {
+       })
+     })
+     return () => controller.abort()
+-  }, [active, attempt])
++  }, [open, attempt])
+ 
+   return (
+     <>
+-      <div className="grid2 members-guide-actions" aria-label="팀 안내">
+-        <button type="button" className="btn" onClick={() => setActive('points')}><Icon name="trophy" size={18} />승점제 안내</button>
+-        <button type="button" className="btn" onClick={() => setActive('rules')}><Icon name="info" size={18} />운영 수칙</button>
+-      </div>
+-      <Sheet open={active !== null} onClose={close} labelledBy="members-guide-title">
++      <button type="button" className="btn block members-guide-trigger" onClick={() => setOpen(true)}>
++        <Icon name="info" size={18} />운영 수칙
++      </button>
++      <Sheet open={open} onClose={close} labelledBy="members-guide-title">
+         <div className="members-guide">
+           <div className="row between members-guide-heading">
+-            <h2 id="members-guide-title">{active === 'points' ? '승점제 안내' : '운영 수칙'}</h2>
++            <h2 id="members-guide-title">운영 수칙</h2>
+             <button type="button" className="icon-btn" aria-label="안내 닫기" onClick={close}><Icon name="close" /></button>
+           </div>
+-          {active === 'points' ? <PointsGuide /> : (
++          {rules.status === 'loading' ? <p className="muted" role="status">최신 운영 수칙을 불러오는 중이에요…</p> : null}
++          {rules.status === 'fallback' ? (
++            <div className="notice warn members-guide-warning" role="status">
++              <p>최신 운영 수칙을 불러오지 못해 2026-06-08 기본 수칙을 표시합니다.</p>
++              <button type="button" className="btn sm" onClick={() => setAttempt((v) => v + 1)}>다시 불러오기</button>
++            </div>
++          ) : null}
++          {rules.data ? (
+             <>
+-              {rules.status === 'loading' ? <p className="muted" role="status">최신 운영 수칙을 불러오는 중이에요…</p> : null}
+-              {rules.status === 'fallback' ? (
+-                <div className="notice warn members-guide-warning" role="status">
+-                  <p>최신 운영 수칙을 불러오지 못해 2026-06-08 기본 수칙을 표시합니다.</p>
+-                  <button type="button" className="btn sm" onClick={() => setAttempt((v) => v + 1)}>다시 불러오기</button>
+-                </div>
+-              ) : null}
+-              {rules.data ? (
+-                <>
+-                  <p className="small muted">{rules.status === 'live' ? '최신 운영 수칙' : '기본 운영 수칙'} · 최종 수정 {rules.data.updatedAt}</p>
+-                  <RulesText text={rules.data.text} />
+-                </>
+-              ) : null}
++              <p className="small muted">{rules.status === 'live' ? '최신 운영 수칙' : '기본 운영 수칙'} · 최종 수정 {rules.data.updatedAt}</p>
++              <RulesText text={rules.data.text} />
+             </>
+-          )}
++          ) : null}
+           <a className="btn sm members-guide-source" href={YPR_SOURCE_URL} target="_blank" rel="noopener noreferrer">YPR 원문 보기 ↗</a>
+         </div>
+       </Sheet>
+@@ -80,35 +59,6 @@ export function MembersGuide() {
+   )
+ }
+ 
+-function PointsGuide() {
+-  return (
+-    <div className="members-guide-points">
+-      <section>
+-        <h3>승점 획득 방법</h3>
+-        <h4>순위 배점</h4>
+-        <p>매주 밀어내기에서 많은 승을 챙긴 팀부터 순서대로 승점을 부여합니다. 1위 팀 선수들은 3점, 2위 팀은 2점, 3위 팀은 1점을 각각 받습니다.</p>
+-        <table>
+-          <caption className="sr-only">팀 순위별 승점</caption>
+-          <thead><tr><th scope="col">순위</th><th scope="col">승점</th></tr></thead>
+-          <tbody>{[['1위 팀', '3점'], ['2위 팀', '2점'], ['3위 팀', '1점']].map(([rank, points]) => (
+-            <tr key={rank}><th scope="row">{rank}</th><td>{points}</td></tr>
+-          ))}</tbody>
+-        </table>
+-        {POINTS_RULES.map(([title, text]) => <div className="members-guide-rule" key={title}><h4>{title}</h4><p>{text}</p></div>)}
+-      </section>
+-      <section>
+-        <h3>🏅 수상 배지 안내</h3>
+-        <table>
+-          <caption className="sr-only">수상 횟수별 배지</caption>
+-          <thead><tr><th scope="col">수상 횟수</th><th scope="col">배지</th></tr></thead>
+-          <tbody>{BADGES.map(([count, badge]) => <tr key={count}><th scope="row">{count}</th><td>{badge}</td></tr>)}</tbody>
+-        </table>
+-      </section>
+-      <p className="small muted">승점제 안내는 YPR 원문 기준입니다. 변경사항은 원문에서 확인해 주세요.</p>
+-    </div>
+-  )
+-}
+-
+ function RulesText({ text }: { text: string }) {
+   return (
+     <div className="members-guide-rules">
+diff --git a/frontend/src/lib/format.ts b/frontend/src/lib/format.ts
+index 8f70c11f1685b0eab35d1ba189d33bc2627a51af..32bb1da2d7d46c2c00f34c04588a11cf50b97b17 100644
+--- a/frontend/src/lib/format.ts
++++ b/frontend/src/lib/format.ts
+@@ -75,6 +75,7 @@ export function initials(name: string | null | undefined): string {
+ }
+ 
+ export const ARTICLE_TYPE_LABEL: Record<ArticleType, string> = {
++  NOTICE: '안내',
+   PRE_MATCH: '프리뷰',
+   POST_MATCH: '경기 기사',
+   SESSION_RECAP: '마감 기사',
+diff --git a/frontend/src/lib/yprGuide.ts b/frontend/src/lib/yprGuide.ts
+index 758d340ede604531c824965f58e82f8e1552b2eb..341c0cc4399cade4776476c8e5fd3ed1a08ff000 100644
+--- a/frontend/src/lib/yprGuide.ts
++++ b/frontend/src/lib/yprGuide.ts
+@@ -83,8 +83,7 @@ export const YPR_DEFAULT_RULES_TEXT = `# 1. 팀 운영
+ 
+ ## 3.3 예약 참여 독려
+ - 특정 회원에게 부담이 몰리지 않도록 참여 혜택을 제공합니다.
+-
+-- MOM(이달의 선수) 제도에 대한 자세한 내용은 [승점제 안내] 탭을 참고하세요.`
++`
+ 
+ function object(value: unknown): Record<string, unknown> {
+   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('운영 수칙 형식이 올바르지 않습니다.')
+diff --git a/frontend/src/pages/ArticlePage.tsx b/frontend/src/pages/ArticlePage.tsx
+index f00e9dcbffaa13e05e79af521576af27a32e11f4..2fb4c3e9f494f651361ab952678919cc67b093ef 100644
+--- a/frontend/src/pages/ArticlePage.tsx
++++ b/frontend/src/pages/ArticlePage.tsx
+@@ -96,7 +96,8 @@ export function ArticlePage() {
+ 
+           <div className="row small muted">
+             <Icon name="info" size={14} />
+-            {a.basic ? '경기 기록으로 자동 작성한 기본형 기사입니다.'
++            {a.articleType === 'NOTICE' ? '운영진이 작성한 안내 기사입니다.'
++              : a.basic ? '경기 기록으로 자동 작성한 기본형 기사입니다.'
+               : monthly ? '월 마감 때 경기 기록을 바탕으로 AI가 작성해 자동 게시했습니다.'
+                 : '경기 기록을 바탕으로 AI가 작성하고 운영진이 게시했습니다.'}
+           </div>
+diff --git a/frontend/src/pages/HomePage.tsx b/frontend/src/pages/HomePage.tsx
+index d7299aab42230be5014b5ac5b548f8f490f4e2c2..f3f62eb6da7b14dcf8d9e4bbc673197c18354d37 100644
+--- a/frontend/src/pages/HomePage.tsx
++++ b/frontend/src/pages/HomePage.tsx
+@@ -111,10 +111,22 @@ function pickCurrentSession(list: SessionListItem[]): SessionListItem | null {
+   return open[0] ?? null
+ }
+ 
+-/** 고른 일정들의 게시 기사(최신 게시 순). 일정마다 프리뷰·마감 기사가 1건씩이라 일정당 10건이면 충분 */
++/** 일정 기사와 운영진 공지(최신 게시 순). 일정이 없어도 테스트 안내 등은 표시한다. */
+ async function loadWireArticles(api: Api, sessionIds: number[]): Promise<Article[]> {
+-  const lists = await Promise.all(sessionIds.map((sessionId) => api.articles({ sessionId, limit: 10 })))
+-  return lists.flat().sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? '') || b.articleId - a.articleId)
++  const [notices, ...lists] = await Promise.all([
++    api.articles({ tag: '공지', limit: 10 }),
++    ...sessionIds.map((sessionId) => api.articles({ sessionId, limit: 10 })),
++  ])
++  const articles = [...notices.filter((a) => a.articleType === 'NOTICE'), ...lists.flat()]
++  return [...new Map(articles.map((a) => [a.articleId, a])).values()]
++    .sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? '') || b.articleId - a.articleId)
++}
++
++function wireArticleDate(a: Article): string | null {
++  if (a.sessionDate) return a.sessionDate
++  if (a.articleType !== 'NOTICE') return null
++  const d = new Date(a.publishedAt ?? a.createdAt)
++  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+ }
+ 
+ function PanelHead({ en, ko, right }: { en: string; ko: string; right?: ReactNode }) {
+@@ -269,7 +281,7 @@ function WireFeed({ slug, items, loading, error, onRetry }: {
+           <Link to={`/c/${slug}/articles/${lead.articleId}`} className={`wire-lead${read.has(lead.articleId) ? ' read' : ''}`}>
+             <span className="wire-meta">
+               {read.has(lead.articleId) ? null : <span className="wire-dot" role="img" aria-label="새 소식" />}
+-              {ARTICLE_TYPE_LABEL[lead.articleType]}{topicOf(lead) ? ` · ${topicOf(lead)}` : ''} · {fmtShortDate(lead.sessionDate)}
++              {ARTICLE_TYPE_LABEL[lead.articleType]}{topicOf(lead) ? ` · ${topicOf(lead)}` : ''} · {fmtShortDate(wireArticleDate(lead))}
+             </span>
+             <h2 className="headline">{lead.title}</h2>
+             {lead.summary ? <p>{lead.summary}</p> : null}
+@@ -281,7 +293,7 @@ function WireFeed({ slug, items, loading, error, onRetry }: {
+                 {isRead ? <span className="wire-dot off" aria-hidden="true" /> : <span className="wire-dot" role="img" aria-label="새 소식" />}
+                 <span className="stack" style={{ flex: 1, gap: 2, minWidth: 0 }}>
+                   <span className="t">{a.title}</span>
+-                  <span className="m">{ARTICLE_TYPE_LABEL[a.articleType]}{topicOf(a) ? ` · ${topicOf(a)}` : ''} · {fmtShortDate(a.sessionDate)}</span>
++                  <span className="m">{ARTICLE_TYPE_LABEL[a.articleType]}{topicOf(a) ? ` · ${topicOf(a)}` : ''} · {fmtShortDate(wireArticleDate(a))}</span>
+                 </span>
+               </Link>
+             )
+diff --git a/frontend/src/pages/admin/ArticlesAdminPage.tsx b/frontend/src/pages/admin/ArticlesAdminPage.tsx
+index a07d877b676baa1f2d9944172655c31aa8db992a..40ed0227e0d22ab3221836fba3735d371ecaa3a4 100644
+--- a/frontend/src/pages/admin/ArticlesAdminPage.tsx
++++ b/frontend/src/pages/admin/ArticlesAdminPage.tsx
+@@ -195,7 +195,7 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
+ 
+       <div className="grid3">
+         <button type="button" className="btn sm danger" disabled={locked || editing || !['GENERATED', 'PUBLISHED', 'FAILED'].includes(a.status)} onClick={() => onAction('reject')}>반려</button>
+-        <button type="button" className="btn sm" disabled={locked || editing || a.status === 'PENDING'} onClick={() => onAction('regenerate')}>
++        <button type="button" className="btn sm" disabled={locked || editing || a.status === 'PENDING' || a.articleType === 'NOTICE'} title={a.articleType === 'NOTICE' ? '운영진 안내 기사는 다시 쓰기를 지원하지 않아요.' : undefined} onClick={() => onAction('regenerate')}>
+           <Icon name="refresh" size={16} stroke={2} />다시 쓰기
+         </button>
+         <button type="button" className="btn sm primary" disabled={locked || editing || !['GENERATED', 'REJECTED', 'SUPERSEDED'].includes(a.status)} onClick={() => onAction('publish')}>게시</button>
+diff --git a/frontend/src/styles/global.css b/frontend/src/styles/global.css
+index c1617f0a33a3a99658271761d521b2912bced482..f20119f51e45712d54058c1741d2305e791ec311 100644
+--- a/frontend/src/styles/global.css
++++ b/frontend/src/styles/global.css
+@@ -529,20 +529,13 @@ a.panel-body:hover { color: var(--ink); background: #222933; }
+ .article-milestones .remaining { font-variant-numeric: tabular-nums; }
+ 
+ /* 선수단 상단 팀 안내: 기존 바텀시트 안에서 읽는 원문 안내 */
+-.members-guide-actions { gap: 8px; }
+-.members-guide-actions .btn { min-width: 0; font-size: 14px; }
++.members-guide-trigger { min-width: 0; font-size: 14px; }
+ .members-guide { min-width: 0; display: flex; flex-direction: column; gap: 14px; line-height: 1.7; }
+ .members-guide-heading { gap: 12px; }
+ .members-guide-heading .icon-btn { flex: none; }
+-.members-guide-points { display: flex; flex-direction: column; gap: 20px; }
+ .members-guide h3 { margin: 0 0 10px; font-size: 16px; color: var(--ink); }
+ .members-guide h4 { margin: 10px 0 4px; font-size: 14px; color: var(--blue-ink); }
+ .members-guide p, .members-guide li { overflow-wrap: anywhere; font-size: 14px; }
+-.members-guide table { width: 100%; margin: 12px 0; border-collapse: collapse; table-layout: fixed; font-size: 14px; }
+-.members-guide th, .members-guide td { padding: 9px 8px; text-align: left; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+-.members-guide thead th { color: var(--muted); font-size: 12px; }
+-.members-guide tbody th { font-weight: 600; }
+-.members-guide-rule { margin-top: 14px; }
+ .members-guide-rules h3 { margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--line); }
+ .members-guide-rules h3:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+ .members-guide-rules ul { margin: 5px 0 14px; padding-left: 20px; }
+diff --git a/scripts/init_local_env.py b/scripts/init_local_env.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..498c0f0ccf3b3e0e0e2bbada4ca152e2c4bf0e51
+--- /dev/null
++++ b/scripts/init_local_env.py
+@@ -0,0 +1,98 @@
++"""로컬 .env 준비: 다른 설정을 보존하고 비어 있는 서명 키만 생성한다."""
++import os
++from pathlib import Path
++import re
++import secrets
++import stat
++import tempfile
++
++
++_SECRET_LINE = re.compile(
++    r"^(?P<prefix>\ufeff?[ \t]*(?:export[ \t]+)?SECRET_KEY[ \t]*=[ \t]*)(?P<value>[^\r\n]*)",
++    flags=re.MULTILINE,
++)
++
++
++def _is_blank(value: str) -> bool:
++    return value.strip() in ("", '""', "''")
++
++
++def _with_secret(contents: str, *, replace_example: bool = False) -> str:
++    matches = list(_SECRET_LINE.finditer(contents))
++    if not replace_example and any(not _is_blank(m["value"]) for m in matches):
++        return contents
++    key = secrets.token_hex(32)
++    if matches:
++        return _SECRET_LINE.sub(lambda m: m["prefix"] + key, contents)
++    newline = "\r\n" if "\r\n" in contents else "\n"
++    separator = "" if not contents or contents.endswith(("\n", "\r")) else newline
++    return contents + separator + "SECRET_KEY=" + key + newline
++
++
++def env_contents(example: str) -> str:
++    return _with_secret(example, replace_example=True)
++
++
++def _fill_existing(target: Path) -> bool:
++    if target.is_symlink():
++        raise ValueError("기존 .env가 심볼릭 링크이므로 자동 변경하지 않았습니다.")
++    with target.open("rb") as f:
++        snapshot = os.fstat(f.fileno())
++        original = f.read()
++    if not stat.S_ISREG(snapshot.st_mode):
++        raise ValueError("기존 .env가 일반 파일이 아니므로 자동 변경하지 않았습니다.")
++    contents = original.decode("utf-8")
++    prepared = _with_secret(contents)
++    if prepared == contents:
++        return False
++
++    def unchanged() -> bool:
++        current = target.lstat()
++        return (stat.S_ISREG(current.st_mode)
++                and (current.st_dev, current.st_ino, current.st_size, current.st_mtime_ns)
++                == (snapshot.st_dev, snapshot.st_ino, snapshot.st_size, snapshot.st_mtime_ns)
++                and target.read_bytes() == original)
++
++    temporary: str | None = None
++    try:
++        fd, temporary = tempfile.mkstemp(prefix=".env.", suffix=".tmp", dir=target.parent)
++        with os.fdopen(fd, "wb") as f:
++            f.write(prepared.encode("utf-8"))
++            f.flush()
++            os.fsync(f.fileno())
++        os.chmod(temporary, 0o600)
++        # Replace only the version that was read. A later edit must be retried from its new contents.
++        if not unchanged():
++            raise RuntimeError(".env가 동시에 변경되어 덮어쓰지 않았습니다. 다시 실행하세요.")
++        os.replace(temporary, target)
++        temporary = None
++    finally:
++        if temporary is not None:
++            Path(temporary).unlink(missing_ok=True)
++    return True
++
++
++def create_env(project_root: Path) -> bool:
++    target = project_root / ".env"
++    if target.exists():
++        return _fill_existing(target)
++    contents = env_contents((project_root / ".env.example").read_bytes().decode("utf-8"))
++    try:
++        fd = os.open(target, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++    except FileExistsError:
++        return _fill_existing(target)
++    with os.fdopen(fd, "wb") as f:
++        f.write(contents.encode("utf-8"))
++    return True
++
++
++def main() -> None:
++    root = Path(__file__).resolve().parents[1]
++    if create_env(root):
++        print(".env를 준비하고 새 서명 키를 생성했습니다. OPENAI_API_KEY와 DATABASE_URL을 로컬에서 확인한 뒤 백엔드를 다시 시작하세요.")
++    else:
++        print("기존 .env의 서명 키와 다른 설정을 그대로 유지했습니다.")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/scripts/reset_ypr_test.py b/scripts/reset_ypr_test.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..f967cb26c3273b7b1784eccb115d3dcba55d0033
+--- /dev/null
++++ b/scripts/reset_ypr_test.py
+@@ -0,0 +1,261 @@
++"""YPR 테스트 시작용 로컬 DB 초기화.
++
++미리보기(변경 없음): python -m scripts.reset_ypr_test
++백업 후 적용:        python -m scripts.reset_ypr_test --apply
++
++먼저 백엔드를 종료하세요. .env의 DATABASE_URL에서 지정한 DB 중 --club의
++기록만 초기화합니다. 클럽·관리자 PIN·설정·타이틀 정의는 보존합니다.
++"""
++from __future__ import annotations
++
++import argparse
++from datetime import date, datetime
++from decimal import Decimal
++import json
++import math
++import os
++from pathlib import Path
++import secrets
++from typing import Any
++
++from sqlalchemy import JSON, delete, func, select, update
++from sqlalchemy.orm import Session
++
++from app.core.database import SessionLocal
++from app.core.timeutil import utcnow
++from app.models import AiArticle, ArticleTag, Base, Club, Member, MemberStatSummary
++from app.models.enums import ArticleStatus, ArticleType
++from app.services.config_service import load_config
++from app.services.rating_service import ensure_player_rating
++
++
++# scripts/gen_sample_data.py ROSTER 및 ypr_sample_data.sql의 전달받은 초기 표와 동일.
++# 샘플 생성기는 import 시 환경변수를 바꾸므로 여기서는 원본 값을 독립적으로 보관한다.
++ROSTER = (
++    ("손원일", 1081), ("김응철", 1078), ("안휘진", 1078), ("유창우", 1075), ("전원재", 1060), ("김현섭", 1054),
++    ("윤기창", 1054), ("이종훈", 1048), ("김상균", 1024), ("박영현", 1015), ("이용준", 1006), ("변현우", 997),
++    ("김재홍", 991), ("김동근", 979), ("이민선", 973), ("권태홍", 970), ("진선호", 967), ("임우철", 952),
++    ("이채현", 928), ("김승준", 922), ("윤영문", 922), ("구대현", 916), ("김병채", 910),
++)
++
++NOTICE_TITLE = "YPR clubWire 테스트 기간 돌입"
++NOTICE_SUMMARY = "참석부터 팀 편성, 경기 기록과 기사까지 한곳에서. YPR의 새로운 경기 운영 도구 clubWire를 함께 써보세요."
++NOTICE_BODY = """YPR이 clubWire 테스트 기간에 들어갑니다. 참석 명단을 정리하고, 팀을 나누고, 경기 기록을 확인하던 일을 이제 한곳에서 이어갑니다. 복잡한 설명부터 읽기보다는 선수단에서 내 이름을 찾고 와이어 소식을 둘러보는 것부터 시작해 보세요.
++
++선수단에서는 선수별 경기 기록을 볼 수 있고, 화면 맨 위의 운영 수칙도 바로 열어볼 수 있습니다. 기록실에서는 골·도움·승률과 수상 내역을 확인할 수 있습니다. 아직 경기를 뛰기 전이라면 기록이 비어 있는 것이 정상입니다. 이제부터 한 경기씩 채워 가면 됩니다.
++
++운영진은 자물쇠 버튼으로 관리자 모드에 들어간 뒤 일정을 만들고 참석자와 게스트를 등록합니다. 팀 편성을 확인하고 [일정확정]을 누르면 프리뷰 기사 검토 화면으로 이동합니다. 기사는 내용을 고치거나 다시 쓰고, 반려하거나 게시할 수 있습니다. 확정만 했다고 프리뷰가 바로 공개되지는 않습니다.
++
++경기를 진행할 때는 [다음 경기 만들기]에서 대진을 고르고 시작합니다. 골과 도움을 입력하고, 잘못 입력한 골은 취소할 수 있습니다. 타이머로 경기 흐름을 확인한 뒤 [기록 확정]으로 마무리하고, 모든 경기가 끝나면 [일정마감]을 진행하면 됩니다. 경기 화면은 실시간으로 갱신되고, 확정한 기록은 통계와 수상 내역에 이어집니다.
++
++와이어에서는 일정의 관전 포인트와 마감 기사를 읽을 수 있습니다. 기사에 담지 않은 기록 도전은 하단 이정표 표에서 챙겨 보고, 이달의 MVP 후보도 확인해 보세요. 테스트 중 헷갈리는 버튼이나 실제 경기 흐름과 맞지 않는 부분이 보이면 운영진에게 알려 주세요. 함께 써보면서 YPR에 맞는 사용법을 찾아가겠습니다."""
++
++# 정의/접속 정보를 보존하고, 해당 클럽의 경기·선수·파생 데이터만 지운다.
++PRESERVED_TABLES = {
++    "CLUB", "CLUB_ADMIN", "SYSTEM_CONFIG", "SYSTEM_CONFIG_HISTORY", "TITLE_TYPE",
++    "INSIGHT_TYPE_CONFIG", "INSIGHT_CONFIG_PARAM",
++}
++SCOPE_COLUMNS = {
++    "INSIGHT_MEMBER": "INSIGHT_ID", "ARTICLE_TAG": "ARTICLE_ID", "AI_ARTICLE_INSIGHT": "ARTICLE_ID",
++    "TEAM_ASSIGNMENT_LOG": "SESSION_ID", "MATCH_MEMBER": "MATCH_ID", "MATCH_EVENT": "MATCH_ID",
++    "INSIGHT": "CLUB_ID", "AI_ARTICLE": "CLUB_ID", "SESSION_TEAM_MEMBER": "SESSION_ID",
++    "SESSION_GUEST": "SESSION_ID", "MATCH_GAME": "SESSION_ID", "SESSION_TEAM": "SESSION_ID",
++    "TEAM_GENERATION": "SESSION_ID", "SESSION_MEMBER": "SESSION_ID", "PLAYER_RATING_HISTORY": "CLUB_ID",
++    "PLAYER_RATING": "CLUB_ID", "MEMBER_TITLE": "CLUB_ID", "MEMBER_STAT_SUMMARY": "CLUB_ID",
++    "MEMBER_PAIR_STAT": "CLUB_ID", "SESSION": "CLUB_ID", "MEMBER": "CLUB_ID",
++}
++SELF_REFS = {"AI_ARTICLE": "PARENT_ARTICLE_ID", "MATCH_EVENT": "REF_EVENT_ID"}
++DEFAULT_BACKUP_DIR = Path(__file__).resolve().parents[1] / ".venv" / "clubwire-reset-backups"
++
++
++def _tables():
++    unknown = set(Base.metadata.tables) - PRESERVED_TABLES - set(SCOPE_COLUMNS)
++    if unknown:
++        raise RuntimeError(f"초기화 범위가 정의되지 않은 테이블이 있습니다: {', '.join(sorted(unknown))}")
++    return [t for t in Base.metadata.sorted_tables if t.name in SCOPE_COLUMNS]
++
++
++def _ids(db: Session, club_id: int) -> dict[str, list[int]]:
++    t = Base.metadata.tables
++    sessions = select(t["SESSION"].c.SESSION_ID).where(t["SESSION"].c.CLUB_ID == club_id)
++    return {
++        "SESSION_ID": list(db.scalars(sessions)),
++        "MEMBER_ID": list(db.scalars(select(t["MEMBER"].c.MEMBER_ID).where(t["MEMBER"].c.CLUB_ID == club_id))),
++        "MATCH_ID": list(db.scalars(select(t["MATCH_GAME"].c.MATCH_ID).where(t["MATCH_GAME"].c.SESSION_ID.in_(sessions)))),
++        "ARTICLE_ID": list(db.scalars(select(t["AI_ARTICLE"].c.ARTICLE_ID).where(t["AI_ARTICLE"].c.CLUB_ID == club_id))),
++        "INSIGHT_ID": list(db.scalars(select(t["INSIGHT"].c.INSIGHT_ID).where(t["INSIGHT"].c.CLUB_ID == club_id))),
++    }
++
++
++def _scope(table, club_id: int, ids: dict[str, list[int]]):
++    key = SCOPE_COLUMNS[table.name]
++    return table.c[key] == club_id if key == "CLUB_ID" else table.c[key].in_(ids[key])
++
++
++def preview_reset(db: Session, club: Club) -> dict[str, int]:
++    """부작용 없는 클럽별 초기화 대상 행 수."""
++    ids = _ids(db, club.club_id)
++    return {t.name: int(db.scalar(select(func.count()).select_from(t).where(_scope(t, club.club_id, ids))) or 0)
++            for t in _tables()}
++
++
++def _quote(name: str) -> str:
++    return "`" + name.replace("`", "``") + "`"
++
++
++def _sql_value(value: Any, column=None) -> str:
++    """SQL 모드/문자열 escape 방식에 의존하지 않는 MySQL 리터럴."""
++    if value is None:
++        return "NULL"
++    if column is not None and isinstance(column.type, JSON):
++        value = json.dumps(value, ensure_ascii=False, separators=(",", ":"))
++    if isinstance(value, bool):
++        return "1" if value else "0"
++    if isinstance(value, (int, Decimal)):
++        if isinstance(value, Decimal) and not value.is_finite():
++            raise ValueError("백업할 수 없는 숫자입니다.")
++        return str(value)
++    if isinstance(value, float):
++        if not math.isfinite(value):
++            raise ValueError("백업할 수 없는 숫자입니다.")
++        return repr(value)
++    if isinstance(value, (date, datetime)):
++        return "'" + value.isoformat(sep=" ") + "'" if isinstance(value, datetime) else "'" + value.isoformat() + "'"
++    if isinstance(value, str):
++        return "CONVERT(X'" + value.encode("utf-8").hex() + "' USING utf8mb4)"
++    if isinstance(value, bytes):
++        return "X'" + value.hex() + "'"
++    raise TypeError(f"백업할 수 없는 데이터 형식: {type(value).__name__}")
++
++
++def _restore_scope(table, club_id: int) -> str:
++    key = SCOPE_COLUMNS[table.name]
++    if key == "CLUB_ID":
++        return f"`CLUB_ID` = {club_id}"
++    lookup = {
++        "SESSION_ID": f"SELECT `SESSION_ID` FROM `SESSION` WHERE `CLUB_ID` = {club_id}",
++        "MATCH_ID": ("SELECT `MATCH_ID` FROM `MATCH_GAME` WHERE `SESSION_ID` IN "
++                     f"(SELECT `SESSION_ID` FROM `SESSION` WHERE `CLUB_ID` = {club_id})"),
++        "ARTICLE_ID": f"SELECT `ARTICLE_ID` FROM `AI_ARTICLE` WHERE `CLUB_ID` = {club_id}",
++        "INSIGHT_ID": f"SELECT `INSIGHT_ID` FROM `INSIGHT` WHERE `CLUB_ID` = {club_id}",
++    }
++    return f"{_quote(key)} IN ({lookup[key]})"
++
++
++def _backup_sql(db: Session, club: Club, rows: dict[str, list[dict]], path: Path) -> None:
++    """보존된 클럽·설정 위에 초기화 전 데이터를 복구하는 SQL을 작성한다."""
++    database = db.get_bind().url.database
++    if not database:
++        raise RuntimeError("복구 SQL을 만들려면 DATABASE_URL에 DB 이름이 필요합니다.")
++    club_id = club.club_id
++    tables = _tables()
++    lines = [
++        "-- Clubwire YPR reset backup. Backend must be stopped before restore.",
++        "-- Restore only to the original database and preserved club. No credentials are included.",
++        "-- In the MySQL client: USE the original database; SOURCE this file;",
++        "START TRANSACTION;",
++        "SET @CW_RESTORE_OK = (SELECT COUNT(*) = 1 FROM `CLUB` WHERE "
++        f"`CLUB_ID` = {club_id} AND BINARY `CLUB_SLUG` = BINARY {_sql_value(club.club_slug)} "
++        f"AND BINARY DATABASE() = BINARY {_sql_value(database)});",
++    ]
++    for name, col in SELF_REFS.items():
++        table = Base.metadata.tables[name]
++        lines.append(f"UPDATE {_quote(name)} SET {_quote(col)} = NULL WHERE @CW_RESTORE_OK = 1 AND {_restore_scope(table, club_id)};")
++    for table in reversed(tables):
++        lines.append(f"DELETE FROM {_quote(table.name)} WHERE @CW_RESTORE_OK = 1 AND {_restore_scope(table, club_id)};")
++    deferred = []
++    for table in tables:
++        columns = list(table.columns)
++        names = ", ".join(_quote(c.name) for c in columns)
++        self_ref = SELF_REFS.get(table.name)
++        for row in rows[table.name]:
++            values = ["NULL" if c.name == self_ref else _sql_value(row[c.name], c) for c in columns]
++            lines.append(f"INSERT INTO {_quote(table.name)} ({names}) SELECT {', '.join(values)} WHERE @CW_RESTORE_OK = 1;")
++            if self_ref and row[self_ref] is not None:
++                primary = " AND ".join(f"{_quote(c.name)} = {_sql_value(row[c.name], c)}" for c in table.primary_key.columns)
++                deferred.append(f"UPDATE {_quote(table.name)} SET {_quote(self_ref)} = {_sql_value(row[self_ref])} "
++                                f"WHERE @CW_RESTORE_OK = 1 AND {primary};")
++    lines.extend(deferred)
++    lines.extend(["COMMIT;", "SELECT IF(@CW_RESTORE_OK = 1, 'RESTORED', 'SKIPPED: database/club identity mismatch') AS CLUBWIRE_RESTORE;"])
++    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
++    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
++    with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as f:
++        f.write("\n".join(lines) + "\n")
++        f.flush()
++        os.fsync(f.fileno())
++
++
++def reset_club(db: Session, club: Club, backup_dir: Path = DEFAULT_BACKUP_DIR) -> dict:
++    """해당 클럽만 백업·초기화하고 선수단과 안내 기사 생성까지 한 번에 커밋한다."""
++    if db.get_bind().dialect.name != "mysql":
++        raise RuntimeError("이 초기화/SQL 백업은 MySQL용입니다.")
++    try:
++        club = db.scalar(select(Club).where(Club.club_id == club.club_id).with_for_update())
++        if club is None or not club.active_yn:
++            raise RuntimeError("초기화할 활성 클럽이 없습니다.")
++        tables = _tables()
++        ids = _ids(db, club.club_id)
++        rows = {t.name: [dict(r) for r in db.execute(select(t).where(_scope(t, club.club_id, ids))
++                                                   .order_by(*t.primary_key.columns).with_for_update()).mappings()]
++                for t in tables}
++        backup = Path(backup_dir).resolve() / f"clubwire-{club.club_id}-{utcnow():%Y%m%dT%H%M%S%fZ}-{secrets.token_hex(4)}.sql"
++        _backup_sql(db, club, rows, backup)
++        for name, col in SELF_REFS.items():
++            table = Base.metadata.tables[name]
++            db.execute(update(table).where(_scope(table, club.club_id, ids)).values({col: None}))
++        for table in reversed(tables):
++            db.execute(delete(table).where(_scope(table, club.club_id, ids)))
++        cfg = load_config(db, club.club_id)
++        for position, (name, rating) in enumerate(ROSTER):
++            member = Member(club_id=club.club_id, name=name, display_order=position,
++                            active_yn=True, initial_rating=float(rating))
++            db.add(member)
++            db.flush()
++            ensure_player_rating(db, member, cfg)
++            db.add(MemberStatSummary(member_id=member.member_id, club_id=club.club_id))
++        article = AiArticle(club_id=club.club_id, article_type=ArticleType.NOTICE,
++                            title=NOTICE_TITLE, summary=NOTICE_SUMMARY, content=NOTICE_BODY,
++                            model_name="manual", prompt_version="manual_notice_v1", status=ArticleStatus.PUBLISHED,
++                            published_yn=True, published_at=utcnow(), generation_no=1,
++                            request_json={"kind": "ypr_test_launch"})
++        db.add(article)
++        db.flush()
++        db.add_all([ArticleTag(article_id=article.article_id, tag_name=tag) for tag in ("공지", "테스트 안내")])
++        result = {"backup_path": backup, "club_id": club.club_id, "member_count": len(ROSTER), "article_id": article.article_id}
++        db.commit()
++        return result
++    except Exception:
++        db.rollback()
++        raise
++
++
++def main() -> None:
++    parser = argparse.ArgumentParser(description="YPR 선수단 원본·테스트 안내 기사로 클럽 기록 초기화(기본: 미리보기)")
++    parser.add_argument("--club", default="sanha", help="초기화할 클럽 slug (기본: sanha)")
++    parser.add_argument("--backup-dir", type=Path, default=DEFAULT_BACKUP_DIR, help="초기화 전 복구 SQL 저장 폴더")
++    parser.add_argument("--apply", action="store_true", help="백업 후 실제 초기화. 먼저 백엔드를 종료하세요.")
++    args = parser.parse_args()
++    with SessionLocal() as db:
++        url = db.get_bind().url
++        print(f"대상 DB: host={url.host or 'localhost'}, port={url.port or 3306}, database={url.database}")
++        club = db.scalar(select(Club).where(Club.club_slug == args.club))
++        if club is None:
++            raise SystemExit("클럽을 찾지 못했습니다. DATABASE_URL과 --club을 확인하세요.")
++        print(f"대상 클럽: {club.club_slug} (ID {club.club_id}, {club.club_name})")
++        counts = preview_reset(db, club)
++        for name, count in counts.items():
++            if count:
++                print(f"  {name}: {count}행")
++        print(f"등록 예정: 원본 선수 {len(ROSTER)}명, 경기·통계 0부터 시작")
++        print(f"게시 예정: {NOTICE_TITLE}")
++        print("보존: 다른 클럽, 관리자 PIN, 클럽 설정, 타이틀 정의")
++        if not args.apply:
++            print("미리보기만 수행했습니다. 백엔드 종료 후 같은 명령에 --apply를 붙이면 초기화합니다.")
++            return
++        result = reset_club(db, club, args.backup_dir)
++        print(f"초기화 완료: 선수 {result['member_count']}명, 게시 기사 1건")
++        print(f"복구 SQL: {result['backup_path']}")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tests/test_ypr_test_reset.py b/tests/test_ypr_test_reset.py
+new file mode 100644
+index 0000000000000000000000000000000000000000..9d3e939db33f45b519ed9c0fd5aa9e94818b6e0d
+--- /dev/null
++++ b/tests/test_ypr_test_reset.py
+@@ -0,0 +1,115 @@
++"""로컬 테스트 초기화: 대상 격리, 원본 레이팅, 안내 기사, 백업 복구."""
++from pathlib import Path
++from datetime import date, datetime
++
++import pytest
++from sqlalchemy import func, select
++
++from app.core.database import engine
++from app.models import AiArticle, Club, ClubAdmin, ClubSession, Member, MemberStatSummary, PlayerRating
++from app.services.club_service import club_summary
++from scripts import reset_ypr_test as bootstrap
++from tests.test_article_writer import _preview
++
++
++def _count(db, model, club_id):
++    return db.scalar(select(func.count()).select_from(model).where(model.club_id == club_id))
++
++
++def test_reset_is_scoped_and_restorable(make_club, db, tmp_path):
++    api = make_club("resetlocal")
++    old_article = _preview(api)
++    regenerated = api.ok(api.post(f"/articles/{old_article['articleId']}/regenerate"), 201)
++    other = make_club("resetother")
++    other_article = _preview(other)
++    club = db.scalar(select(Club).where(Club.club_slug == api.slug))
++    other_club = db.scalar(select(Club).where(Club.club_slug == other.slug))
++    original_ids = list(db.scalars(select(Member.member_id).where(Member.club_id == club.club_id).order_by(Member.member_id)))
++    admin_hash = db.scalar(select(ClubAdmin.password_hash).where(ClubAdmin.club_id == club.club_id))
++    api.ok(api.patch("/admin/config", {"values": {"MATCH_DURATION_SEC": 720}}))
++    before = bootstrap.preview_reset(db, club)
++    assert _count(db, Member, club.club_id) == 6
++    assert bootstrap.preview_reset(db, club) == before
++    result = bootstrap.reset_club(db, club, tmp_path)
++    backup = Path(result["backup_path"])
++    assert backup.is_file() and backup.stat().st_size > 0
++    assert admin_hash not in backup.read_text(encoding="utf-8")
++    assert "FOREIGN_KEY_CHECKS" not in backup.read_text(encoding="utf-8").upper()
++    rows = db.execute(select(Member.name, Member.initial_rating, PlayerRating.current_rating,
++                             PlayerRating.match_sample_count, PlayerRating.last_played_date)
++                      .join(PlayerRating, Member.member_id == PlayerRating.member_id)
++                      .where(Member.club_id == club.club_id).order_by(Member.display_order)).all()
++    assert [(r.name, r.initial_rating) for r in rows] == list(bootstrap.ROSTER)
++    assert len(rows) == 23
++    assert all(r.current_rating == r.initial_rating and r.match_sample_count == 0 and r.last_played_date is None for r in rows)
++    assert _count(db, MemberStatSummary, club.club_id) == 23
++    assert _count(db, ClubSession, club.club_id) == 0
++    assert _count(db, AiArticle, club.club_id) == 1
++    notice = api.ok(api.get(f"/articles/{result['article_id']}", admin=False))
++    assert notice["articleType"] == "NOTICE" and notice["status"] == "PUBLISHED"
++    assert notice["title"] == "YPR clubWire 테스트 기간 돌입"
++    assert notice["sessionId"] is None and "공지" in notice["tags"]
++    assert notice["content"] == bootstrap.NOTICE_BODY
++    assert api.ok(api.get("/articles", params={"tag": "공지"}, admin=False))[0]["articleId"] == result["article_id"]
++    assert api.ok(api.get("/summary", admin=False))["articles"] == 1
++    assert api.post(f"/articles/{result['article_id']}/regenerate").status_code == 400
++    assert db.scalar(select(ClubAdmin.password_hash).where(ClubAdmin.club_id == club.club_id)) == admin_hash
++    assert api.ok(api.get("/admin/config"))["items"]
++    assert next(i for i in api.ok(api.get("/admin/config"))["items"] if i["key"] == "MATCH_DURATION_SEC")["value"] == 720
++    assert _count(db, Member, other_club.club_id) == 6
++    assert other.ok(other.get(f"/articles/{other_article['articleId']}"))["articleId"] == other_article["articleId"]
++
++    # 백업 SQL을 직접 실행해 자기 참조 재생성 기사까지 원래대로 복구한다.
++    db.commit()
++    raw = engine.raw_connection()
++    try:
++        with raw.cursor() as cursor:
++            statements = "\n".join(line for line in backup.read_text(encoding="utf-8").splitlines() if not line.lstrip().startswith("--"))
++            for statement in statements.split(";"):
++                if statement.strip():
++                    cursor.execute(statement)
++        raw.commit()
++    finally:
++        raw.close()
++    db.expire_all()
++    assert list(db.scalars(select(Member.member_id).where(Member.club_id == club.club_id).order_by(Member.member_id))) == original_ids
++    assert _count(db, AiArticle, club.club_id) == 2
++    assert db.get(AiArticle, regenerated["articleId"]).parent_article_id == old_article["articleId"]
++    assert _count(db, Member, other_club.club_id) == 6
++
++
++def test_backup_failure_does_not_delete_data(make_club, db, tmp_path):
++    api = make_club("resetbackupfail")
++    _preview(api)
++    club = db.scalar(select(Club).where(Club.club_slug == api.slug))
++    before = bootstrap.preview_reset(db, club)
++    bad_dir = tmp_path / "not-a-directory"
++    bad_dir.write_text("keep this file", encoding="utf-8")
++    with pytest.raises(OSError):
++        bootstrap.reset_club(db, club, bad_dir)
++    assert bootstrap.preview_reset(db, club) == before
++    assert bad_dir.read_text(encoding="utf-8") == "keep this file"
++
++
++def test_reset_failure_rolls_back_deleted_data(make_club, db, tmp_path, monkeypatch):
++    api = make_club("resetrollback")
++    _preview(api)
++    club = db.scalar(select(Club).where(Club.club_slug == api.slug))
++    before = bootstrap.preview_reset(db, club)
++    def fail_rating(*_args, **_kwargs):
++        raise RuntimeError("seed failed")
++    monkeypatch.setattr(bootstrap, "ensure_player_rating", fail_rating)
++    with pytest.raises(RuntimeError, match="seed failed"):
++        bootstrap.reset_club(db, club, tmp_path)
++    assert bootstrap.preview_reset(db, club) == before
++    assert len(list(tmp_path.glob("*.sql"))) == 1
++
++
++def test_standalone_notice_count_uses_club_local_year(make_club, db):
++    api = make_club("noticeyear")
++    club = db.scalar(select(Club).where(Club.club_slug == api.slug))
++    for published in (datetime(2025, 12, 31, 15), datetime(2026, 12, 31, 15)):
++        db.add(AiArticle(club_id=club.club_id, article_type="NOTICE", title="안내", content="본문", model_name="manual",
++                         prompt_version="manual_notice_v1", status="PUBLISHED", published_yn=True, published_at=published))
++    db.commit()
++    assert club_summary(db, club, date(2026, 1, 1))["articles"] == 1

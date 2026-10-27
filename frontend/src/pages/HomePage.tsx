@@ -111,10 +111,22 @@ function pickCurrentSession(list: SessionListItem[]): SessionListItem | null {
   return open[0] ?? null
 }
 
-/** 고른 일정들의 게시 기사(최신 게시 순). 일정마다 프리뷰·마감 기사가 1건씩이라 일정당 10건이면 충분 */
+/** 일정 기사와 운영진 공지(최신 게시 순). 일정이 없어도 테스트 안내 등은 표시한다. */
 async function loadWireArticles(api: Api, sessionIds: number[]): Promise<Article[]> {
-  const lists = await Promise.all(sessionIds.map((sessionId) => api.articles({ sessionId, limit: 10 })))
-  return lists.flat().sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? '') || b.articleId - a.articleId)
+  const [notices, ...lists] = await Promise.all([
+    api.articles({ tag: '공지', limit: 10 }),
+    ...sessionIds.map((sessionId) => api.articles({ sessionId, limit: 10 })),
+  ])
+  const articles = [...notices.filter((a) => a.articleType === 'NOTICE'), ...lists.flat()]
+  return [...new Map(articles.map((a) => [a.articleId, a])).values()]
+    .sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? '') || b.articleId - a.articleId)
+}
+
+function wireArticleDate(a: Article): string | null {
+  if (a.sessionDate) return a.sessionDate
+  if (a.articleType !== 'NOTICE') return null
+  const d = new Date(a.publishedAt ?? a.createdAt)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function PanelHead({ en, ko, right }: { en: string; ko: string; right?: ReactNode }) {
@@ -269,7 +281,7 @@ function WireFeed({ slug, items, loading, error, onRetry }: {
           <Link to={`/c/${slug}/articles/${lead.articleId}`} className={`wire-lead${read.has(lead.articleId) ? ' read' : ''}`}>
             <span className="wire-meta">
               {read.has(lead.articleId) ? null : <span className="wire-dot" role="img" aria-label="새 소식" />}
-              {ARTICLE_TYPE_LABEL[lead.articleType]}{topicOf(lead) ? ` · ${topicOf(lead)}` : ''} · {fmtShortDate(lead.sessionDate)}
+              {ARTICLE_TYPE_LABEL[lead.articleType]}{topicOf(lead) ? ` · ${topicOf(lead)}` : ''} · {fmtShortDate(wireArticleDate(lead))}
             </span>
             <h2 className="headline">{lead.title}</h2>
             {lead.summary ? <p>{lead.summary}</p> : null}
@@ -281,7 +293,7 @@ function WireFeed({ slug, items, loading, error, onRetry }: {
                 {isRead ? <span className="wire-dot off" aria-hidden="true" /> : <span className="wire-dot" role="img" aria-label="새 소식" />}
                 <span className="stack" style={{ flex: 1, gap: 2, minWidth: 0 }}>
                   <span className="t">{a.title}</span>
-                  <span className="m">{ARTICLE_TYPE_LABEL[a.articleType]}{topicOf(a) ? ` · ${topicOf(a)}` : ''} · {fmtShortDate(a.sessionDate)}</span>
+                  <span className="m">{ARTICLE_TYPE_LABEL[a.articleType]}{topicOf(a) ? ` · ${topicOf(a)}` : ''} · {fmtShortDate(wireArticleDate(a))}</span>
                 </span>
               </Link>
             )

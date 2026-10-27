@@ -1,12 +1,12 @@
 """클럽 생성/관리자 인증."""
-from datetime import date
+from datetime import date, datetime, time, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import BadRequest, Conflict, Unauthorized
 from app.core.security import create_admin_token, hash_password, login_limiter, verify_password
-from app.core.timeutil import utcnow
+from app.core.timeutil import club_tz, utcnow
 from app.models import AiArticle, Club, ClubAdmin, ClubSession, Member, TitleType
 from app.models.enums import AwardMethod, SessionStatus, TitleAutoRule, TitlePeriodType
 from app.services.config_service import seed_club_config
@@ -74,15 +74,19 @@ def admin_login(db: Session, club: Club, pin: str, client_key: str) -> tuple[str
 
 
 def club_summary(db: Session, club: Club, today: date) -> dict:
-    """와이어 상단 요약 줄: 활동 멤버 수 · 올해 일정 수(취소 제외) · 올해 일정의 게시 기사 수."""
+    """와이어 상단 요약 줄: 활동 멤버 수 · 올해 일정 수(취소 제외) · 올해 일정의 게시 기사와 올해 게시된 공지 수."""
     start, end = date(today.year, 1, 1), date(today.year, 12, 31)
     members = db.scalar(select(func.count()).select_from(Member)
                         .where(Member.club_id == club.club_id, Member.active_yn.is_(True)))
     sessions = db.scalar(select(func.count()).select_from(ClubSession)
                          .where(ClubSession.club_id == club.club_id, ClubSession.status != SessionStatus.CANCELLED,
                                 ClubSession.session_date.between(start, end), ClubSession.deleted_at.is_(None)))
+    year_start = datetime.combine(start, time.min, club_tz(club.timezone)).astimezone(timezone.utc).replace(tzinfo=None)
+    year_end = datetime.combine(date(today.year + 1, 1, 1), time.min, club_tz(club.timezone)).astimezone(timezone.utc).replace(tzinfo=None)
     articles = db.scalar(select(func.count()).select_from(AiArticle)
-                         .join(ClubSession, ClubSession.session_id == AiArticle.session_id)
+                         .outerjoin(ClubSession, ClubSession.session_id == AiArticle.session_id)
                          .where(AiArticle.club_id == club.club_id, AiArticle.published_yn.is_(True),
-                                ClubSession.session_date.between(start, end), ClubSession.deleted_at.is_(None)))
+                                ((ClubSession.session_date.between(start, end) & ClubSession.deleted_at.is_(None))
+                                 | (AiArticle.session_id.is_(None) & (AiArticle.published_at >= year_start)
+                                    & (AiArticle.published_at < year_end)))))
     return {"year": today.year, "activeMembers": members or 0, "sessions": sessions or 0, "articles": articles or 0}

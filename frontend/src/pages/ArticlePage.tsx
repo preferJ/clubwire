@@ -96,7 +96,8 @@ export function ArticlePage() {
 
           <div className="row small muted">
             <Icon name="info" size={14} />
-            {a.basic ? '경기 기록으로 자동 작성한 기본형 기사입니다.'
+            {a.articleType === 'NOTICE' ? '운영진이 작성한 안내 기사입니다.'
+              : a.basic ? '경기 기록으로 자동 작성한 기본형 기사입니다.'
               : monthly ? '월 마감 때 경기 기록을 바탕으로 AI가 작성해 자동 게시했습니다.'
                 : '경기 기록을 바탕으로 AI가 작성하고 운영진이 게시했습니다.'}
           </div>

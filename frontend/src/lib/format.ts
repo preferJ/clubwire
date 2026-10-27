@@ -75,6 +75,7 @@ export function initials(name: string | null | undefined): string {
 }
 
 export const ARTICLE_TYPE_LABEL: Record<ArticleType, string> = {
+  NOTICE: '안내',
   PRE_MATCH: '프리뷰',
   POST_MATCH: '경기 기사',
   SESSION_RECAP: '마감 기사',

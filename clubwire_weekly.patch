@@ -1,0 +1,137 @@
+--- a/app/services/club_service.py
++++ b/app/services/club_service.py
+@@ -1,3 +1,3 @@
+-from datetime import date
++from datetime import date, timedelta
+ 
+ from sqlalchemy import func, select
+@@ -62,6 +62,7 @@
+ def club_summary(db: Session, club: Club, today: date) -> dict:
+-    """와이어 상단 요약 줄: 활동 멤버 수 · 올해 일정 수(취소 제외) · 올해 일정의 게시 기사 수."""
+-    start, end = date(today.year, 1, 1), date(today.year, 12, 31)
++    """와이어 요약: 활동 멤버 · 이번 주(월~일) 일정 · 그 일정에 연결된 게시 기사."""
++    start = today - timedelta(days=today.weekday())
++    end = start + timedelta(days=6)
+     members = db.scalar(select(func.count()).select_from(Member)
+                         .where(Member.club_id == club.club_id, Member.active_yn.is_(True)))
+     sessions = db.scalar(select(func.count()).select_from(ClubSession)
+--- a/app/api/clubs.py
++++ b/app/api/clubs.py
+@@ -19,2 +19,2 @@
+-@router.get("/summary", summary="클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수")
++@router.get("/summary", summary="클럽 요약(공개): 활동 멤버 · 이번 주 일정 · 이번 주 기사 수")
+ def get_summary(club: Club = Depends(club_dep), db: Session = Depends(get_db)):
+--- a/frontend/src/pages/HomePage.tsx
++++ b/frontend/src/pages/HomePage.tsx
+@@ -4,3 +4,4 @@
+ import { ArticleCard } from '../components/ArticleCard'
++import { HomeWeeklySummary } from '../components/HomeWeeklySummary'
+ import { Icon } from '../components/Icon'
+ import { AdminButton, Empty, ErrorBox, Loading, TeamBadge } from '../components/ui'
+@@ -36,4 +36,5 @@
+         <AdminButton />
+       </header>
++      <HomeWeeklySummary />
+ 
+       <main className="page">
+--- /dev/null
++++ b/frontend/src/components/HomeWeeklySummary.tsx
+@@ -0,0 +1,54 @@
++import { Link } from 'react-router-dom'
++import { useClub, useClubEvent } from '../lib/club'
++import { useAsync } from '../lib/hooks'
++import './HomeWeeklySummary.css'
++
++/** 와이어 홈 상단의 공개 요약. 인원은 활동 멤버, 일정/기사는 이번 주(월~일) 기준. */
++export function HomeWeeklySummary() {
++  const { api, slug } = useClub()
++  const summary = useAsync(() => api.clubSummary(), [api])
++
++  useClubEvent((event) => {
++    if (
++      event.type === 'SESSION_UPDATED' ||
++      event.type === 'ARTICLE_UPDATED' ||
++      event.type === 'TEAMS_UPDATED'
++    ) {
++      summary.reload()
++    }
++  })
++
++  const items = [
++    {
++      label: '멤버',
++      count: summary.data?.activeMembers,
++      to: `/c/${slug}/members`,
++      ariaLabel: '멤버 목록인 선수단 페이지로 이동',
++    },
++    {
++      label: '이번 주 일정',
++      count: summary.data?.sessions,
++      to: `/c/${slug}/sessions`,
++      ariaLabel: '일정 목록으로 이동',
++    },
++    {
++      label: '이번 주 기사',
++      count: summary.data?.articles,
++      to: `/c/${slug}#wire-title`,
++      ariaLabel: '와이어 기사 영역으로 이동',
++    },
++  ]
++
++  return (
++    <nav className="home-weekly-summary" aria-label="클럽 요약 바로가기">
++      {items.map(({ label, count, to, ariaLabel }) => (
++        <Link key={label} to={to} className="home-weekly-summary__link" aria-label={ariaLabel}>
++          <strong className="home-weekly-summary__count">
++            {summary.loading && !summary.data ? '–' : count ?? '–'}
++          </strong>
++          <span className="home-weekly-summary__label">{label}</span>
++        </Link>
++      ))}
++    </nav>
++  )
++}
+--- /dev/null
++++ b/frontend/src/components/HomeWeeklySummary.css
+@@ -0,0 +1,41 @@
++/* 기존 클럽 테마를 상속받는 홈 상단의 3칸 요약 링크 */
++.home-weekly-summary {
++  display: grid;
++  grid-template-columns: repeat(3, minmax(0, 1fr));
++  border-top: 1px solid var(--line, #393d44);
++  border-bottom: 1px solid var(--line, #393d44);
++}
++.home-weekly-summary__link {
++  display: flex;
++  min-width: 0;
++  min-height: 64px;
++  padding: 9px 5px;
++  flex-direction: column;
++  justify-content: center;
++  align-items: center;
++  gap: 2px;
++  color: inherit;
++  text-align: center;
++  text-decoration: none;
++  transition: background .15s ease;
++}
++.home-weekly-summary__link + .home-weekly-summary__link {
++  border-left: 1px solid var(--line, #393d44);
++}
++.home-weekly-summary__link:hover {
++  background: rgba(127, 127, 127, .10);
++  color: inherit;
++}
++.home-weekly-summary__link:focus-visible {
++  outline: 2px solid var(--green, #0f6b4f);
++  outline-offset: -2px;
++}
++.home-weekly-summary__count {
++  font-size: 17px;
++  font-variant-numeric: tabular-nums;
++  line-height: 1.2;
++}
++.home-weekly-summary__label {
++  font-size: 12px;
++  opacity: .8;
++}

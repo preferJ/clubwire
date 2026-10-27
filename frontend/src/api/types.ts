@@ -21,7 +21,7 @@ export interface ClubSummary {
   articles: number
 }
 
-export type ArticleType = 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP' | 'MONTHLY_MVP'
+export type ArticleType = 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP' | 'MONTHLY_MVP' | 'NOTICE'
 
 /** 이달의 MVP 레이스: 실력 점수 상승률(%)만 공개(점수 자체는 비공개) */
 export interface MvpCandidate {
