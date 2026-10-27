@@ -16,7 +16,8 @@ export function AdminHomePage() {
     { to: `/c/${slug}/admin/sessions/new`, icon: 'calendar', label: '새 일정 만들기', sub: '날짜 · 참석자 · 게스트' },
     { to: `/c/${slug}/sessions`, icon: 'calendar', label: '일정 운영', sub: '팀 편성 · 경기 진행 · 일정마감' },
     { to: `/c/${slug}/admin/articles`, icon: 'wire', label: '기사 검토', sub: waiting ? `검토 대기 ${waiting}건` : '게시 · 반려 · 다시 쓰기' },
-    { to: `/c/${slug}/admin/members`, icon: 'users', label: '멤버 관리', sub: '추가 · 이름 수정 · 비활성화' },
+    { to: `/c/${slug}/admin/members`, icon: 'users', label: '멤버 관리', sub: '추가 · 이름·등번호 수정 · 비활성화' },
+    { to: `/c/${slug}/admin/content`, icon: 'info', label: '운영 수칙 · 공지', sub: '운영 수칙 수정 · 와이어 상단 공지' },
     { to: `/c/${slug}/admin/settings`, icon: 'settings', label: '운영 설정', sub: '경기 시간 · 팀 편성 · 기사 게시 방식 · 암호' },
   ]
 

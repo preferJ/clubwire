@@ -15,6 +15,7 @@ import { SessionsPage } from './pages/SessionsPage'
 import { AdminHomePage } from './pages/admin/AdminHomePage'
 import { ArticlesAdminPage } from './pages/admin/ArticlesAdminPage'
 import { ClosePage } from './pages/admin/ClosePage'
+import { ClubContentAdminPage } from './pages/admin/ClubContentAdminPage'
 import { MembersAdminPage } from './pages/admin/MembersAdminPage'
 import { SessionFormPage } from './pages/admin/SessionFormPage'
 import { SettingsPage } from './pages/admin/SettingsPage'
@@ -110,6 +111,7 @@ export default function App() {
               <Route path="admin/sessions/:sessionId/close" element={admin(<ClosePage />)} />
               <Route path="admin/articles" element={admin(<ArticlesAdminPage />)} />
               <Route path="admin/members" element={admin(<MembersAdminPage />)} />
+              <Route path="admin/content" element={admin(<ClubContentAdminPage />)} />
               <Route path="admin/settings" element={admin(<SettingsPage />)} />
             </Route>
           </Route>

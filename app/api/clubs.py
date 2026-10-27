@@ -7,8 +7,8 @@ from app.core.database import get_db
 from app.core.security import AdminPrincipal
 from app.core.timeutil import local_today, to_iso
 from app.models import Club
-from app.schemas.requests import AdminAuthRequest, ChangePinRequest, ConfigUpdateRequest
-from app.services import club_service, config_service
+from app.schemas.requests import AdminAuthRequest, ChangePinRequest, ClubContentUpdate, ConfigUpdateRequest
+from app.services import club_content_service, club_service, config_service
 
 router = APIRouter(tags=["clubs"])
 
@@ -22,6 +22,18 @@ def get_club(club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depe
 @router.get("/summary", summary="클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수")
 def get_summary(club: Club = Depends(club_dep), db: Session = Depends(get_db)):
     return club_service.club_summary(db, club, local_today(club.timezone))
+
+
+@router.get("/content", summary="운영수칙과 상단 공지(공개)")
+def get_content(club: Club = Depends(club_dep)):
+    return club_content_service.serialize_content(club)
+
+
+@router.patch("/admin/content", summary="운영수칙·상단 공지 수정")
+def patch_content(body: ClubContentUpdate, club: Club = Depends(club_dep),
+                  admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
+    updated = club_content_service.update_content(db, club.club_id, body.model_dump(exclude_unset=True))
+    return club_content_service.serialize_content(updated)
 
 
 @router.post("/admin/auth", summary="관리자 모드 진입(PIN 입력 → 토큰)")

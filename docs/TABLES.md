@@ -19,8 +19,12 @@
 | 5 | `TIMEZONE` | VARCHAR(50) | N |  | 표시용 시간대(기본 Asia/Seoul) |
 | 6 | `CONFIG_VERSION` | INTEGER | N |  | 운영 설정 버전(SYSTEM_CONFIG 변경마다 +1) |
 | 7 | `ACTIVE_YN` | BOOL | N |  | 사용 여부(false=비활성, 삭제 대신 사용) |
-| 8 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 9 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 8 | `OPERATING_RULES` | MEDIUMTEXT | Y |  | 클럽 운영수칙. NULL이면 기존 YPR 원문 사용 |
+| 9 | `OPERATING_RULES_UPDATED_AT` | DATETIME(3) | Y |  | 운영수칙 수정 시각(UTC) |
+| 10 | `ANNOUNCEMENT` | VARCHAR(500) | Y |  | 와이어 상단 한 줄 공지. NULL 또는 빈 값이면 숨김 |
+| 11 | `ANNOUNCEMENT_UPDATED_AT` | DATETIME(3) | Y |  | 상단 공지 수정 시각(UTC) |
+| 12 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 13 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 
@@ -62,9 +66,10 @@
 | 6 | `ACTIVE_YN` | BOOL | N |  | 사용 여부(false=비활성, 삭제 대신 사용) |
 | 7 | `JOINED_AT` | DATE | Y |  | 가입일 |
 | 8 | `BIRTH_YEAR` | SMALLINT | Y |  | 출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시 |
-| 9 | `INITIAL_RATING` | DOUBLE | Y |  | 시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작 |
-| 10 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 11 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 9 | `JERSEY_NUMBER` | SMALLINT | Y |  | 등번호(0~99). 미지정이면 NULL |
+| 10 | `INITIAL_RATING` | DOUBLE | Y |  | 시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작 |
+| 11 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 12 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 

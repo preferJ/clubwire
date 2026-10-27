@@ -156,7 +156,7 @@ def member_summaries(db: Session, club_id: int) -> list[dict]:
 def _summary_dict(m: Member, s: MemberStatSummary | None) -> dict:
     g = s.games if s else 0
     return {
-        "memberId": m.member_id, "name": m.name, "active": m.active_yn,
+        "memberId": m.member_id, "name": m.name, "active": m.active_yn, "jerseyNumber": m.jersey_number,
         "games": g, "wins": s.wins if s else 0, "draws": s.draws if s else 0, "losses": s.losses if s else 0,
         "winRate": _rate(s.wins, g) if s else None,
         "goals": s.goals if s else 0, "assists": s.assists if s else 0, "ownGoals": s.own_goals if s else 0,
@@ -197,7 +197,8 @@ def member_detail(db: Session, club_id: int, member: Member, recent_n: int = 5, 
 
     return {
         "summary": _summary_dict(member, s),
-        "profile": {"joinedAt": member.joined_at, "birthYear": member.birth_year},  # 관리자가 입력한 선수 정보(공개)
+        "profile": {"joinedAt": member.joined_at, "birthYear": member.birth_year,
+                    "jerseyNumber": member.jersey_number},  # 관리자가 입력한 선수 정보(공개)
         "recentForm": recent,
         "frequentTeammates": [
             {"memberId": other(p), "name": names.get(other(p)), "matches": p.same_team_match_count,

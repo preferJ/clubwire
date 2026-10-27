@@ -21,6 +21,13 @@ export interface ClubSummary {
   articles: number
 }
 
+export interface ClubContent {
+  operatingRules: string | null
+  operatingRulesUpdatedAt: string | null
+  announcement: string
+  announcementUpdatedAt: string | null
+}
+
 export type ArticleType = 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP' | 'MONTHLY_MVP' | 'NOTICE'
 
 /** 이달의 MVP 레이스: 실력 점수 상승률(%)만 공개(점수 자체는 비공개) */
@@ -56,6 +63,7 @@ export interface Member {
   active: boolean
   joinedAt: string | null
   birthYear: number | null
+  jerseyNumber: number | null
   profileImageUrl: string | null
   displayOrder: number | null
 }
@@ -264,6 +272,7 @@ export interface MemberStat {
   memberId: number
   name: string
   active: boolean
+  jerseyNumber: number | null
   games: number
   wins: number
   draws: number
@@ -281,6 +290,7 @@ export interface MemberStat {
 export interface MemberProfile {
   joinedAt: string | null
   birthYear: number | null
+  jerseyNumber: number | null
 }
 
 export interface MemberDetail {
@@ -402,3 +412,4 @@ export type WsMessage =
   | { type: 'TEAMS_UPDATED'; sessionId: number }
   | { type: 'ARTICLE_UPDATED'; articleId: number; status: ArticleStatus }
   | { type: 'TITLE_UPDATED'; memberTitleId: number }
+  | { type: 'CLUB_CONTENT_UPDATED' }

@@ -95,6 +95,105 @@
         }
       }
     },
+    "/api/clubs/{club_slug}/content": {
+      "get": {
+        "tags": [
+          "clubs"
+        ],
+        "summary": "운영수칙과 상단 공지(공개)",
+        "operationId": "get_content_api_clubs__club_slug__content_get",
+        "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clubs/{club_slug}/admin/content": {
+      "patch": {
+        "tags": [
+          "clubs"
+        ],
+        "summary": "운영수칙·상단 공지 수정",
+        "operationId": "patch_content_api_clubs__club_slug__admin_content_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClubContentUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/clubs/{club_slug}/admin/auth": {
       "post": {
         "tags": [
@@ -517,7 +616,7 @@
         "tags": [
           "members"
         ],
-        "summary": "멤버 수정/비활성화(active=false). 가입일·출생연도는 null로 지울 수 있음. 삭제는 하지 않음",
+        "summary": "멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제는 하지 않음",
         "operationId": "update_member_api_clubs__club_slug__members__member_id__patch",
         "security": [
           {
@@ -3723,6 +3822,51 @@
         ],
         "title": "AdminAuthRequest"
       },
+      "ArticleUpdate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title"
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 500,
+            "title": "Summary"
+          },
+          "content": {
+            "type": "string",
+            "maxLength": 16000,
+            "minLength": 1,
+            "title": "Content"
+          },
+          "usedInsightIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0.0
+                },
+                "type": "array",
+                "maxItems": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usedinsightids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "summary",
+          "content"
+        ],
+        "title": "ArticleUpdate"
+      },
       "AssignmentRequest": {
         "properties": {
           "action": {
@@ -3832,6 +3976,39 @@
           "newPassword"
         ],
         "title": "ChangePinRequest"
+      },
+      "ClubContentUpdate": {
+        "properties": {
+          "operatingRules": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Operatingrules",
+            "description": "운영수칙. null이면 YPR 원문을 사용하며, 생략하면 유지"
+          },
+          "announcement": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Announcement",
+            "description": "와이어 상단 한 줄 공지. 빈 문자열 또는 null로 숨김, 생략하면 유지"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ClubContentUpdate"
       },
       "ConfigUpdateRequest": {
         "properties": {
@@ -4045,6 +4222,20 @@
             "title": "Birthyear",
             "description": "출생연도(예: 1992)"
           },
+          "jerseyNumber": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 99.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jerseynumber",
+            "description": "등번호(0~99). 비우면 미지정"
+          },
           "profileImageUrl": {
             "anyOf": [
               {
@@ -4130,6 +4321,20 @@
             ],
             "title": "Birthyear",
             "description": "출생연도(예: 1992). null을 보내면 지움(안 보내면 그대로)"
+          },
+          "jerseyNumber": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 99.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Jerseynumber",
+            "description": "등번호(0~99). null을 보내면 지움(안 보내면 그대로)"
           },
           "profileImageUrl": {
             "anyOf": [
@@ -4542,51 +4747,6 @@
           "type"
         ],
         "title": "ValidationError"
-      },
-      "ArticleUpdate": {
-        "properties": {
-          "title": {
-            "type": "string",
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Title"
-          },
-          "summary": {
-            "type": "string",
-            "maxLength": 500,
-            "title": "Summary"
-          },
-          "content": {
-            "type": "string",
-            "maxLength": 16000,
-            "minLength": 1,
-            "title": "Content"
-          },
-          "usedInsightIds": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "integer",
-                  "exclusiveMinimum": 0.0
-                },
-                "type": "array",
-                "maxItems": 100
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Usedinsightids"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "title",
-          "summary",
-          "content"
-        ],
-        "title": "ArticleUpdate"
       }
     },
     "securitySchemes": {
