@@ -136,3 +136,4 @@ class ArticleUpdate(CamelModel):
     title: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
     summary: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)]
     content: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=16000)]
+    used_insight_ids: list[Annotated[int, Field(strict=True, gt=0)]] | None = Field(default=None, max_length=100)

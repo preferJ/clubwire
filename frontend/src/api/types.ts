@@ -356,10 +356,19 @@ export interface InsightPayload {
   facts: Record<string, unknown>
 }
 
+export interface ArticleMilestone {
+  insightId: number
+  memberId: number
+  name: string
+  record: string
+  remaining: number
+}
+
 export interface ArticleDetail extends Article {
   content: string | null
   usedInsightIds: number[]
   members: PersonRef[]
+  unusedMilestones: ArticleMilestone[]
   requestJson?: { insights?: InsightPayload[] } | null
 }
 

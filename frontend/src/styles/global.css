@@ -511,3 +511,19 @@ a.panel-body:hover { color: var(--ink); background: #222933; }
   font-size: 18px; font-weight: 800; display: inline-flex; align-items: baseline; justify-content: center; gap: 3px; }
 .month-label small { font-family: var(--body); font-size: 10px; font-weight: 500; color: var(--muted); }
 
+/* 기사 본문에 사용하지 않은 일정 이정표 */
+.article-milestones { min-width: 0; padding: 12px 14px; border-radius: 8px; background: var(--night-2); }
+.article-milestones table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
+.article-milestones caption { padding-bottom: 10px; color: var(--blue-ink); font-size: 12px; font-weight: 700; text-align: left; }
+.article-milestones .player-col { width: 27%; }
+.article-milestones .record-col { width: 53%; }
+.article-milestones .remaining-col { width: 20%; }
+.article-milestones th, .article-milestones td { padding: 9px 6px 9px 0; border-bottom: 1px solid var(--line); text-align: left;
+  vertical-align: middle; word-break: keep-all; overflow-wrap: anywhere; }
+.article-milestones thead th { padding-top: 0; color: var(--blue-ink); font-size: 12px; font-weight: 600; }
+.article-milestones th:last-child, .article-milestones td:last-child { padding-right: 0; text-align: right; }
+.article-milestones thead th:last-child { white-space: nowrap; }
+.article-milestones tbody th, .article-milestones .remaining { color: var(--ink); font-weight: 700; }
+.article-milestones tbody a { color: inherit; }
+.article-milestones tbody a:hover { color: var(--blue-ink); }
+.article-milestones .remaining { font-variant-numeric: tabular-nums; }
