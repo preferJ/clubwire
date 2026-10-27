@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Icon } from '../components/Icon'
+import { MembersGuide } from '../components/MembersGuide'
 import { ClubBar, Empty, ErrorBox, Loading } from '../components/ui'
 import { useClub } from '../lib/club'
 import { initials, pct } from '../lib/format'
@@ -18,6 +19,7 @@ export function MembersPage() {
     <>
       <ClubBar title="선수단" />
       <main className="page tight">
+        <MembersGuide />
         <label className="check" style={{ gap: 8 }}>
           <Icon name="search" size={18} />
           <input type="search" placeholder="이름 검색" aria-label="이름 검색" value={q} onChange={(e) => setQ(e.target.value)}

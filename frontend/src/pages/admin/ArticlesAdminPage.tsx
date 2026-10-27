@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import type { Article, ArticleStatus, InsightPayload } from '../../api/types'
+import { ArticleMilestones } from '../../components/ArticleMilestones'
 import { Icon } from '../../components/Icon'
 import { Empty, ErrorBox, Loading, Switch, Tags, TopBar } from '../../components/ui'
 import { useClub, useClubEvent } from '../../lib/club'
@@ -91,14 +92,14 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
   const { api, slug } = useClub()
   const detail = useAsync(() => (open ? api.article(a.articleId) : Promise.resolve(null)), [api, a.articleId, open, a.status])
   const d = detail.data
-  const [draft, setDraft] = useState<{ title: string; summary: string; content: string } | null>(null)
+  const [draft, setDraft] = useState<{ title: string; summary: string; content: string; usedInsightIds: number[] } | null>(null)
   const save = useAction()
   const editable = !a.publishedAt && ['GENERATED', 'REJECTED'].includes(a.status)
   const editing = !!draft && open && editable
   const locked = busy || save.busy
   const saveDraft = async () => {
     if (!draft) return
-    const updated = await save.run(() => api.updateArticle(a.articleId, draft), '기사 수정을 저장했어요')
+    const updated = await save.run(() => api.updateArticle(a.articleId, { ...draft, usedInsightIds: insights.length ? draft.usedInsightIds : undefined }), '기사 수정을 저장했어요')
     if (updated) {
       detail.setData(updated)
       setDraft(null)
@@ -147,6 +148,23 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
                   <textarea aria-label="본문" className="input" style={{ height: 'auto', padding: 12 }} required rows={12} maxLength={16000} value={draft.content} disabled={locked}
                     onChange={(e) => setDraft({ ...draft, content: e.target.value })} />
                 </label>
+                {insights.length ? (
+                  <fieldset className="stack" disabled={locked} aria-describedby={`used-facts-help-${a.articleId}`}
+                    style={{ margin: 0, padding: 0, border: 0, minWidth: 0, gap: 6 }}>
+                    <legend className="small" style={{ fontWeight: 700, marginBottom: 6 }}>기사에 쓴 사실</legend>
+                    <p id={`used-facts-help-${a.articleId}`} className="small muted">
+                      본문에 추가하거나 뺀 사실을 맞춰 선택하면 아래 이정표 표에도 반영돼요.
+                    </p>
+                    {insights.map((i) => (
+                      <label key={i.id} className="check" style={{ alignItems: 'flex-start', fontSize: 13 }}>
+                        <input type="checkbox" checked={draft.usedInsightIds.includes(i.id)}
+                          onChange={(e) => setDraft({ ...draft, usedInsightIds: e.target.checked
+                            ? [...draft.usedInsightIds, i.id] : draft.usedInsightIds.filter((id) => id !== i.id) })} />
+                        <span>{INSIGHT_LABEL[i.type] ?? i.type} · {describeInsight(i)}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                ) : null}
                 <div className="grid2">
                   <button type="button" className="btn sm" disabled={locked} onClick={() => setDraft(null)}>취소</button>
                   <button type="submit" className="btn sm primary" disabled={locked || !draft.title.trim() || !draft.content.trim()}>수정 저장</button>
@@ -154,7 +172,8 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
               </form>
             ) : <div className="article-body">{(d.content ?? '').split(/\n{2,}/).map((p, i) => <p key={i} style={{ fontSize: 14 }}>{p}</p>)}</div>}
             {editable && !editing ? <button type="button" className="btn sm" disabled={locked || detail.loading}
-              onClick={() => setDraft({ title: d.title ?? '', summary: d.summary ?? '', content: d.content ?? '' })}>기사 수정</button> : null}
+              onClick={() => setDraft({ title: d.title ?? '', summary: d.summary ?? '', content: d.content ?? '', usedInsightIds: [...d.usedInsightIds] })}>기사 수정</button> : null}
+            <ArticleMilestones milestones={d.unusedMilestones ?? []} slug={slug} />
             {insights.length ? (
               <details className="card flat" open>
                 <summary>기사에 쓴 사실 {insights.filter((i) => used.has(i.id)).length}건 · 미사용 {insights.filter((i) => !used.has(i.id)).length}건</summary>

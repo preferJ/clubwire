@@ -112,7 +112,7 @@ export const makeApi = (slug: string) => ({
   articles: (query: { tag?: string; memberId?: number; sessionId?: number; all?: boolean; limit?: number; beforeId?: number } = {}) =>
     request<Article[]>(slug, 'GET', '/articles', { query }),
   article: (id: number) => request<ArticleDetail>(slug, 'GET', `/articles/${id}`),
-  updateArticle: (id: number, body: { title: string; summary: string; content: string }) =>
+  updateArticle: (id: number, body: { title: string; summary: string; content: string; usedInsightIds?: number[] }) =>
     request<ArticleDetail>(slug, 'PATCH', `/articles/${id}`, { body }),
   publishArticle: (id: number) => request<ArticleDetail>(slug, 'POST', `/articles/${id}/publish`),
   rejectArticle: (id: number) => request<ArticleDetail>(slug, 'POST', `/articles/${id}/reject`),
