@@ -58,7 +58,7 @@ function RequireAdmin({ children }: { children: ReactNode }) {
 }
 
 function Landing() {
-  const def = import.meta.env.VITE_DEFAULT_CLUB as string | undefined
+  const def = ((import.meta.env.VITE_DEFAULT_CLUB as string | undefined) ?? 'ypr').trim()
   const nav = useNavigate()
   const [slug, setSlug] = useState('')
   if (def) return <Navigate to={`/c/${def}`} replace />
