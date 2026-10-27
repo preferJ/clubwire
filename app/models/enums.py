@@ -100,6 +100,7 @@ class InsightPhase(StrEnum):
 
 
 class ArticleType(StrEnum):
+    NOTICE = "NOTICE"          # 일정 없이 게시하는 운영진 안내
     PRE_MATCH = "PRE_MATCH"
     POST_MATCH = "POST_MATCH"   # 예약(현재 정책상 생성하지 않음)
     SESSION_RECAP = "SESSION_RECAP"

@@ -195,7 +195,7 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
 
       <div className="grid3">
         <button type="button" className="btn sm danger" disabled={locked || editing || !['GENERATED', 'PUBLISHED', 'FAILED'].includes(a.status)} onClick={() => onAction('reject')}>반려</button>
-        <button type="button" className="btn sm" disabled={locked || editing || a.status === 'PENDING'} onClick={() => onAction('regenerate')}>
+        <button type="button" className="btn sm" disabled={locked || editing || a.status === 'PENDING' || a.articleType === 'NOTICE'} title={a.articleType === 'NOTICE' ? '운영진 안내 기사는 다시 쓰기를 지원하지 않아요.' : undefined} onClick={() => onAction('regenerate')}>
           <Icon name="refresh" size={16} stroke={2} />다시 쓰기
         </button>
         <button type="button" className="btn sm primary" disabled={locked || editing || !['GENERATED', 'REJECTED', 'SUPERSEDED'].includes(a.status)} onClick={() => onAction('publish')}>게시</button>

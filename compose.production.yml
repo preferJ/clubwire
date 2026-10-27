@@ -1,0 +1,73 @@
+name: clubwire
+
+services:
+  db:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Run scripts/init_deploy_env.py first}
+      MYSQL_DATABASE: clubwire
+      MYSQL_USER: clubwire
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Run scripts/init_deploy_env.py first}
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+      - --lower-case-table-names=0
+      - --innodb-buffer-pool-size=256M
+      - --max-connections=50
+      - --mysqlx=0
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "MYSQL_PWD=\"$${MYSQL_PASSWORD}\" mysql --protocol=TCP -h 127.0.0.1 -u \"$${MYSQL_USER}\" \"$${MYSQL_DATABASE}\" -Nse 'SELECT 1' >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    stop_grace_period: 30s
+    environment:
+      DATABASE_URL: mysql+pymysql://clubwire:${MYSQL_PASSWORD:?Run scripts/init_deploy_env.py first}@db:3306/clubwire?charset=utf8mb4
+      SECRET_KEY: ${SECRET_KEY:?Run scripts/init_deploy_env.py first}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      AI_PROVIDER: auto
+      AI_ARTICLE_MODEL: ${AI_ARTICLE_MODEL:-gpt-4.1-mini}
+      AI_RECAP_MODEL: ${AI_RECAP_MODEL:-gpt-4.1-mini}
+      ENABLE_BACKGROUND_JOBS: "true"
+      CORS_ORIGINS: https://${DOMAIN:?Set DOMAIN in deploy/oracle.env}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import json, urllib.request; assert json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3))['status'] == 'ok'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?Set DOMAIN in deploy/oracle.env}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  mysql_data:
+  caddy_data:
+  caddy_config:

@@ -233,6 +233,8 @@ def reject_article(db: Session, club_id: int, article_id: int) -> AiArticle:
 def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
     """같은 사실(REQUEST_JSON)로 새 버전을 만든다. 기존 기사는 그대로 둔다."""
     src = _get(db, club_id, article_id)
+    if src.article_type == ArticleType.NOTICE:
+        raise BadRequest("운영진 안내 기사는 다시 쓰기를 지원하지 않습니다.", "NOTICE_REGENERATE_NOT_SUPPORTED")
     if src.session_id:
         get_session(db, club_id, src.session_id)
     if src.status == ArticleStatus.PENDING:
