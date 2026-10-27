@@ -4561,6 +4561,22 @@
             "maxLength": 16000,
             "minLength": 1,
             "title": "Content"
+          },
+          "usedInsightIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0.0
+                },
+                "type": "array",
+                "maxItems": 100
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Usedinsightids"
           }
         },
         "additionalProperties": false,

@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
+import { ArticleMilestones } from '../components/ArticleMilestones'
 import { Icon } from '../components/Icon'
 import { ErrorBox, Loading, Tags, TopBar, type FromState } from '../components/ui'
 import { useClub } from '../lib/club'
@@ -63,6 +64,8 @@ export function ArticlePage() {
               <p key={i}>{p}</p>
             ))}
           </div>
+
+          <ArticleMilestones milestones={a.unusedMilestones ?? []} slug={slug} />
 
           {a.members.length ? (
             <section className="section">

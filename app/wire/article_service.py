@@ -6,12 +6,12 @@ AI로 못 쓰면(키 없음 · 크레딧/한도 초과 · 연결 오류 · 검�
 import logging
 from typing import Any
 
-from sqlalchemy import func, select, tuple_
+from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.database import SessionLocal, emit
-from app.core.errors import Conflict, NotFound
+from app.core.errors import BadRequest, Conflict, NotFound
 from app.core.timeutil import to_iso, utcnow
 from app.models import (
     AiArticle,
@@ -178,12 +178,27 @@ def _get(db: Session, club_id: int, article_id: int, lock: bool = False) -> AiAr
     return a
 
 
-def update_article(db: Session, club_id: int, article_id: int, *, title: str, summary: str, content: str) -> AiArticle:
+def update_article(db: Session, club_id: int, article_id: int, *, title: str, summary: str, content: str,
+                   used_insight_ids: list[int] | None = None) -> AiArticle:
     a = _get(db, club_id, article_id, lock=True)
     if a.session_id:
         get_session(db, club_id, a.session_id)
     if a.published_at is not None or a.status not in (ArticleStatus.GENERATED, ArticleStatus.REJECTED):
         raise Conflict("게시 전 기사만 수정할 수 있습니다.", "INVALID_ARTICLE_STATUS")
+    if used_insight_ids is not None:
+        selected = list(dict.fromkeys(used_insight_ids))
+        payload = a.request_json if isinstance(a.request_json, dict) else {}
+        insights = payload.get("insights")
+        available = ({i["id"] for i in insights if isinstance(i, dict) and type(i.get("id")) is int}
+                     if isinstance(insights, list) else set())
+        valid = (set(db.scalars(select(Insight.insight_id).where(
+            Insight.insight_id.in_(selected), Insight.club_id == club_id, Insight.session_id == a.session_id)))
+                 if selected else set())
+        if not set(selected) <= available or set(selected) != valid:
+            raise BadRequest("이 기사에 전달된 사실만 선택할 수 있습니다.", "INVALID_ARTICLE_INSIGHTS")
+        # 텍스트와 사용 사실을 한 트랜잭션에서 저장한다. 검증 실패 시 기존 내용은 그대로 둔다.
+        db.execute(delete(AiArticleInsight).where(AiArticleInsight.article_id == article_id))
+        db.add_all([AiArticleInsight(article_id=article_id, insight_id=i) for i in selected])
     a.title, a.summary, a.content = title, summary, content
     emit(db, club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
     db.commit()
@@ -241,6 +256,46 @@ def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
 
 
 # ------------------------------------------------------------------ 조회
+def _unused_milestones(a: AiArticle, used: list[int]) -> list[dict]:
+    """기사 작성 당시 사실 중 본문에 사용하지 않은 이정표만 공개한다.
+
+    현재 선수 기록이나 최신 Insight를 조회하지 않아 과거 기사의 남은 수가 바뀌지 않는다.
+    오래된 요청 데이터에 불완전한 항목이 있어도 기사 조회 자체는 계속 가능해야 한다.
+    """
+    if a.article_type != ArticleType.PRE_MATCH or not isinstance(a.request_json, dict):
+        return []
+    insights = a.request_json.get("insights")
+    if not isinstance(insights, list):
+        return []
+    records = {"games": "경기 출전", "goals": "골", "assists": "도움"}
+    seen = set(used)
+    rows = []
+    for insight in insights:
+        if not isinstance(insight, dict) or insight.get("type") != "MILESTONE_EXPECTED":
+            continue
+        insight_id = insight.get("id")
+        facts = insight.get("facts")
+        if type(insight_id) is not int or insight_id <= 0 or insight_id in seen or not isinstance(facts, dict):
+            continue
+        person = facts.get("member") or insight.get("subject")
+        if not isinstance(person, dict):
+            continue
+        member_id, name = person.get("memberId"), person.get("name")
+        metric, milestone, remaining = facts.get("metric"), facts.get("milestone"), facts.get("remaining")
+        if (type(member_id) is not int or member_id <= 0 or not isinstance(name, str) or not name.strip()
+                or not isinstance(metric, str) or metric not in records
+                or type(milestone) is not int or milestone <= 0
+                or type(remaining) is not int or not 0 < remaining <= milestone):
+            continue
+        current = facts.get("current")
+        if current is not None and (type(current) is not int or current < 0 or milestone - current != remaining):
+            continue
+        rows.append({"insightId": insight_id, "memberId": member_id, "name": name,
+                     "record": f"통산 {milestone}{records[metric]}", "remaining": remaining})
+        seen.add(insight_id)
+    return rows
+
+
 def serialize_article(db: Session, a: AiArticle, *, detail: bool = False, admin: bool = False) -> dict:
     tags = list(db.scalars(select(ArticleTag.tag_name).where(ArticleTag.article_id == a.article_id).order_by(ArticleTag.tag_name)))
     session = db.get(ClubSession, a.session_id) if a.session_id else None  # 화면에서 일정 날짜별로 묶기용
@@ -256,6 +311,7 @@ def serialize_article(db: Session, a: AiArticle, *, detail: bool = False, admin:
         data["content"] = a.content
         used = list(db.scalars(select(AiArticleInsight.insight_id).where(AiArticleInsight.article_id == a.article_id)))
         data["usedInsightIds"] = used
+        data["unusedMilestones"] = _unused_milestones(a, used)
         mids = set(db.scalars(select(InsightMember.member_id).where(InsightMember.insight_id.in_(used)))) if used else set()
         if a.article_type == ArticleType.MONTHLY_MVP:  # Insight 없이 쓰는 기사: MVP · 2·3위를 '나온 선수'로
             mvp = (a.request_json or {}).get("monthlyMvp") or {}
