@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { ArticleMilestone } from '../api/types'
 
-/** 본문에서 다루지 않은 이정표. 생성 당시 기록을 보여 준다. */
+/** 본문에 썼는지와 관계없이 기사 생성 당시의 일정 이정표를 보여 준다. */
 export function ArticleMilestones({ milestones, slug }: {
   milestones?: ArticleMilestone[]
   slug: string

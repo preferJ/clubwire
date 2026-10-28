@@ -153,7 +153,7 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
                     style={{ margin: 0, padding: 0, border: 0, minWidth: 0, gap: 6 }}>
                     <legend className="small" style={{ fontWeight: 700, marginBottom: 6 }}>기사에 쓴 사실</legend>
                     <p id={`used-facts-help-${a.articleId}`} className="small muted">
-                      본문에 추가하거나 뺀 사실을 맞춰 선택하면 아래 이정표 표에도 반영돼요.
+                      본문에 실제로 쓴 사실을 선택하세요. 아래 이정표 표는 선택과 관계없이 생성 당시의 기록을 모두 보여 줘요.
                     </p>
                     {insights.map((i) => (
                       <label key={i.id} className="check" style={{ alignItems: 'flex-start', fontSize: 13 }}>
@@ -173,7 +173,7 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
             ) : <div className="article-body">{(d.content ?? '').split(/\n{2,}/).map((p, i) => <p key={i} style={{ fontSize: 14 }}>{p}</p>)}</div>}
             {editable && !editing ? <button type="button" className="btn sm" disabled={locked || detail.loading}
               onClick={() => setDraft({ title: d.title ?? '', summary: d.summary ?? '', content: d.content ?? '', usedInsightIds: [...d.usedInsightIds] })}>기사 수정</button> : null}
-            <ArticleMilestones milestones={d.unusedMilestones ?? []} slug={slug} />
+            <ArticleMilestones milestones={d.milestones ?? d.unusedMilestones ?? []} slug={slug} />
             {insights.length ? (
               <details className="card flat" open>
                 <summary>기사에 쓴 사실 {insights.filter((i) => used.has(i.id)).length}건 · 미사용 {insights.filter((i) => !used.has(i.id)).length}건</summary>

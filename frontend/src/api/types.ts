@@ -378,7 +378,10 @@ export interface ArticleDetail extends Article {
   content: string | null
   usedInsightIds: number[]
   members: PersonRef[]
-  unusedMilestones: ArticleMilestone[]
+  /** 기사 생성 당시의 모든 일정 이정표. 본문에 쓴 기록도 포함한다. */
+  milestones?: ArticleMilestone[]
+  /** 이전 서버 응답 호환용: 본문에서 사용하지 않은 이정표만 포함한다. */
+  unusedMilestones?: ArticleMilestone[]
   requestJson?: { insights?: InsightPayload[] } | null
 }
 

@@ -48,24 +48,29 @@ def _model_for(article_type: str) -> str:
 
 def build_payload(db: Session, club: Club, session: ClubSession, article_type: str, insights: list[Insight],
                   extra_context: dict[str, Any] | None = None) -> dict[str, Any]:
-    """AI 전용 DTO. DB Row를 그대로 넘기지 않는다."""
+    """기사의 본문 소재와 이정표 표 스냅샷. DB Row를 그대로 넘기지 않는다."""
     cfg = load_config(db, club.club_id)
     names = {m.member_id: m.name for m in db.scalars(select(Member).where(Member.club_id == club.club_id))}
-    chosen = sorted(insights, key=lambda i: (-i.importance, i.insight_id))[: int(cfg["WIRE_MAX_INSIGHTS"])]
+    ordered = sorted(insights, key=lambda i: (-i.importance, i.insight_id))
+    chosen = ordered[: int(cfg["WIRE_MAX_INSIGHTS"])]
+
+    def insight_payload(i: Insight) -> dict[str, Any]:
+        return {
+            "id": i.insight_id, "type": i.insight_type, "category": i.category, "importance": i.importance,
+            "subject": {"memberId": i.member_id, "name": names.get(i.member_id)} if i.member_id else None,
+            "facts": i.facts_json,
+        }
+
     payload: dict[str, Any] = {
         "articleType": article_type,
         "clubName": club.club_name,
         "sessionDate": session.session_date.isoformat(),
         "sessionTitle": session.title,
         "location": session.location,
-        "insights": [
-            {
-                "id": i.insight_id, "type": i.insight_type, "category": i.category, "importance": i.importance,
-                "subject": {"memberId": i.member_id, "name": names.get(i.member_id)} if i.member_id else None,
-                "facts": i.facts_json,
-            }
-            for i in chosen
-        ],
+        "insights": [insight_payload(i) for i in chosen],
+        # 표는 AI 본문 소재 개수 제한과 무관하다. 전체 이정표를 당시 수치로 보관한다.
+        # 이 필드는 화면용 스냅샷이며 OpenAI 요청에서는 제외한다.
+        "milestoneInsights": [insight_payload(i) for i in ordered if i.insight_type == "MILESTONE_EXPECTED"],
     }
     if article_type == ArticleType.PRE_MATCH:
         payload["teams"] = [
@@ -258,19 +263,20 @@ def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
 
 
 # ------------------------------------------------------------------ 조회
-def _unused_milestones(a: AiArticle, used: list[int]) -> list[dict]:
-    """기사 작성 당시 사실 중 본문에 사용하지 않은 이정표만 공개한다.
+def _article_milestones(a: AiArticle) -> list[dict]:
+    """본문 사용 여부와 무관하게 기사 작성 당시의 이정표 전체를 공개한다.
 
     현재 선수 기록이나 최신 Insight를 조회하지 않아 과거 기사의 남은 수가 바뀌지 않는다.
     오래된 요청 데이터에 불완전한 항목이 있어도 기사 조회 자체는 계속 가능해야 한다.
     """
-    if a.article_type != ArticleType.PRE_MATCH or not isinstance(a.request_json, dict):
+    if not isinstance(a.request_json, dict):
         return []
-    insights = a.request_json.get("insights")
+    # 새 기사는 AI 소재 제한 밖의 이정표도 보존한다. 기존 기사는 저장된 사실을 사용한다.
+    insights = a.request_json.get("milestoneInsights", a.request_json.get("insights"))
     if not isinstance(insights, list):
         return []
     records = {"games": "경기 출전", "goals": "골", "assists": "도움"}
-    seen = set(used)
+    seen: set[int] = set()
     rows = []
     for insight in insights:
         if not isinstance(insight, dict) or insight.get("type") != "MILESTONE_EXPECTED":
@@ -313,7 +319,11 @@ def serialize_article(db: Session, a: AiArticle, *, detail: bool = False, admin:
         data["content"] = a.content
         used = list(db.scalars(select(AiArticleInsight.insight_id).where(AiArticleInsight.article_id == a.article_id)))
         data["usedInsightIds"] = used
-        data["unusedMilestones"] = _unused_milestones(a, used)
+        milestones = _article_milestones(a)
+        data["milestones"] = milestones
+        # 구버전 프론트엔드의 기존 응답 의미는 유지한다.
+        used_ids = set(used)
+        data["unusedMilestones"] = [m for m in milestones if m["insightId"] not in used_ids]
         mids = set(db.scalars(select(InsightMember.member_id).where(InsightMember.insight_id.in_(used)))) if used else set()
         if a.article_type == ArticleType.MONTHLY_MVP:  # Insight 없이 쓰는 기사: MVP · 2·3위를 '나온 선수'로
             mvp = (a.request_json or {}).get("monthlyMvp") or {}

@@ -513,7 +513,7 @@ a.panel-body:hover { color: var(--ink); background: #222933; }
   font-size: 18px; font-weight: 800; display: inline-flex; align-items: baseline; justify-content: center; gap: 3px; }
 .month-label small { font-family: var(--body); font-size: 10px; font-weight: 500; color: var(--muted); }
 
-/* 기사 본문에 사용하지 않은 일정 이정표 */
+/* 기사 생성 당시의 일정 이정표(본문 사용 여부와 관계없이 표시) */
 .article-milestones { min-width: 0; padding: 12px 14px; border-radius: 8px; background: var(--night-2); }
 .article-milestones table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 13px; }
 .article-milestones caption { padding-bottom: 10px; color: var(--blue-ink); font-size: 12px; font-weight: 700; text-align: left; }

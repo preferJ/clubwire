@@ -1,10 +1,11 @@
-"""기사에 쓰지 않은 이정표: 당시 스냅샷·공개 데이터·사용 여부."""
+"""기사 이정표: 본문과 독립된 전체 표·당시 스냅샷·기존 응답 호환."""
 from copy import deepcopy
 
 import pytest
 from sqlalchemy import delete, select
 
-from app.models import AiArticle, AiArticleInsight, Insight
+from app.models import AiArticle, AiArticleInsight, Club, ClubSession, Insight
+from app.wire.article_service import create_article, run_generation
 from tests.test_article_writer import _preview
 
 
@@ -15,7 +16,7 @@ def _milestone(insight_id, member_id, name, metric="goals", milestone=10, remain
                       "milestone": milestone, "current": milestone - remaining, "remaining": remaining}}
 
 
-def test_public_article_only_exposes_unused_milestone_snapshot(make_club, db):
+def test_public_article_exposes_all_milestone_snapshots(make_club, db):
     api = make_club("milestonespublic")
     article = _preview(api)
     aid, sid = article["articleId"], article["sessionId"]
@@ -40,33 +41,44 @@ def test_public_article_only_exposes_unused_milestone_snapshot(make_club, db):
         {"insightId": third["id"], "memberId": members[3]["memberId"], "name": "윤영문", "record": "통산 10골", "remaining": 2},
     ]
     public = api.ok(api.get(path, admin=False))
+    all_expected = [
+        {"insightId": used["id"], "memberId": members[0]["memberId"], "name": "본문 선수", "record": "통산 10골", "remaining": 1},
+        *expected,
+    ]
+    assert public["milestones"] == all_expected
     assert public["unusedMilestones"] == expected
     assert "requestJson" not in public
-    assert all("importance" not in row and "facts" not in row for row in public["unusedMilestones"])
-    assert api.ok(api.get(path))["unusedMilestones"] == expected
+    assert all("importance" not in row and "facts" not in row for row in public["milestones"])
+    assert api.ok(api.get(path))["milestones"] == all_expected
     # 현재 선수 정보가 바뀌어도 당시 기사의 표는 스냅샷을 유지한다.
     api.ok(api.patch(f"/members/{members[1]['memberId']}", {"name": "변경한 이름"}))
+    assert api.ok(api.get(path, admin=False))["milestones"] == all_expected
     assert api.ok(api.get(path, admin=False))["unusedMilestones"] == expected
-    assert "unusedMilestones" not in api.ok(api.get("/articles", admin=False))[0]
+    listed = api.ok(api.get("/articles", admin=False))[0]
+    assert "milestones" not in listed and "unusedMilestones" not in listed
 
 
 @pytest.mark.parametrize("article_type,payload", [
     ("PRE_MATCH", None), ("PRE_MATCH", {}), ("PRE_MATCH", {"insights": None}),
     ("PRE_MATCH", {"insights": []}),
-    ("SESSION_RECAP", {"insights": [_milestone(1000000, 1, "선수")]}),
-    ("MONTHLY_MVP", {"insights": [_milestone(1000000, 1, "선수")]}),
-], ids=["missing", "empty", "null-insights", "no-insights", "recap", "monthly"])
-def test_articles_without_unused_milestones_return_empty(make_club, db, article_type, payload, request):
+    ("PRE_MATCH", {"insights": [_milestone(1000000, 1, "선수")], "milestoneInsights": []}),
+    ("SESSION_RECAP", {"insights": []}),
+    ("MONTHLY_MVP", {"insights": []}),
+    ("NOTICE", None),
+], ids=["missing", "empty", "null-insights", "no-insights", "snapshot-empty", "recap", "monthly", "notice"])
+def test_articles_without_milestones_return_empty(make_club, db, article_type, payload, request):
     api = make_club("milestonesempty" + request.node.callspec.id)
     article = _preview(api)
     a = db.get(AiArticle, article["articleId"])
     a.article_type, a.request_json = article_type, payload
     db.commit()
-    assert api.ok(api.get(f"/articles/{a.article_id}"))["unusedMilestones"] == []
+    result = api.ok(api.get(f"/articles/{a.article_id}"))
+    assert result["milestones"] == result["unusedMilestones"] == []
 
 
-def test_malformed_legacy_milestones_do_not_break_article(make_club, db):
-    api = make_club("milestoneslegacy")
+@pytest.mark.parametrize("snapshot_key", ["insights", "milestoneInsights"])
+def test_malformed_milestones_do_not_break_article(make_club, db, snapshot_key):
+    api = make_club("milestoneslegacy" + snapshot_key.lower())
     article = _preview(api)
     member = api.ok(api.get("/members"))[0]
     valid = _milestone(1000000, member["memberId"], member["name"])
@@ -79,9 +91,9 @@ def test_malformed_legacy_milestones_do_not_break_article(make_club, db):
             item["subject"] = None
         invalid.append(item)
     a = db.get(AiArticle, article["articleId"])
-    a.request_json = {"insights": [*invalid, valid, deepcopy(valid)]}
+    a.request_json = {snapshot_key: [*invalid, valid, deepcopy(valid)]}
     db.commit()
-    rows = api.ok(api.get(f"/articles/{a.article_id}"))["unusedMilestones"]
+    rows = api.ok(api.get(f"/articles/{a.article_id}"))["milestones"]
     assert len(rows) == 1
     assert rows[0]["record"] == "통산 10골" and rows[0]["remaining"] == 1
 
@@ -102,7 +114,7 @@ def _editable_article(api, db):
     return article, milestones, insight_rows[2].insight_id
 
 
-def test_editing_used_facts_updates_milestone_table_and_preserves_old_clients(make_club, db):
+def test_editing_used_facts_keeps_full_milestone_table_and_preserves_old_clients(make_club, db):
     api = make_club("milestonesedit")
     article, milestones, _ = _editable_article(api, db)
     path = f"/articles/{article['articleId']}"
@@ -110,13 +122,53 @@ def test_editing_used_facts_updates_milestone_table_and_preserves_old_clients(ma
     selected = milestones[1]["id"]
     result = api.ok(api.patch(path, {**body, "usedInsightIds": [selected, selected]}))
     assert result["usedInsightIds"] == [selected]
+    expected_ids = [m["id"] for m in milestones]
+    assert [m["insightId"] for m in result["milestones"]] == expected_ids
     assert [m["insightId"] for m in result["unusedMilestones"]] == [milestones[0]["id"]]
     # 기존 편집 클라이언트가 필드를 보내지 않거나 null을 보내면 기존 선택을 보존한다.
     assert api.ok(api.patch(path, body))["usedInsightIds"] == [selected]
     assert api.ok(api.patch(path, {**body, "usedInsightIds": None}))["usedInsightIds"] == [selected]
     cleared = api.ok(api.patch(path, {**body, "usedInsightIds": []}))
     assert cleared["usedInsightIds"] == []
+    assert [m["insightId"] for m in cleared["milestones"]] == expected_ids
     assert [m["insightId"] for m in cleared["unusedMilestones"]] == [m["id"] for m in milestones]
+
+
+def test_milestones_outside_ai_limit_survive_generation_and_regeneration(make_club, db):
+    api = make_club("milestoneslimit")
+    original = _preview(api)
+    api.ok(api.patch("/admin/config", {"values": {"WIRE_MAX_INSIGHTS": 1}}))
+    s = db.get(ClubSession, original["sessionId"])
+    club = db.get(Club, s.club_id)
+    members = api.ok(api.get("/members"))
+    primary = db.scalar(select(Insight).where(Insight.session_id == s.session_id).order_by(Insight.insight_id))
+    primary.importance = 100
+    milestones = []
+    for i, member in enumerate(members[:2]):
+        facts = _milestone(1, member["memberId"], member["name"], "assists", 10, i + 1)["facts"]
+        row = Insight(club_id=club.club_id, session_id=s.session_id, member_id=member["memberId"],
+                      insight_type="MILESTONE_EXPECTED", category="MILESTONE", phase="PRE", importance=10 - i,
+                      facts_json=facts, rule_version="milestone_expected_v1")
+        db.add(row)
+        milestones.append(row)
+    db.flush()
+    article = create_article(db, club, s, "PRE_MATCH", [primary, *milestones])
+    db.commit()
+    run_generation(article.article_id)
+    result = api.ok(api.get(f"/articles/{article.article_id}"))
+    assert [i["id"] for i in result["requestJson"]["insights"]] == [primary.insight_id]
+    expected_ids = [m.insight_id for m in milestones]
+    assert [m["insightId"] for m in result["milestones"]] == expected_ids
+    assert [m["remaining"] for m in result["milestones"]] == [1, 2]
+    # 나중의 Insight 변경·다시 쓰기로 과거 표의 남은 수가 바뀌면 안 된다.
+    milestones[0].facts_json = {**milestones[0].facts_json, "current": 5, "remaining": 5}
+    db.commit()
+    regenerated = api.ok(api.post(f"/articles/{article.article_id}/regenerate"), 201)
+    regenerated = api.ok(api.get(f"/articles/{regenerated['articleId']}"))
+    assert regenerated["milestones"] == result["milestones"]
+    api.ok(api.post(f"/articles/{regenerated['articleId']}/publish"))
+    public = api.ok(api.get(f"/articles/{regenerated['articleId']}", admin=False))
+    assert public["milestones"] == result["milestones"]
 
 
 def test_invalid_used_facts_are_rejected_without_partial_mutations(make_club, db):
