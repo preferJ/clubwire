@@ -189,6 +189,17 @@ ARTICLE_JSON_SCHEMA: dict[str, Any] = {
 FORBIDDEN_TERMS = ("rating", "레이팅", "confidence", "컨피던스", "importance", "중요도 점수", "기대승률")
 
 
+REQUIRED_FACTS_PROMPT = """[관리자가 선택한 필수 사실]
+- 입력의 requiredInsightIds는 반드시 기사에 포함할 insight의 id 목록이다. 선택 개수 제한은 없다.
+- 선택된 각 insight의 선수·조합과 핵심 기록·수치·단위를 제목·요약·본문 중 적절한 곳에 실제 문장으로 빠짐없이 쓴다.
+  usedInsightIds에 id만 넣고 기사에서 해당 사실을 생략해서는 안 된다.
+- 이 필수 선택은 일반적인 소재 수, 선수별 소재 수, 다양성, 문단 수·분량 제한보다 우선한다.
+  필요한 만큼 본문을 늘려도 되지만 사실의 정확성과 프리뷰·마감 기사 구분은 지킨다.
+- requiredInsightIds의 모든 id를 usedInsightIds에도 넣는다. 선택되지 않은 사실도 필요하면 함께 쓸 수 있다.
+- id나 내부 중요도 숫자를 기사 문장에 노출하지 않는다.
+"""
+
+
 class ArticleDraft(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     summary: str = Field(min_length=1, max_length=500)
@@ -207,7 +218,21 @@ class ArticleWriter(Protocol):
               options: dict[str, Any] | None = None) -> tuple[ArticleDraft, dict[str, Any]]: ...
 
 
+def required_insight_ids(payload: dict[str, Any]) -> list[int]:
+    """필수 소재는 기사 생성 당시의 사실 안에서만 지정할 수 있다."""
+    required = payload.get("requiredInsightIds", [])
+    if not isinstance(required, list) or any(type(i) is not int or i <= 0 for i in required):
+        raise ArticleWriterError("필수 사실 ID는 양의 정수 목록이어야 합니다.")
+    required = list(dict.fromkeys(required))
+    valid_ids = {i["id"] for i in payload.get("insights", [])}
+    unknown = set(required) - valid_ids
+    if unknown:
+        raise ArticleWriterError(f"기사 원본에 없는 필수 사실 ID: {sorted(unknown)}")
+    return required
+
+
 def validate_draft(raw: dict[str, Any], payload: dict[str, Any]) -> ArticleDraft:
+    required = required_insight_ids(payload)
     draft = ArticleDraft.model_validate(raw)
     text = f"{draft.title}\n{draft.summary}\n{draft.body}".lower()
     hit = [t for t in FORBIDDEN_TERMS if t in text]
@@ -215,6 +240,9 @@ def validate_draft(raw: dict[str, Any], payload: dict[str, Any]) -> ArticleDraft
         raise ArticleWriterError(f"기사에 내부 점수 용어가 포함됨: {hit}")
     valid_ids = {i["id"] for i in payload.get("insights", [])}
     draft.usedInsightIds = [i for i in dict.fromkeys(draft.usedInsightIds) if i in valid_ids]
+    missing = set(required) - set(draft.usedInsightIds)
+    if missing:
+        raise ArticleWriterError(f"관리자가 선택한 필수 사실이 누락되었습니다: {sorted(missing)}")
     return draft
 
 
@@ -231,6 +259,7 @@ class OpenAIArticleWriter:
     def write(self, payload: dict[str, Any], model: str,
               options: dict[str, Any] | None = None) -> tuple[ArticleDraft, dict[str, Any]]:
         """options: {"temperature": 0~2, "maxOutputTokens": 답변 최대 토큰}. 없으면 OpenAI 기본값."""
+        required_insight_ids(payload)
         opts = options or {}
         params: dict[str, Any] = {}
         if opts.get("temperature") is not None:
@@ -240,11 +269,11 @@ class OpenAIArticleWriter:
         last_error: Exception | None = None
         for _ in range(settings.AI_MAX_RETRY + 1):
             try:
-                resp = self._create(model, payload, params)
+                resp = self._create(model, payload, params, last_error)
             except Exception as e:  # noqa: BLE001  일부 모델(추론형)은 temperature를 받지 않음 → 빼고 한 번 더
                 if "temperature" in params and "temperature" in str(e).lower():
                     params.pop("temperature")
-                    resp = self._create(model, payload, params)
+                    resp = self._create(model, payload, params, last_error)
                 else:
                     raise
             choice = resp.choices[0]
@@ -258,16 +287,21 @@ class OpenAIArticleWriter:
                 last_error = e
         raise ArticleWriterError(f"AI 응답 검증 실패: {last_error}")
 
-    def _create(self, model: str, payload: dict[str, Any], params: dict[str, Any]):
+    def _create(self, model: str, payload: dict[str, Any], params: dict[str, Any],
+                last_error: Exception | None = None):
         # 전체 이정표는 서버 표시용 스냅샷이다. AI에는 기존 한도 안에서 고른 insights만 보내고,
         # 원본 payload는 유지해 기사 상세의 표가 이 스냅샷을 그대로 사용할 수 있게 한다.
         ai_payload = {key: value for key, value in payload.items() if key != "milestoneInsights"}
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if required_insight_ids(payload):
+            messages.append({"role": "system", "content": REQUIRED_FACTS_PROMPT})
+        if last_error is not None:
+            messages.append({"role": "system", "content": f"이전 응답이 검증에 실패했습니다: {last_error}\n"
+                             "오류를 수정해 기사를 다시 작성하세요. 필수 사실은 실제 기사 문장과 usedInsightIds 모두에 포함하세요."})
+        messages.append({"role": "user", "content": json.dumps(ai_payload, ensure_ascii=False, default=str)})
         return self.client.chat.completions.create(
             model=model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(ai_payload, ensure_ascii=False, default=str)},
-            ],
+            messages=messages,
             response_format={
                 "type": "json_schema",
                 "json_schema": {"name": "clubwire_article", "strict": True, "schema": ARTICLE_JSON_SCHEMA},

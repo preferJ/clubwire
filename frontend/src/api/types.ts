@@ -382,7 +382,7 @@ export interface ArticleDetail extends Article {
   milestones?: ArticleMilestone[]
   /** 이전 서버 응답 호환용: 본문에서 사용하지 않은 이정표만 포함한다. */
   unusedMilestones?: ArticleMilestone[]
-  requestJson?: { insights?: InsightPayload[] } | null
+  requestJson?: { insights?: InsightPayload[]; requiredInsightIds?: number[] } | null
 }
 
 export interface ConfigItem {

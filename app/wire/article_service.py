@@ -4,6 +4,7 @@ AI로 못 쓰면(키 없음 · 크레딧/한도 초과 · 연결 오류 · 검�
 기본형은 MODEL_NAME = 'template', 실패 원인은 ERROR_MESSAGE에 남겨 관리자 화면에 보여 준다([다시 쓰기]로 AI 재시도).
 """
 import logging
+from copy import deepcopy
 from typing import Any
 
 from sqlalchemy import delete, func, select, tuple_
@@ -235,8 +236,9 @@ def reject_article(db: Session, club_id: int, article_id: int) -> AiArticle:
     return a
 
 
-def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
-    """같은 사실(REQUEST_JSON)로 새 버전을 만든다. 기존 기사는 그대로 둔다."""
+def regenerate_article(db: Session, club_id: int, article_id: int,
+                       required_insight_ids: list[int] | None = None) -> AiArticle:
+    """기존 사실을 보존하고 관리자가 고른 필수 사실로 새 버전을 만든다."""
     src = _get(db, club_id, article_id)
     if src.article_type == ArticleType.NOTICE:
         raise BadRequest("운영진 안내 기사는 다시 쓰기를 지원하지 않습니다.", "NOTICE_REGENERATE_NOT_SUPPORTED")
@@ -244,6 +246,13 @@ def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
         get_session(db, club_id, src.session_id)
     if src.status == ArticleStatus.PENDING:
         raise Conflict("생성 중인 기사입니다.", "ARTICLE_PENDING")
+    payload = deepcopy(src.request_json or {})
+    if required_insight_ids is not None:
+        available = {i["id"] for i in payload.get("insights", [])}
+        if any(type(iid) is not int or iid <= 0 or iid not in available for iid in required_insight_ids):
+            raise BadRequest("이 기사의 사실 목록에서만 필수 포함 항목을 선택할 수 있습니다.",
+                             "INVALID_REQUIRED_INSIGHTS")
+        payload["requiredInsightIds"] = list(dict.fromkeys(required_insight_ids))
     root_id = src.parent_article_id or src.article_id
     max_no = db.scalar(select(func.max(AiArticle.generation_no)).where(
         (AiArticle.article_id == root_id) | (AiArticle.parent_article_id == root_id))) or 1
@@ -253,7 +262,7 @@ def regenerate_article(db: Session, club_id: int, article_id: int) -> AiArticle:
         model_name=_model_for(src.article_type) if provider == "openai" else TEMPLATE_MODEL,
         prompt_version=PROMPT_VERSION, insight_rule_version=src.insight_rule_version,
         status=ArticleStatus.PENDING, published_yn=False, parent_article_id=root_id, generation_no=max_no + 1,
-        request_json=src.request_json,
+        request_json=payload,
     )
     db.add(a)
     db.flush()

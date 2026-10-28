@@ -6,7 +6,7 @@ from app.api.deps import admin_dep, club_dep, optional_admin, schedule_articles
 from app.core.database import get_db
 from app.core.security import AdminPrincipal
 from app.models import Club
-from app.schemas.requests import ArticleUpdate
+from app.schemas.requests import ArticleRegenerateRequest, ArticleUpdate
 from app.wire import article_service
 
 router = APIRouter(tags=["wire"])
@@ -54,8 +54,11 @@ def reject(article_id: int, club: Club = Depends(club_dep), admin: AdminPrincipa
 
 @router.post("/articles/{article_id}/regenerate", status_code=201, summary="기사 재생성(새 버전, 기존 보존)")
 def regenerate(article_id: int, background: BackgroundTasks, club: Club = Depends(club_dep),
-               admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
-    a = article_service.regenerate_article(db, club.club_id, article_id)
+               admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db),
+               body: ArticleRegenerateRequest | None = None):
+    a = article_service.regenerate_article(
+        db, club.club_id, article_id, required_insight_ids=body.required_insight_ids if body else None,
+    )
     schedule_articles(background, [a.article_id])
     db.refresh(a)
     return article_service.serialize_article(db, a, detail=True, admin=True)

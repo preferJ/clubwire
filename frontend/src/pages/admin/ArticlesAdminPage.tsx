@@ -70,10 +70,18 @@ export function ArticlesAdminPage() {
                 <ArticleReviewCard key={a.articleId} a={a} open={open === a.articleId} busy={busy}
                   onSaved={list.reload}
                   onToggle={() => setOpen(open === a.articleId ? null : a.articleId)}
-                  onAction={async (action) => {
-                    const fn = action === 'publish' ? api.publishArticle : action === 'reject' ? api.rejectArticle : api.regenerateArticle
+                  onAction={async (action, requiredInsightIds) => {
                     const msg = action === 'publish' ? '게시했어요' : action === 'reject' ? '반려했어요' : '새 버전을 쓰고 있어요'
-                    if (await run(() => fn(a.articleId), msg)) list.reload()
+                    const result = await run(() => action === 'regenerate'
+                      ? api.regenerateArticle(a.articleId, requiredInsightIds)
+                      : action === 'publish' ? api.publishArticle(a.articleId) : api.rejectArticle(a.articleId), msg)
+                    if (result) {
+                      if (action === 'regenerate') {
+                        setTab(result.status === 'PUBLISHED' ? 'published' : 'review')
+                        setOpen(result.articleId)
+                      }
+                      list.reload()
+                    }
                   }} />
               ))}
       </main>
@@ -87,7 +95,7 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
   busy: boolean
   onToggle: () => void
   onSaved: () => void
-  onAction: (action: 'publish' | 'reject' | 'regenerate') => void
+  onAction: (action: 'publish' | 'reject' | 'regenerate', requiredInsightIds?: number[]) => void
 }) {
   const { api, slug } = useClub()
   const detail = useAsync(() => (open ? api.article(a.articleId) : Promise.resolve(null)), [api, a.articleId, open, a.status])
@@ -108,6 +116,19 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
   }
   const insights = d?.requestJson?.insights ?? []
   const used = new Set(d?.usedInsightIds ?? [])
+  // null means no local edits: use the saved selection when detail arrives.
+  // Keep edits across detail refreshes and closing/reopening the card.
+  const [requiredOverride, setRequiredOverride] = useState<number[] | null>(null)
+  const requiredIds = requiredOverride ?? d?.requestJson?.requiredInsightIds ?? []
+  const required = new Set(requiredIds)
+  const toggleRequired = (id: number, checked: boolean) => {
+    setRequiredOverride((current) => {
+      const next = new Set(current ?? d?.requestJson?.requiredInsightIds ?? [])
+      if (checked) next.add(id)
+      else next.delete(id)
+      return [...next]
+    })
+  }
 
   return (
     <article className="card stack" style={{ gap: 10 }}>
@@ -177,15 +198,30 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
             {insights.length ? (
               <details className="card flat" open>
                 <summary>기사에 쓴 사실 {insights.filter((i) => used.has(i.id)).length}건 · 미사용 {insights.filter((i) => !used.has(i.id)).length}건</summary>
+                <p className="small muted" style={{ margin: '8px 0' }}>
+                  체크한 사실은 다시 쓰기에 반드시 포함됩니다. 선택 개수 제한은 없습니다.
+                  {editing ? <span style={{ display: 'block', marginTop: 4 }}>기사 수정을 저장하거나 취소한 뒤 필수 포함 항목을 선택하세요.</span> : null}
+                  <b style={{ display: 'block', marginTop: 4, color: 'var(--ink)' }}>반드시 포함 {required.size}건</b>
+                </p>
                 <ul className="stack" style={{ margin: 0, padding: 0, listStyle: 'none', gap: 6, fontSize: 13 }}>
                   {insights.map((i) => (
-                    <li key={i.id} className="row between" style={{ opacity: used.has(i.id) ? 1 : 0.55 }}>
-                      <span><b>{INSIGHT_LABEL[i.type] ?? i.type}</b> · {describeInsight(i)}</span>
-                      <span className="mono muted">{i.importance}</span>
+                    <li key={i.id} className="row between">
+                      <span style={{ opacity: used.has(i.id) || required.has(i.id) ? 1 : 0.55, minWidth: 0 }}>
+                        <b>{INSIGHT_LABEL[i.type] ?? i.type}</b> · {describeInsight(i)}
+                      </span>
+                      <span className="row" style={{ flexShrink: 0, gap: 8 }}>
+                        <span className="mono muted">{i.importance}</span>
+                        <label style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, minHeight: 32, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={required.has(i.id)} disabled={locked || editing || a.status === 'PENDING' || a.articleType === 'NOTICE'}
+                            aria-label={`반드시 포함: ${INSIGHT_LABEL[i.type] ?? i.type} · ${describeInsight(i)}`}
+                            onChange={(event) => toggleRequired(i.id, event.target.checked)}
+                            style={{ width: 18, height: 18, margin: 0, accentColor: 'var(--accent)' }} />
+                        </label>
+                      </span>
                     </li>
                   ))}
                 </ul>
-                <p className="small muted" style={{ marginTop: 8 }}>오른쪽 숫자는 중요도(관리자에게만 보임)</p>
+                <p className="small muted" style={{ marginTop: 8 }}>오른쪽 숫자는 중요도(관리자에게만 보임) · 체크박스는 다시 쓰기 필수 포함</p>
               </details>
             ) : null}
             {a.status === 'PUBLISHED' ? <Link className="btn sm" to={`/c/${slug}/articles/${a.articleId}`}>게시된 화면 보기</Link> : null}
@@ -195,7 +231,9 @@ function ArticleReviewCard({ a, open, busy, onToggle, onAction, onSaved }: {
 
       <div className="grid3">
         <button type="button" className="btn sm danger" disabled={locked || editing || !['GENERATED', 'PUBLISHED', 'FAILED'].includes(a.status)} onClick={() => onAction('reject')}>반려</button>
-        <button type="button" className="btn sm" disabled={locked || editing || a.status === 'PENDING' || a.articleType === 'NOTICE'} title={a.articleType === 'NOTICE' ? '운영진 안내 기사는 다시 쓰기를 지원하지 않아요.' : undefined} onClick={() => onAction('regenerate')}>
+        <button type="button" className="btn sm" disabled={locked || editing || a.status === 'PENDING' || a.articleType === 'NOTICE'}
+          title={a.articleType === 'NOTICE' ? '운영진 안내 기사는 다시 쓰기를 지원하지 않아요.' : undefined}
+          onClick={() => onAction('regenerate', requiredOverride ?? (d ? requiredIds : undefined))}>
           <Icon name="refresh" size={16} stroke={2} />다시 쓰기
         </button>
         <button type="button" className="btn sm primary" disabled={locked || editing || !['GENERATED', 'REJECTED', 'SUPERSEDED'].includes(a.status)} onClick={() => onAction('publish')}>게시</button>
