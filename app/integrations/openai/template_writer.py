@@ -11,7 +11,7 @@ import random
 from datetime import date
 from typing import Any
 
-from app.integrations.openai.writer import validate_draft
+from app.integrations.openai.writer import ArticleWriterError, required_insight_ids, validate_draft
 
 
 def _batchim(word: str) -> int | None:
@@ -264,7 +264,76 @@ class TemplateArticleWriter:
             return None, None
         return None, None
 
+    def _required_sentence(self, ins: dict[str, Any], phase: str) -> tuple[str | None, str]:
+        """필수 사실은 묶음·분량 제한 없이 개별 사실의 핵심 수치까지 쓴다."""
+        t, f = ins["type"], ins.get("facts") or {}
+        name = self._name(ins)
+        head, line = self._sentence(t, phase, [ins])
+        try:
+            if t in ("DUO_REUNITED", "JINX_PAIR"):
+                members = [m["name"] for m in f["members"]]
+                if len(members) < 2:
+                    raise ValueError("조합 선수 누락")
+                line = (f"{j(names_ko(members), '은', '는')} 같은 팀으로 {f['sameTeamMatches']}경기에서 "
+                        f"{f['sameTeamWins']}승 {f['sameTeamDraws']}무 {f['sameTeamLosses']}패를 기록했다.")
+            elif t == "NEMESIS_MATCH":
+                line = (f"{j(name, '은', '는')} {f['rival']['name']} 상대로 "
+                        f"{f['memberWins']}승 {f['draws']}무 {f['rivalWins']}패를 기록했다. "
+                        "이번 맞대결이 성사되면 새로운 승리에 도전한다.")
+            elif t in ("SCORING_STREAK", "ATTENDANCE_STREAK"):
+                streak = f["streak"]
+                if t == "SCORING_STREAK":
+                    head = f"{name}, {streak}개 일정 연속 득점"
+                    ending = "득점 중이다" if phase == "PRE" else "득점을 이어갔다"
+                    line = f"{j(name, '은', '는')} {streak}개 일정 연속 {ending}."
+                else:
+                    head = f"{name}, {streak}개 일정 연속 출전"
+                    line = f"{j(name, '은', '는')} 오늘로 {streak}개 일정 연속 출전이다."
+            elif t == "RARE_PAIR":
+                members = [m["name"] for m in f["members"]]
+                if len(members) < 2:
+                    raise ValueError("조합 선수 누락")
+                gap = "처음으로" if f.get("neverSameTeam") else f"{f['sessionsSinceLastSameTeam']}일정 만에"
+                head = f"{'·'.join(members)}, {gap} 한 팀"
+                line = f"{j(names_ko(members), '이', '가')} {gap} 같은 팀이 됐다."
+            elif t == "RETURN_PLAYER_RESULT":
+                line = (f"{j(name, '은', '는')} {f['daysSinceLastAppearance']}일 만에 복귀해 오늘 {f['gamesToday']}경기에서 "
+                        f"{f['winsToday']}승 {f['drawsToday']}무 {f['lossesToday']}패, "
+                        f"{f['goalsToday']}골 {f['assistsToday']}도움을 기록했다.")
+            elif t in ("MILESTONE_EXPECTED", "MILESTONE_ACHIEVED"):
+                unit = {"games": "경기", "goals": "골", "assists": "도움"}[f["metric"]]
+                record = _milestone(f["metric"], f["milestone"])
+                if t == "MILESTONE_EXPECTED":
+                    line = f"{j(name, '은', '는')} {record} 달성까지 {f['remaining']}{unit} 남았다."
+                else:
+                    line = f"{j(name, '이', '가')} {record} 이정표를 달성했다. 현재 기록은 {f['total']}{unit}다."
+            elif t == "TITLE_AWARDED":
+                value, metric = f.get("value"), f.get("metric")
+                unit = {"goals": "골", "assists": "도움", "wins": "승"}.get(metric, "")
+                details = []
+                if value is not None:
+                    details.append(f"연속 참가 {value}회" if metric == "attendStreak" else f"{value}{unit}")
+                if f.get("tied"):
+                    details.append("공동")
+                detail = f" ({' · '.join(details)})" if details else ""
+                line = f"{j(name, '이', '가')} {f['titleName']}{detail}에 올랐다."
+            elif t == "REVENGE_RESULT":
+                line = (f"{j(name, '은', '는')} 오늘 {j(f['rival']['name'], '과', '와')}의 맞대결에서 "
+                        f"{f['memberWinsToday']}승 {f['drawsToday']}무 {f['rivalWinsToday']}패를 기록했다.")
+            elif t == "ASSIST_COMBO":
+                line = (f"{f['assister']['name']}의 도움, {f['scorer']['name']}의 골 조합이 "
+                        f"오늘 {f['countToday']}번, 통산 {f['careerCount']}번 나왔다.")
+            elif t in ("FIRST_GOAL", "FIRST_ASSIST") and f.get("debutDay"):
+                action = "골" if t == "FIRST_GOAL" else "도움"
+                line = f"{j(name, '이', '가')} 데뷔 일정에서 첫 {action}을 기록했다."
+        except (KeyError, IndexError, TypeError, ValueError) as e:
+            raise ArticleWriterError(f"필수 사실 데이터가 불완전합니다: {ins['id']} ({t})") from e
+        if not line:
+            raise ArticleWriterError(f"필수 사실을 작성할 템플릿이 없거나 데이터가 불완전합니다: {ins['id']} ({t})")
+        return head, line
+
     def write(self, payload: dict[str, Any], model: str, options: dict[str, Any] | None = None):
+        required = set(required_insight_ids(payload))
         if self._own_rng is None and self.rng is None:  # 같은 사실이면 같은 문장(다시 써도 결과가 안 흔들림)
             self.rng = random.Random(f"{payload.get('articleType')}:{payload.get('sessionDate')}:{payload.get('month')}")
         kind = payload.get("articleType")
@@ -274,19 +343,23 @@ class TemplateArticleWriter:
         md = f"{d.month}월 {d.day}일"
         club = payload.get("clubName") or ""
         phase = "PRE" if kind == "PRE_MATCH" else "POST"
-        insights = sorted(payload.get("insights", []), key=lambda i: (-i["importance"], i["id"]))
+        insights = sorted(payload.get("insights", []), key=lambda i: (i["id"] not in required, -i["importance"], i["id"]))
         recent = _RECENT_HEADS.setdefault(kind or "", [])
         first_count = sum(1 for i in insights if i["type"] == "FIRST_APPEARANCE")
 
         groups: dict[tuple, list[dict[str, Any]]] = {}
         for ins in insights:
-            groups.setdefault(self._group_key(ins, phase), []).append(ins)
+            key = (ins["type"], "required", ins["id"]) if ins["id"] in required else self._group_key(ins, phase)
+            groups.setdefault(key, []).append(ins)
         lines: list[str] = []
         used: list[int] = []
         heads: list[tuple] = []  # (점수, 제목, 유형, 선수, 문장, 원래 중요도)
         for key, items in groups.items():  # 삽입 순서 = 중요도 순
             t = key[0]
-            head, line = self._sentence(t, phase, items)
+            mandatory = items[0]["id"] in required
+            if not mandatory and len(lines) >= 6:
+                break
+            head, line = self._required_sentence(items[0], phase) if mandatory else self._sentence(t, phase, items)
             if not line:
                 continue
             lines.append(line)
@@ -301,8 +374,6 @@ class TemplateArticleWriter:
                 if who and any(rw == who for _, rw in recent[-2:]):
                     score -= 15
                 heads.append((score, head, t, who, line, max(i["importance"] for i in items)))
-            if len(lines) >= 6:
-                break
         heads.sort(key=lambda x: -x[0])
         if heads:  # 고른 유형 안에서는 사실 자체가 가장 큰 것을 제목으로
             best_t = heads[0][2]

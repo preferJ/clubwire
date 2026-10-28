@@ -120,7 +120,10 @@ export const makeApi = (slug: string) => ({
     request<ArticleDetail>(slug, 'PATCH', `/articles/${id}`, { body }),
   publishArticle: (id: number) => request<ArticleDetail>(slug, 'POST', `/articles/${id}/publish`),
   rejectArticle: (id: number) => request<ArticleDetail>(slug, 'POST', `/articles/${id}/reject`),
-  regenerateArticle: (id: number) => request<ArticleDetail>(slug, 'POST', `/articles/${id}/regenerate`),
+  regenerateArticle: (id: number, requiredInsightIds?: number[]) =>
+    request<ArticleDetail>(slug, 'POST', `/articles/${id}/regenerate`, {
+      body: requiredInsightIds === undefined ? undefined : { requiredInsightIds },
+    }),
 })
 
 export type Api = ReturnType<typeof makeApi>

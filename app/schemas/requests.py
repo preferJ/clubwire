@@ -18,6 +18,11 @@ class ChangePinRequest(CamelModel):
     new_password: str = Field(min_length=4, max_length=64)
 
 
+class ArticleRegenerateRequest(CamelModel):
+    # 생략/null은 이전 선택 유지, []는 전체 해제. 선택 개수 상한은 없다.
+    required_insight_ids: list[Annotated[int, Field(strict=True, gt=0)]] | None = None
+
+
 class MemberCreate(CamelModel):
     name: str = Field(min_length=1, max_length=50)
     joined_at: date | None = None
