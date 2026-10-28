@@ -65,7 +65,7 @@ export function ArticlePage() {
             ))}
           </div>
 
-          <ArticleMilestones milestones={a.unusedMilestones ?? []} slug={slug} />
+          <ArticleMilestones milestones={a.milestones ?? a.unusedMilestones ?? []} slug={slug} />
 
           {a.members.length ? (
             <section className="section">

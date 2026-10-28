@@ -1,5 +1,6 @@
 """AI 기사 설정(창의성 · 답변 최대 길이)과 기본형 기사 대체(키 없음 · 연결/한도/검증 실패)."""
 import json
+from copy import deepcopy
 from types import SimpleNamespace
 
 import httpx
@@ -7,6 +8,7 @@ import openai
 import pytest
 
 from app.core.config import settings
+from app.integrations.openai.writer import OpenAIArticleWriter, PROMPT_VERSION, SYSTEM_PROMPT
 
 REQ = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
 GOOD = {"title": "AI가 쓴 프리뷰", "summary": "요약", "body": "본문 문단", "usedInsightIds": []}
@@ -56,11 +58,33 @@ def test_creativity_and_length_settings_are_sent(make_club, ai):
     a = _preview(api)
     kw = ai.calls[-1]
     assert kw["temperature"] == 0.3 and kw["max_completion_tokens"] == 900
+    assert kw["messages"][0] == {"role": "system", "content": SYSTEM_PROMPT}
+    assert kw["messages"][1]["role"] == "user"
+    assert json.loads(kw["messages"][1]["content"]) == {
+        k: v for k, v in a["requestJson"].items() if k != "milestoneInsights"
+    }
+    assert a["promptVersion"] == PROMPT_VERSION
     assert a["title"] == "AI가 쓴 프리뷰" and a["basic"] is False and a["errorMessage"] is None
     assert a["modelName"] == settings.AI_ARTICLE_MODEL
     # 범위 밖 값은 저장 안 됨
     assert api.patch("/admin/config", {"values": {"AI_TEMPERATURE": 3}}).status_code == 400
     assert api.patch("/admin/config", {"values": {"AI_MAX_OUTPUT_TOKENS": 100}}).status_code == 400
+
+
+def test_display_only_milestone_snapshots_are_not_sent_to_ai(ai):
+    payload = {
+        "articleType": "PRE_MATCH", "sessionDate": "2026-12-05", "clubName": "YPR",
+        "insights": [{"id": 1, "type": "SCORING_STREAK", "importance": 90,
+                      "subject": {"memberId": 1, "name": "본문 선수"}, "facts": {"streak": 6, "streakUnit": "일정"}}],
+        "milestoneInsights": [{"id": 2, "type": "MILESTONE_EXPECTED", "importance": 45,
+                               "subject": {"memberId": 2, "name": "표의 선수"},
+                               "facts": {"metric": "goals", "milestone": 10, "current": 9, "remaining": 1}}],
+    }
+    original = deepcopy(payload)
+    OpenAIArticleWriter().write(payload, settings.AI_ARTICLE_MODEL)
+    sent = json.loads(ai.calls[-1]["messages"][1]["content"])
+    assert sent == {k: v for k, v in payload.items() if k != "milestoneInsights"}
+    assert payload == original
 
 
 def test_temperature_unsupported_model_retries_without_it(make_club, ai):
