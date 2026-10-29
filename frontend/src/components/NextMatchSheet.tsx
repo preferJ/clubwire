@@ -65,7 +65,7 @@ export function NextMatchSheet({ sessionId, open, onClose }: { sessionId: number
               </div>
             </section>
           ))}
-          <div className="row" style={{ justifyContent: 'center', gap: 12, minHeight: 48, borderRadius: 12, border: '1px dashed #b9bdb7', fontSize: 15 }}>
+          <div className="row" style={{ justifyContent: 'center', gap: 12, minHeight: 48, borderRadius: 12, border: '1px dashed var(--line-strong)', fontSize: 15 }}>
             <TeamBadge code={code(pick[0])} /> <b>TEAM {code(pick[0])}</b>
             <span className="muted">vs</span>
             <b>TEAM {code(pick[1])}</b> <TeamBadge code={code(pick[1])} />

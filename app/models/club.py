@@ -1,6 +1,7 @@
 from datetime import date, datetime
+from typing import Any
 
-from sqlalchemy import Boolean, Date, Double, ForeignKey, Index, Integer, SmallInteger, String, Text
+from sqlalchemy import JSON, Boolean, Date, Double, ForeignKey, Index, Integer, LargeBinary, SmallInteger, String, Text
 from sqlalchemy.dialects import mysql
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +26,14 @@ class Club(TimestampMixin, Base):
     operating_rules_updated_at: Mapped[datetime | None] = mapped_column("OPERATING_RULES_UPDATED_AT", UtcDateTime)
     announcement: Mapped[str | None] = mapped_column("ANNOUNCEMENT", String(500))
     announcement_updated_at: Mapped[datetime | None] = mapped_column("ANNOUNCEMENT_UPDATED_AT", UtcDateTime)
+
+    # NULL이면 기존 자동 엠블럼과 다크 테마를 그대로 사용한다.
+    crest_config: Mapped[dict[str, Any] | None] = mapped_column("CREST_CONFIG", JSON)
+    crest_image: Mapped[bytes | None] = mapped_column(
+        "CREST_IMAGE", LargeBinary().with_variant(mysql.MEDIUMBLOB(), "mysql"), deferred=True
+    )
+    default_theme: Mapped[str | None] = mapped_column("DEFAULT_THEME", String(10))
+    appearance_updated_at: Mapped[datetime | None] = mapped_column("APPEARANCE_UPDATED_AT", UtcDateTime)
 
 
 class ClubAdmin(TimestampMixin, Base):

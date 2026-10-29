@@ -23,8 +23,12 @@
 | 9 | `OPERATING_RULES_UPDATED_AT` | DATETIME(3) | Y |  | 운영수칙 수정 시각(UTC) |
 | 10 | `ANNOUNCEMENT` | VARCHAR(500) | Y |  | 와이어 상단 한 줄 공지. NULL 또는 빈 값이면 숨김 |
 | 11 | `ANNOUNCEMENT_UPDATED_AT` | DATETIME(3) | Y |  | 상단 공지 수정 시각(UTC) |
-| 12 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 13 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 12 | `CREST_CONFIG` | JSON | Y |  | 엠블럼 설정(JSON): auto/design/image 모드, 도형·패턴·색상·문구·상징. NULL이면 기존 자동 엠블럼 |
+| 13 | `CREST_IMAGE` | MEDIUMBLOB | Y |  | 검증·정규화한 업로드 엠블럼 PNG 바이너리. 공개 API는 이미지 모드일 때만 제공 |
+| 14 | `DEFAULT_THEME` | VARCHAR(10) | Y |  | 클럽 기본 테마(dark/light). NULL이면 dark, 방문자가 저장한 선택이 우선 |
+| 15 | `APPEARANCE_UPDATED_AT` | DATETIME(3) | Y |  | 엠블럼·기본 테마 수정 시각(UTC) |
+| 16 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 17 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 

@@ -8,7 +8,7 @@ from app.core.security import AdminPrincipal
 from app.core.timeutil import local_today, to_iso
 from app.models import Club
 from app.schemas.requests import AdminAuthRequest, ChangePinRequest, ClubContentUpdate, ConfigUpdateRequest
-from app.services import club_content_service, club_service, config_service
+from app.services import club_appearance_service, club_content_service, club_service, config_service
 
 router = APIRouter(tags=["clubs"])
 
@@ -16,7 +16,8 @@ router = APIRouter(tags=["clubs"])
 @router.get("", summary="클럽 정보(공개)")
 def get_club(club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depends(optional_admin)):
     return {"clubId": club.club_id, "clubSlug": club.club_slug, "clubName": club.club_name,
-            "sportType": club.sport_type, "timezone": club.timezone, "isAdmin": admin is not None}
+            "sportType": club.sport_type, "timezone": club.timezone, "isAdmin": admin is not None,
+            "appearance": club_appearance_service.serialize_appearance(club)}
 
 
 @router.get("/summary", summary="클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수")

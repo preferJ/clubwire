@@ -174,9 +174,9 @@ function ProfileEditor({ memberId, profile, onSaved }: { memberId: number; profi
           <input className="input" type="date" value={joined} onChange={(e) => setJoined(e.target.value)} />
         </label>
       </div>
-      {jerseyBad ? <span className="small" style={{ color: 'var(--loss)' }}>등번호는 0~99 사이의 정수로 입력하세요.</span> : null}
+      {jerseyBad ? <span className="small" style={{ color: 'var(--danger-ink)' }}>등번호는 0~99 사이의 정수로 입력하세요.</span> : null}
       {birthBad
-        ? <span className="small" style={{ color: 'var(--loss)' }}>출생연도는 1900~{thisYear} 사이 4자리로 입력하세요.</span>
+        ? <span className="small" style={{ color: 'var(--danger-ink)' }}>출생연도는 1900~{thisYear} 사이 4자리로 입력하세요.</span>
         : <span className="small muted">등번호는 0~99로 입력하세요. 칸을 비우고 저장하면 해당 정보가 지워져요.</span>}
       <button type="button" className="btn primary block" disabled={busy || !dirty || birthBad || jerseyBad} onClick={save}>
         {busy ? '저장 중…' : '저장'}

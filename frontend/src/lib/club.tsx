@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { makeApi, type Api } from '../api/endpoints'
 import type { Club, WsMessage } from '../api/types'
 import { clearAdminToken, getAdminToken, onAuthChange, setAdminToken } from './authStore'
+import { useTheme } from './theme'
 
 type Listener = (m: WsMessage) => void
 
@@ -18,6 +19,7 @@ interface ClubCtx {
   subscribe: (fn: Listener) => () => void
   pinOpen: boolean
   setPinOpen: (v: boolean) => void
+  refreshClub: () => Promise<void>
 }
 
 const Ctx = createContext<ClubCtx | null>(null)
@@ -29,23 +31,33 @@ export function ClubProvider({ slug, children }: { slug: string; children: React
   const [connected, setConnected] = useState(false)
   const [pinOpen, setPinOpen] = useState(false)
   const listeners = useRef(new Set<Listener>())
+  const clubFetchSequence = useRef(0)
+  const { setDefaultTheme } = useTheme()
 
   useEffect(() => onAuthChange(() => setHasToken(!!getAdminToken(slug))), [slug])
 
-  useEffect(() => {
-    let alive = true
-    api
-      .club()
-      .then((c) => {
-        if (!alive) return
-        setClub(c)
-        if (!c.isAdmin && getAdminToken(slug)) clearAdminToken(slug) // 서버가 인정하지 않는 토큰 정리
-      })
-      .catch(() => alive && setClub(null))
-    return () => {
-      alive = false
+  const refreshClub = useCallback(async () => {
+    const sequence = ++clubFetchSequence.current
+    try {
+      const current = await api.club()
+      if (sequence !== clubFetchSequence.current) return
+      setClub(current)
+      if (!current.isAdmin && getAdminToken(slug)) clearAdminToken(slug)
+    } catch (error) {
+      if (sequence === clubFetchSequence.current) setClub(null)
+      throw error
     }
-  }, [api, slug, hasToken])
+  }, [api, slug])
+
+  useEffect(() => {
+    void refreshClub().catch(() => {})
+    return () => { clubFetchSequence.current++ }
+  }, [refreshClub, hasToken])
+
+  useEffect(() => {
+    setDefaultTheme(club?.appearance?.defaultTheme ?? 'dark')
+  }, [club?.appearance?.defaultTheme, setDefaultTheme])
+  useEffect(() => () => setDefaultTheme('dark'), [setDefaultTheme])
 
   // ---- WebSocket: 끊기면 지수 백오프로 재접속, 25초마다 ping
   useEffect(() => {
@@ -66,6 +78,7 @@ export function ClubProvider({ slug, children }: { slug: string; children: React
       ws.onmessage = (ev) => {
         try {
           const msg = JSON.parse(ev.data) as WsMessage
+          if (msg.type === 'CLUB_APPEARANCE_UPDATED') void refreshClub().catch(() => {})
           listeners.current.forEach((fn) => fn(msg))
         } catch {
           /* ignore */
@@ -85,7 +98,7 @@ export function ClubProvider({ slug, children }: { slug: string; children: React
       window.clearInterval(ping)
       ws?.close()
     }
-  }, [slug])
+  }, [slug, refreshClub])
 
   const subscribe = useCallback((fn: Listener) => {
     listeners.current.add(fn)
@@ -104,8 +117,8 @@ export function ClubProvider({ slug, children }: { slug: string; children: React
   const logout = useCallback(() => clearAdminToken(slug), [slug])
 
   const value = useMemo<ClubCtx>(
-    () => ({ slug, club, api, isAdmin: hasToken, login, logout, connected, subscribe, pinOpen, setPinOpen }),
-    [slug, club, api, hasToken, login, logout, connected, subscribe, pinOpen],
+    () => ({ slug, club, api, isAdmin: hasToken, login, logout, connected, subscribe, pinOpen, setPinOpen, refreshClub }),
+    [slug, club, api, hasToken, login, logout, connected, subscribe, pinOpen, refreshClub],
   )
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>
 }

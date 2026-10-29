@@ -92,7 +92,7 @@ function MemberRow({ m, onSaved }: { m: Member; onSaved: () => void }) {
             placeholder="미지정" value={jersey} disabled={busy} aria-invalid={jerseyBad} onChange={(e) => setJersey(e.target.value)} />
         </label>
       </div>
-      {jerseyBad ? <span className="small" style={{ color: 'var(--loss)' }}>등번호는 0~99 사이의 정수로 입력하세요.</span> : null}
+      {jerseyBad ? <span className="small" style={{ color: 'var(--danger-ink)' }}>등번호는 0~99 사이의 정수로 입력하세요.</span> : null}
       <div className="row between member-admin-actions">
         {dirty ? <button type="button" className="btn sm primary" disabled={busy || jerseyBad || nameBad} onClick={save}>{busy ? '저장 중…' : '저장'}</button> : <span />}
         <span className="row small muted">

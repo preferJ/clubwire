@@ -499,6 +499,147 @@
         }
       }
     },
+    "/api/clubs/{club_slug}/appearance": {
+      "get": {
+        "tags": [
+          "club-appearance"
+        ],
+        "summary": "클럽 엠블럼과 기본 테마 조회",
+        "operationId": "get_appearance_api_clubs__club_slug__appearance_get",
+        "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clubs/{club_slug}/admin/appearance": {
+      "patch": {
+        "tags": [
+          "club-appearance"
+        ],
+        "summary": "클럽 엠블럼과 기본 테마 저장",
+        "operationId": "patch_appearance_api_clubs__club_slug__admin_appearance_patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClubAppearanceUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clubs/{club_slug}/appearance/crest": {
+      "get": {
+        "tags": [
+          "club-appearance"
+        ],
+        "summary": "공개 이미지 엠블럼(PNG)",
+        "operationId": "get_crest_image_api_clubs__club_slug__appearance_crest_get",
+        "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/clubs/{club_slug}/members": {
       "get": {
         "tags": [
@@ -3688,6 +3829,23 @@
             "description": "클럽 주소(slug)"
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/ArticleRegenerateRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "201": {
             "description": "Successful Response",
@@ -3783,6 +3941,278 @@
         }
       }
     },
+    "/api/admin/auth": {
+      "post": {
+        "tags": [
+          "superadmin"
+        ],
+        "summary": "전체 관리자 모드 진입(PIN 입력 → 토큰)",
+        "operationId": "authenticate_api_admin_auth_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminAuthRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/me": {
+      "get": {
+        "tags": [
+          "superadmin"
+        ],
+        "summary": "전체 관리자 모드 확인",
+        "operationId": "me_api_admin_me_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SuperAdminBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/clubs": {
+      "get": {
+        "tags": [
+          "superadmin"
+        ],
+        "summary": "슈퍼관리자: 운영팀 목록",
+        "operationId": "list_clubs_api_admin_clubs_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SuperAdminBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "superadmin"
+        ],
+        "summary": "슈퍼관리자: 운영팀 추가",
+        "operationId": "create_club_api_admin_clubs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuperAdminClubCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "SuperAdminBearer": []
+          }
+        ]
+      }
+    },
+    "/api/admin/clubs/{club_id}": {
+      "patch": {
+        "tags": [
+          "superadmin"
+        ],
+        "summary": "슈퍼관리자: 운영팀 수정",
+        "operationId": "update_club_api_admin_clubs__club_id__patch",
+        "security": [
+          {
+            "SuperAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "club_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Club Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SuperAdminClubUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "superadmin"
+        ],
+        "summary": "슈퍼관리자: 팀 제거(기록 보존·접근 중지)",
+        "operationId": "remove_club_api_admin_clubs__club_id__delete",
+        "security": [
+          {
+            "SuperAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "club_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Club Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/admin/clubs/{club_id}/restore": {
+      "post": {
+        "tags": [
+          "superadmin"
+        ],
+        "summary": "슈퍼관리자: 제거된 팀 복원",
+        "operationId": "restore_club_api_admin_clubs__club_id__restore_post",
+        "security": [
+          {
+            "SuperAdminBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "club_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Club Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/health": {
       "get": {
         "tags": [
@@ -3821,6 +4251,28 @@
           "password"
         ],
         "title": "AdminAuthRequest"
+      },
+      "ArticleRegenerateRequest": {
+        "properties": {
+          "requiredInsightIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0.0
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requiredinsightids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ArticleRegenerateRequest"
       },
       "ArticleUpdate": {
         "properties": {
@@ -3977,6 +4429,50 @@
         ],
         "title": "ChangePinRequest"
       },
+      "ClubAppearanceUpdate": {
+        "properties": {
+          "crest": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CrestConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "imageDataUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2800000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Imagedataurl"
+          },
+          "defaultTheme": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "dark",
+                  "light"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Defaulttheme"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ClubAppearanceUpdate"
+      },
       "ClubContentUpdate": {
         "properties": {
           "operatingRules": {
@@ -4024,6 +4520,78 @@
           "values"
         ],
         "title": "ConfigUpdateRequest"
+      },
+      "CrestConfig": {
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "auto",
+              "design",
+              "image"
+            ],
+            "title": "Mode",
+            "default": "auto"
+          },
+          "shape": {
+            "type": "string",
+            "enum": [
+              "shield",
+              "circle",
+              "rounded"
+            ],
+            "title": "Shape",
+            "default": "shield"
+          },
+          "pattern": {
+            "type": "string",
+            "enum": [
+              "solid",
+              "stripes",
+              "diagonal"
+            ],
+            "title": "Pattern",
+            "default": "stripes"
+          },
+          "primaryColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "title": "Primarycolor",
+            "default": "#c81e2b"
+          },
+          "secondaryColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "title": "Secondarycolor",
+            "default": "#ffffff"
+          },
+          "textColor": {
+            "type": "string",
+            "pattern": "^#[0-9a-fA-F]{6}$",
+            "title": "Textcolor",
+            "default": "#ffffff"
+          },
+          "text": {
+            "type": "string",
+            "maxLength": 6,
+            "pattern": "^[^\\x00-\\x1f\\x7f<>]*$",
+            "title": "Text",
+            "default": ""
+          },
+          "symbol": {
+            "type": "string",
+            "enum": [
+              "none",
+              "ball",
+              "star"
+            ],
+            "title": "Symbol",
+            "default": "none"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "CrestConfig"
       },
       "EventCancelRequest": {
         "properties": {
@@ -4492,6 +5060,111 @@
         "type": "object",
         "title": "SessionUpdate"
       },
+      "SuperAdminClubCreate": {
+        "properties": {
+          "clubSlug": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "pattern": "^[a-z0-9_-]+$",
+            "title": "Clubslug"
+          },
+          "clubName": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Clubname"
+          },
+          "adminPin": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 4,
+            "title": "Adminpin"
+          },
+          "sportType": {
+            "type": "string",
+            "maxLength": 20,
+            "minLength": 1,
+            "title": "Sporttype",
+            "default": "FUTSAL"
+          },
+          "timezone": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Timezone",
+            "default": "Asia/Seoul"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "clubSlug",
+          "clubName",
+          "adminPin"
+        ],
+        "title": "SuperAdminClubCreate"
+      },
+      "SuperAdminClubUpdate": {
+        "properties": {
+          "clubSlug": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1,
+                "pattern": "^[a-z0-9_-]+$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clubslug"
+          },
+          "clubName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clubname"
+          },
+          "adminPin": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "minLength": 4
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Adminpin"
+          },
+          "timezone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Timezone"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "SuperAdminClubUpdate"
+      },
       "TeamConfirmRequest": {
         "properties": {
           "generationId": {
@@ -4753,6 +5426,11 @@
       "HTTPBearer": {
         "type": "http",
         "description": "관리자 모드 토큰: POST /admin/auth 로 발급",
+        "scheme": "bearer"
+      },
+      "SuperAdminBearer": {
+        "type": "http",
+        "description": "전체 관리자 토큰",
         "scheme": "bearer"
       }
     }

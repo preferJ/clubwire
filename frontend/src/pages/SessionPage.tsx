@@ -120,12 +120,12 @@ function MatchRow({ m, slug }: { m: SessionMatch; slug: string }) {
     m.status === 'READY' ? <span className="status-badge gold">대기</span>
       : live ? <span className="live-badge">{m.status === 'PAUSED' ? '정지' : 'LIVE'}</span>
         : m.status === 'CANCELLED' ? <span className="small muted">취소</span>
-          : m.finalized ? <span className="small" style={{ color: 'var(--green)', fontWeight: 600 }}>확정</span>
+          : m.finalized ? <span className="small" style={{ color: 'var(--green-dark)', fontWeight: 600 }}>확정</span>
             : <span className="small" style={{ color: 'var(--warn-ink)', fontWeight: 600 }}>검토 중</span>
   return (
     <Link to={`/c/${slug}/matches/${m.matchId}`} className={`list-row ${live ? 'dark' : ''}`}
       style={m.status === 'CANCELLED' ? { opacity: 0.6 } : undefined}>
-      <span className={live ? '' : 'muted'} style={{ width: 44, color: live ? 'var(--night-muted)' : undefined }}>{m.gameNo}경기</span>
+      <span className={live ? '' : 'muted'} style={{ width: 44, color: live ? 'var(--sports-muted)' : undefined }}>{m.gameNo}경기</span>
       <span style={{ flex: 1, textAlign: 'center' }}>
         TEAM {m.teamA.teamCode} <b className="mono" style={{ padding: '0 6px' }}>{m.status === 'READY' ? 'vs' : `${m.teamA.score} : ${m.teamB.score}`}</b> TEAM {m.teamB.teamCode}
       </span>

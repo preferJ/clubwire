@@ -1,6 +1,6 @@
 """모델 메타데이터/OpenAPI에서 문서를 생성한다.
 
-  python scripts/gen_docs.py   → docs/TABLES.md, docs/ERD.md, docs/API.md, docs/openapi.json
+  python scripts/gen_docs.py   → docs/schema.sql, docs/TABLES.md, docs/ERD.md, docs/API.md, docs/openapi.json
 """
 import json
 import os
@@ -112,15 +112,14 @@ def erd_md() -> str:
 
 
 def _admin_routes() -> set[tuple[str, str]]:
-    """admin_dep에 의존하는 (path, METHOD) 집합."""
+    """클럽/슈퍼관리자 인증에 의존하는 (path, METHOD) 집합."""
     from fastapi.routing import APIRoute
 
     from app.api.deps import admin_dep
+    from app.core.superadmin import superadmin_dep
 
     def uses(dep) -> bool:
-        return any(d.call is admin_dep or uses(d) for d in dep.dependencies)
-
-    from app.main import CLUB_PREFIX
+        return any(d.call in (admin_dep, superadmin_dep) or uses(d) for d in dep.dependencies)
 
     out = set()
     stack = [(r, "") for r in app.routes]
@@ -128,7 +127,8 @@ def _admin_routes() -> set[tuple[str, str]]:
         r, prefix = stack.pop()
         inner = getattr(r, "original_router", None)
         if inner is not None:  # FastAPI include_router 래퍼
-            stack += [(x, CLUB_PREFIX) for x in inner.routes]
+            included_prefix = getattr(getattr(r, "include_context", None), "prefix", "")
+            stack += [(x, prefix + included_prefix) for x in inner.routes]
         elif isinstance(r, APIRoute) and uses(r.dependant):
             for m in r.methods:
                 out.add((prefix + r.path, m))
@@ -138,7 +138,8 @@ def _admin_routes() -> set[tuple[str, str]]:
 def api_md(spec: dict) -> str:
     md = ["# Clubwire API 목록", "",
           "> 자동 생성(OpenAPI). 상세 스키마는 서버 실행 후 `/docs` 또는 `docs/openapi.json`.  ",
-          "> 공통 접두사 `/api/clubs/{club_slug}` · 인증: 🔓 공개 / 🔑 관리자(Bearer 토큰, `POST /admin/auth`로 PIN 입력)", "",
+          "> 클럽 API는 공통 접두사 `/api/clubs/{club_slug}`를 생략해 표시합니다. `/api/admin/...`는 슈퍼관리자 API의 전체 경로입니다.",
+          "> 인증: 🔓 공개 / 🔑 관리자(Bearer 토큰). 클럽 관리자는 `POST /api/clubs/{club_slug}/admin/auth`, 슈퍼관리자는 `POST /api/admin/auth`로 각각 로그인합니다.", "",
           "| 인증 | Method | Path | 설명 |", "|:---:|---|---|---|"]
     admin_routes = _admin_routes()
     rows = []
@@ -167,7 +168,7 @@ def schema_sql() -> str:
         for ix in sorted(t.indexes, key=lambda x: x.name or ""):
             out.append(str(CreateIndex(ix).compile(dialect=d)).strip() + ";")
         out.append("")
-    return "\n".join(out)
+    return "\n".join(line.rstrip() for line in "\n".join(out).splitlines()) + "\n"
 
 
 def main() -> None:

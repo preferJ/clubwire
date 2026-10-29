@@ -18,6 +18,7 @@ export function AdminHomePage() {
     { to: `/c/${slug}/admin/articles`, icon: 'wire', label: '기사 검토', sub: waiting ? `검토 대기 ${waiting}건` : '게시 · 반려 · 다시 쓰기' },
     { to: `/c/${slug}/admin/members`, icon: 'users', label: '멤버 관리', sub: '추가 · 이름·등번호 수정 · 비활성화' },
     { to: `/c/${slug}/admin/content`, icon: 'info', label: '운영 수칙 · 공지', sub: '운영 수칙 수정 · 와이어 상단 공지' },
+    { to: `/c/${slug}/admin/appearance`, icon: 'trophy', label: '팀 마크 · 테마', sub: '마크 만들기 · 이미지 등록 · 팀 기본 테마' },
     { to: `/c/${slug}/admin/settings`, icon: 'settings', label: '운영 설정', sub: '경기 시간 · 팀 편성 · 기사 게시 방식 · 암호' },
   ]
 

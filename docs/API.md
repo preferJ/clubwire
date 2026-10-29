@@ -1,7 +1,8 @@
 # Clubwire API 목록
 
 > 자동 생성(OpenAPI). 상세 스키마는 서버 실행 후 `/docs` 또는 `docs/openapi.json`.  
-> 공통 접두사 `/api/clubs/{club_slug}` · 인증: 🔓 공개 / 🔑 관리자(Bearer 토큰, `POST /admin/auth`로 PIN 입력)
+> 클럽 API는 공통 접두사 `/api/clubs/{club_slug}`를 생략해 표시합니다. `/api/admin/...`는 슈퍼관리자 API의 전체 경로입니다.
+> 인증: 🔓 공개 / 🔑 관리자(Bearer 토큰). 클럽 관리자는 `POST /api/clubs/{club_slug}/admin/auth`, 슈퍼관리자는 `POST /api/admin/auth`로 각각 로그인합니다.
 
 | 인증 | Method | Path | 설명 |
 |:---:|---|---|---|
@@ -69,5 +70,15 @@
 | 🔑 | POST | `/articles/{article_id}/regenerate` | 기사 재생성(새 버전, 기존 보존) |
 | 🔑 | POST | `/articles/{article_id}/reject` | 기사 반려/내리기 |
 | 🔓 | GET | `/health` | Health |
+| 🔑 | PATCH | `/admin/appearance` | 클럽 엠블럼과 기본 테마 저장 |
+| 🔓 | POST | `/api/admin/auth` | 전체 관리자 모드 진입(PIN 입력 → 토큰) |
+| 🔑 | GET | `/api/admin/clubs` | 슈퍼관리자: 운영팀 목록 |
+| 🔑 | POST | `/api/admin/clubs` | 슈퍼관리자: 운영팀 추가 |
+| 🔑 | DELETE | `/api/admin/clubs/{club_id}` | 슈퍼관리자: 팀 제거(기록 보존·접근 중지) |
+| 🔑 | PATCH | `/api/admin/clubs/{club_id}` | 슈퍼관리자: 운영팀 수정 |
+| 🔑 | POST | `/api/admin/clubs/{club_id}/restore` | 슈퍼관리자: 제거된 팀 복원 |
+| 🔑 | GET | `/api/admin/me` | 전체 관리자 모드 확인 |
+| 🔓 | GET | `/appearance` | 클럽 엠블럼과 기본 테마 조회 |
+| 🔓 | GET | `/appearance/crest` | 공개 이미지 엠블럼(PNG) |
 
 WebSocket: `GET /ws/clubs/{club_slug}` (누구나 구독, 메시지 종류는 app/api/ws.py 참고)
