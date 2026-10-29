@@ -1,0 +1,6 @@
+.superadmin-login { padding-top: 48px; gap: 24px; }
+.superadmin-team-card { gap: 12px; }
+.superadmin-team-counts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.superadmin-team-counts > div { padding: 10px 8px; border-radius: var(--radius-s); background: var(--night-2); }
+.superadmin-team-counts dt { font-size: 11px; color: var(--muted); }
+.superadmin-team-counts dd { margin: 2px 0 0; font-size: 16px; font-weight: 700; }
