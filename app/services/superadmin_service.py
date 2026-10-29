@@ -1,6 +1,9 @@
-"""전역 슈퍼관리자의 운영팀 관리. 기존 CLUB_ID와 소속 기록을 유지한다."""
+"""전역 슈퍼관리자의 운영팀 관리. 기존 CLUB_ID와 소속 기록을 유지한다.
+
+시간대는 관리하지 않는다(한국 전용). 새 팀은 club_service.create_club 기본값 Asia/Seoul로 만들고,
+수정에서도 바꾸지 않는다. 그래서 tzdata가 없는 Windows 파이썬에서도 팀 생성 · 수정이 막히지 않는다.
+"""
 from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
@@ -11,13 +14,6 @@ from app.core.errors import BadRequest, Conflict, NotFound
 from app.core.security import hash_password
 from app.models import AiArticle, Club, ClubAdmin, ClubSession, Member
 from app.services import club_service
-
-
-def _validate_timezone(value: str) -> None:
-    try:
-        ZoneInfo(value)
-    except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise BadRequest("올바른 시간대를 입력하세요(예: Asia/Seoul).", "INVALID_TIMEZONE") from exc
 
 
 def _get_club(db: Session, club_id: int, *, lock: bool = False) -> Club:
@@ -47,7 +43,7 @@ def list_clubs(db: Session) -> list[dict[str, Any]]:
 def _serialize(club: Club, member_count: int, session_count: int, article_count: int) -> dict[str, Any]:
     return {
         "clubId": club.club_id, "clubSlug": club.club_slug, "clubName": club.club_name,
-        "sportType": club.sport_type, "timezone": club.timezone, "active": club.active_yn,
+        "sportType": club.sport_type, "active": club.active_yn,
         "memberCount": member_count, "sessionCount": session_count, "articleCount": article_count,
     }
 
@@ -62,11 +58,10 @@ def club_detail(db: Session, club: Club) -> dict[str, Any]:
 
 
 def create_club(db: Session, **values) -> dict[str, Any]:
-    _validate_timezone(values["timezone"])
     try:
-        club = club_service.create_club(
+        club = club_service.create_club(  # timezone은 기본값(Asia/Seoul)
             db, values["club_slug"], values["club_name"], values["admin_pin"],
-            sport_type=values["sport_type"], timezone=values["timezone"],
+            sport_type=values["sport_type"],
         )
     except IntegrityError as exc:
         db.rollback()
@@ -77,15 +72,13 @@ def create_club(db: Session, **values) -> dict[str, Any]:
 def update_club(db: Session, club_id: int, values: dict[str, Any]) -> dict[str, Any]:
     if not values or any(value is None for value in values.values()):
         raise BadRequest("변경할 값을 입력하세요. 빈 값(null)은 허용하지 않습니다.", "INVALID_CLUB_UPDATE")
-    if "timezone" in values:
-        _validate_timezone(values["timezone"])
     try:
         club = _get_club(db, club_id, lock=True)
         slug = values.get("club_slug")
         if slug is not None and db.scalar(select(Club.club_id).where(
                 Club.club_slug == slug, Club.club_id != club_id)) is not None:
             raise Conflict("이미 사용 중인 팀 주소입니다.", "SLUG_TAKEN")
-        for key in ("club_slug", "club_name", "timezone"):
+        for key in ("club_slug", "club_name"):
             if key in values:
                 setattr(club, key, values[key])
         if "admin_pin" in values:

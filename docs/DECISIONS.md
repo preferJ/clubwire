@@ -408,6 +408,16 @@ DELETE MT FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_T
 - DB · alembic 변경 없음(0008 그대로), 샘플 데이터 그대로
 - 테스트 `tests/test_titles_v2.py`에 `titleCode`(정확 · 앞부분) · 기간 · `limit` · `top` 확인 추가
 
+## 3-14. 팀 시간대는 서울 고정 (2026-10-29)
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 슈퍼관리자 팀 생성 · 수정 | 시간대 입력 칸과 검증(`_validate_timezone`) 제거. 새 팀은 `CLUB.TIMEZONE` 기본값 `Asia/Seoul` | 한국에서만 사용. tzdata가 없는 Windows 파이썬에서 `ZoneInfo("Asia/Seoul")`이 실패해 올바른 값도 '올바른 시간대를 입력하세요'로 저장이 막혔음 |
+| API | `POST/PATCH /api/admin/clubs`에서 `timezone` 필드 삭제(보내면 422). 목록 · 상세 응답에서도 `timezone` 제외 | 바꿀 수 없는 값은 받지도 보이지도 않게 |
+| DB | `CLUB.TIMEZONE` 컬럼은 그대로 둔다(alembic 변경 없음) | 날짜 계산(`local_today`, `club_tz`)이 이 값을 읽고, 기존 행은 모두 기본값. tzdata가 없으면 `club_tz`가 서울을 +9 고정으로 대신함 |
+
+- 테스트 `tests/test_superadmin_teams.py`: 시간대를 보내면 422 · 아무것도 저장 안 됨, 시간대 DB가 없어도 생성 · 수정 · 팀 요약이 되는지 확인
+
 ## 4. 남은 이슈 / 다음 단계
 
 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)

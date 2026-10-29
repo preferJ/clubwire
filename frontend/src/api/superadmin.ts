@@ -6,7 +6,6 @@ export interface ManagedClub {
   clubSlug: string
   clubName: string
   sportType: string
-  timezone: string
   active: boolean
   memberCount: number
   sessionCount: number
@@ -18,14 +17,13 @@ export interface ManagedClubCreate {
   clubName: string
   adminPin: string
   sportType?: string
-  timezone?: string
 }
 
+/** 시간대는 보내지 않는다(모든 팀 Asia/Seoul 고정, 보내면 서버가 422) */
 export interface ManagedClubUpdate {
   clubSlug?: string
   clubName?: string
   adminPin?: string
-  timezone?: string
 }
 
 interface SuperAdminAuth {

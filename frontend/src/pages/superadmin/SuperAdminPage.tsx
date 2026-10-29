@@ -213,7 +213,7 @@ function ManagedTeamsPage() {
                   <div><dt>일정</dt><dd>{club.sessionCount}개</dd></div>
                   <div><dt>기사</dt><dd>{club.articleCount}건</dd></div>
                 </dl>
-                <p className="small muted">{club.sportType} · {club.timezone}</p>
+                <p className="small muted">{club.sportType}</p>
                 <div className="grid2">
                   {club.active ? <Link className="btn sm" to={`/c/${encodeURIComponent(club.clubSlug)}`}>팀 화면 보기</Link>
                     : <button type="button" className="btn sm primary" disabled={saving} onClick={() => { void restore(club) }}>팀 복원</button>}
@@ -258,14 +258,13 @@ function ManagedTeamForm({ club, busy, error, onSave, onCancel }: {
 }) {
   const [name, setName] = useState(club?.clubName ?? '')
   const [slug, setSlug] = useState(club?.clubSlug ?? '')
-  const [timezone, setTimezone] = useState(club?.timezone ?? 'Asia/Seoul')
   const [pin, setPin] = useState('')
   const valid = name.trim().length > 0 && /^[a-z0-9_-]{1,50}$/.test(slug.trim())
-    && timezone.trim().length > 0 && (club && pin === '' ? true : pin.length >= 4 && pin.length <= 64)
+    && (club && pin === '' ? true : pin.length >= 4 && pin.length <= 64)
   const submit = (event: FormEvent) => {
     event.preventDefault()
     if (busy || !valid) return
-    const body = { clubName: name.trim(), clubSlug: slug.trim(), timezone: timezone.trim() }
+    const body = { clubName: name.trim(), clubSlug: slug.trim() }  // 시간대는 Asia/Seoul 고정이라 보내지 않음
     void onSave(club ? { ...body, ...(pin ? { adminPin: pin } : {}) } : { ...body, adminPin: pin })
   }
   return (
@@ -280,10 +279,6 @@ function ManagedTeamForm({ club, busy, error, onSave, onCancel }: {
           value={slug} disabled={busy} onChange={(event) => setSlug(event.target.value.toLowerCase())} aria-describedby="managed-team-slug-help" />
         <span id="managed-team-slug-help" className="small muted">영문 소문자·숫자·밑줄·하이픈을 사용합니다. /c/{slug || 'team-address'}</span>
         {club ? <span className="small muted">주소를 바꾸면 기존 팀 링크도 새 주소로 바꿔야 합니다.</span> : null}
-      </label>
-      <label className="field">시간대
-        <input className="input" name="club-timezone" required maxLength={50} value={timezone} disabled={busy}
-          onChange={(event) => setTimezone(event.target.value)} placeholder="Asia/Seoul" />
       </label>
       <label className="field">{club ? '새 팀 관리자 PIN (변경할 때만 입력)' : '팀 관리자 PIN'}
         <input className="input" type="password" name="club-admin-pin" inputMode="numeric" autoComplete="new-password"

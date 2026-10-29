@@ -78,7 +78,7 @@ def test_global_list_includes_existing_ypr_data_and_accurate_counts(client, make
     by_id = {row["clubId"]: row for row in rows}
     row = by_id[records["clubId"]]
     assert row == {"clubId": records["clubId"], "clubSlug": ypr.slug, "clubName": "YPR",
-                   "sportType": "FUTSAL", "timezone": "Asia/Seoul", "active": True,
+                   "sportType": "FUTSAL", "active": True,
                    "memberCount": 2, "sessionCount": 1, "articleCount": 1}
     assert by_id[other["clubId"]]["memberCount"] == 0
     assert by_id[other["clubId"]]["sessionCount"] == 0
@@ -92,8 +92,9 @@ def test_global_list_includes_existing_ypr_data_and_accurate_counts(client, make
 def test_creating_team_seeds_its_own_admin_config_and_titles(client, db, super_headers):
     created = _create_team(client, super_headers)
     cid = created["clubId"]
-    assert created["sportType"] == "FUTSAL" and created["timezone"] == "Asia/Seoul" and created["active"] is True
+    assert created["sportType"] == "FUTSAL" and created["active"] is True and "timezone" not in created
     assert created["memberCount"] == created["sessionCount"] == created["articleCount"] == 0
+    assert db.get(Club, cid).timezone == "Asia/Seoul"  # 시간대는 입력받지 않고 서울 고정
     admins = list(db.scalars(select(ClubAdmin).where(ClubAdmin.club_id == cid)))
     assert len(admins) == 1 and admins[0].active_yn
     assert admins[0].password_hash != "8624" and verify_password(admins[0].password_hash, "8624")
@@ -134,9 +135,10 @@ def test_rename_preserves_ids_records_and_club_admin_access(client, make_club, d
     before = _records(api, db)
     new_slug = _slug("rename-new")
     changed = _ok(client.patch(f"/api/admin/clubs/{before['clubId']}", headers=super_headers,
-                               json={"clubSlug": new_slug, "clubName": "이름을 바꾼 팀", "timezone": "UTC"}))
+                               json={"clubSlug": new_slug, "clubName": "이름을 바꾼 팀"}))
     assert changed["clubId"] == before["clubId"] and changed["clubSlug"] == new_slug
-    assert changed["clubName"] == "이름을 바꾼 팀" and changed["timezone"] == "UTC"
+    assert changed["clubName"] == "이름을 바꾼 팀"
+    assert db.get(Club, before["clubId"]).timezone == "Asia/Seoul"
     assert (changed["memberCount"], changed["sessionCount"], changed["articleCount"]) == (2, 1, 1)
     assert client.get(f"/api/clubs/{api.slug}").status_code == 404
     headers = {"Authorization": f"Bearer {api.token}"}
@@ -160,28 +162,48 @@ def test_pin_reset_updates_only_target_team(client, db, super_headers):
     assert client.post(f"/api/clubs/{b['clubSlug']}/admin/auth", json={"password": "5362"}).status_code == 401
 
 
-def test_invalid_timezone_cannot_create_or_partially_update_team(client, db, super_headers):
-    invalid_slug = _slug("bad-zone")
+@pytest.mark.parametrize("timezone", ["Asia/Seoul", "UTC", "Invalid/Time_Zone"])
+def test_timezone_cannot_be_sent_on_create_or_update(client, db, super_headers, timezone):
+    """시간대는 서울 고정. 보내면 값과 상관없이 422이고, 함께 보낸 다른 값도 저장되지 않는다."""
+    blocked_slug = _slug("tz-create")
     before_count = db.scalar(select(func.count()).select_from(Club))
     response = client.post("/api/admin/clubs", headers=super_headers,
-                           json={"clubSlug": invalid_slug, "clubName": "저장되면 안 되는 팀",
-                                 "adminPin": "8624", "timezone": "Invalid/Time_Zone"})
-    assert response.status_code == 400 and response.json()["error"]["code"] == "INVALID_TIMEZONE"
+                           json={"clubSlug": blocked_slug, "clubName": "저장되면 안 되는 팀",
+                                 "adminPin": "8624", "timezone": timezone})
+    assert response.status_code == 422 and response.json()["error"]["code"] == "VALIDATION_ERROR"
     assert db.scalar(select(func.count()).select_from(Club)) == before_count
-    assert db.scalar(select(Club).where(Club.club_slug == invalid_slug)) is None
+    assert db.scalar(select(Club).where(Club.club_slug == blocked_slug)) is None
     db.rollback()  # 다른 API 세션에서 만드는 다음 팀을 새 DB 스냅샷으로 조회한다.
 
     created = _create_team(client, super_headers)
     changed_slug = _slug("not-saved")
     response = client.patch(f"/api/admin/clubs/{created['clubId']}", headers=super_headers,
                             json={"clubSlug": changed_slug, "clubName": "저장되면 안 되는 이름",
-                                  "adminPin": "5362", "timezone": "Invalid/Time_Zone"})
-    assert response.status_code == 400
+                                  "adminPin": "5362", "timezone": timezone})
+    assert response.status_code == 422
     db.rollback()
     club = db.get(Club, created["clubId"])
-    assert (club.club_slug, club.club_name, club.timezone) == (created["clubSlug"], created["clubName"], created["timezone"])
+    assert (club.club_slug, club.club_name, club.timezone) == (created["clubSlug"], created["clubName"], "Asia/Seoul")
     _team_headers(client, created["clubSlug"], "8624")
     assert client.get(f"/api/clubs/{changed_slug}").status_code == 404
+
+
+def test_team_management_works_without_timezone_database(client, db, super_headers, monkeypatch):
+    """tzdata가 없는 Windows 파이썬 흉내: ZoneInfo가 어떤 키도 못 찾아도 팀 생성 · 수정 · 팀 화면 요약이 된다."""
+    import app.core.timeutil as timeutil
+    from zoneinfo import ZoneInfoNotFoundError
+
+    def no_tz_database(key):
+        raise ZoneInfoNotFoundError(f"No time zone found with key {key}")
+
+    monkeypatch.setattr(timeutil, "ZoneInfo", no_tz_database)
+    created = _create_team(client, super_headers, name="시간대 DB 없는 서버의 팀")
+    changed = _ok(client.patch(f"/api/admin/clubs/{created['clubId']}", headers=super_headers,
+                               json={"clubName": "이름만 바꾼 팀", "adminPin": "5362"}))
+    assert changed["clubName"] == "이름만 바꾼 팀"
+    assert db.get(Club, created["clubId"]).timezone == "Asia/Seoul"
+    _ok(client.get(f"/api/clubs/{created['clubSlug']}/summary"))  # 서울 날짜 계산은 +9 고정값으로 대체
+    assert timeutil.club_tz("Asia/Seoul").utcoffset(None).total_seconds() == 9 * 3600
 
 
 def test_duplicate_slug_is_safe_on_creation_and_atomic_update(client, db, super_headers):
@@ -201,7 +223,7 @@ def test_duplicate_slug_is_safe_on_creation_and_atomic_update(client, db, super_
     _team_headers(client, b["clubSlug"])
 
 
-@pytest.mark.parametrize("body", [{}, {"clubName": None}, {"clubSlug": None}, {"timezone": None}, {"adminPin": None}])
+@pytest.mark.parametrize("body", [{}, {"clubName": None}, {"clubSlug": None}, {"adminPin": None}])
 def test_empty_or_null_updates_are_rejected(client, super_headers, body):
     created = _create_team(client, super_headers)
     response = client.patch(f"/api/admin/clubs/{created['clubId']}", headers=super_headers, json=body)
