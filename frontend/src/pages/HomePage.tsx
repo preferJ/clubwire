@@ -165,7 +165,7 @@ function NextFixture({ s, slug, members, isAdmin }: { s: SessionListItem | null;
         </span>
         <span className="kv">
           <span><span>상태</span><span>{SESSION_STATUS_LABEL[s.status]}</span></span>
-          <span><span>팀 편성</span><span style={s.teamCount ? undefined : { color: 'var(--draw)' }}>{s.teamCount ? `${s.teamCount}팀 확정` : '미확정'}</span></span>
+          <span><span>팀 편성</span><span style={s.teamCount ? undefined : { color: 'var(--gold-ink)' }}>{s.teamCount ? `${s.teamCount}팀 확정` : '미확정'}</span></span>
           {s.location ? <span style={{ gridColumn: '1 / -1' }}><span>장소</span><span>{s.location}</span></span> : null}
         </span>
         <span className="stack" style={{ gap: 6 }}>
@@ -348,11 +348,11 @@ function LiveBanner({ m, slug }: { m: LiveMatch; slug: string }) {
   const clock = useMatchClock(m)
   const label = m.status === 'READY' ? '곧 시작' : m.status === 'PAUSED' ? '일시정지' : fmtClock(clock.remaining)
   return (
-    <Link to={`/c/${slug}/matches/${m.matchId}`} className="panel" style={{ display: 'block', background: 'var(--night)', borderColor: 'var(--accent)', color: '#fff', padding: '12px 14px' }}>
+    <Link to={`/c/${slug}/matches/${m.matchId}`} className="panel" style={{ display: 'block', background: 'var(--sports-bg)', borderColor: 'var(--accent)', color: 'var(--sports-ink)', padding: '12px 14px' }}>
       <div className="row between">
         <div className="row">
           {m.status === 'READY' ? <span className="status-badge gold">대기</span> : <span className="live-badge">LIVE</span>}
-          <span className="small" style={{ color: 'var(--night-muted)' }}>{fmtDate(m.sessionDate, false)} · {m.gameNo}경기</span>
+          <span className="small" style={{ color: 'var(--sports-muted)' }}>{fmtDate(m.sessionDate, false)} · {m.gameNo}경기</span>
         </div>
         <span className="mono" style={{ fontWeight: 600 }}>{label}</span>
       </div>

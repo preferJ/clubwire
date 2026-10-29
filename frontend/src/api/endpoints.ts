@@ -8,6 +8,8 @@ import type {
   AuthResponse,
   Award,
   Club,
+  ClubAppearance,
+  ClubAppearanceUpdate,
   ClubContent,
   ClubSummary,
   ConfigItem,
@@ -31,6 +33,9 @@ import type {
 export const makeApi = (slug: string) => ({
   // 클럽 / 관리자
   club: () => request<Club>(slug, 'GET', ''),
+  clubAppearance: () => request<ClubAppearance>(slug, 'GET', '/appearance'),
+  updateClubAppearance: (body: ClubAppearanceUpdate) =>
+    request<ClubAppearance>(slug, 'PATCH', '/admin/appearance', { body }),
   clubSummary: () => request<ClubSummary>(slug, 'GET', '/summary'),
   clubContent: () => request<ClubContent>(slug, 'GET', '/content'),
   updateClubContent: (body: Partial<Pick<ClubContent, 'operatingRules' | 'announcement'>>) =>

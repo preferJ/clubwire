@@ -12,3 +12,4 @@ pyjwt>=2.8
 openai>=1.55  # max_completion_tokens(답변 최대 길이)
 httpx>=0.27
 pytest>=8.0
+Pillow>=11.3

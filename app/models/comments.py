@@ -29,6 +29,10 @@ COMMENTS: dict[str, dict[str, str]] = {
         "OPERATING_RULES_UPDATED_AT": "운영수칙 수정 시각(UTC)",
         "ANNOUNCEMENT": "와이어 상단 한 줄 공지. NULL 또는 빈 값이면 숨김",
         "ANNOUNCEMENT_UPDATED_AT": "상단 공지 수정 시각(UTC)",
+        "CREST_CONFIG": "엠블럼 설정(JSON): auto/design/image 모드, 도형·패턴·색상·문구·상징. NULL이면 기존 자동 엠블럼",
+        "CREST_IMAGE": "검증·정규화한 업로드 엠블럼 PNG 바이너리. 공개 API는 이미지 모드일 때만 제공",
+        "DEFAULT_THEME": "클럽 기본 테마(dark/light). NULL이면 dark, 방문자가 저장한 선택이 우선",
+        "APPEARANCE_UPDATED_AT": "엠블럼·기본 테마 수정 시각(UTC)",
     },
     "CLUB_ADMIN": {
         "__table__": "클럽 관리자 PIN(Argon2 해시). 회원 로그인은 추후 확장",

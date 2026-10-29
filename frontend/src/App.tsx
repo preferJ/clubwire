@@ -16,6 +16,7 @@ import { AdminHomePage } from './pages/admin/AdminHomePage'
 import { ArticlesAdminPage } from './pages/admin/ArticlesAdminPage'
 import { ClosePage } from './pages/admin/ClosePage'
 import { ClubContentAdminPage } from './pages/admin/ClubContentAdminPage'
+import { ClubAppearancePage } from './pages/admin/ClubAppearancePage'
 import { MembersAdminPage } from './pages/admin/MembersAdminPage'
 import { SessionFormPage } from './pages/admin/SessionFormPage'
 import { SettingsPage } from './pages/admin/SettingsPage'
@@ -25,7 +26,7 @@ import { SuperAdminPage } from './pages/superadmin/SuperAdminPage'
 function ClubLayout() {
   const { slug = '' } = useParams()
   return (
-    <ClubProvider slug={slug}>
+    <ClubProvider key={slug} slug={slug}>
       <Outlet />
       <PinSheet />
     </ClubProvider>
@@ -115,6 +116,7 @@ export default function App() {
               <Route path="admin/articles" element={admin(<ArticlesAdminPage />)} />
               <Route path="admin/members" element={admin(<MembersAdminPage />)} />
               <Route path="admin/content" element={admin(<ClubContentAdminPage />)} />
+              <Route path="admin/appearance" element={admin(<ClubAppearancePage />)} />
               <Route path="admin/settings" element={admin(<SettingsPage />)} />
             </Route>
           </Route>

@@ -82,7 +82,7 @@ export function ClosePage() {
 function Check({ children }: { children: ReactNode }) {
   return (
     <div className="row" style={{ alignItems: 'flex-start' }}>
-      <span style={{ color: 'var(--green)', marginTop: 2 }}><Icon name="check" size={16} stroke={2} /></span>
+      <span style={{ color: 'var(--green-dark)', marginTop: 2 }}><Icon name="check" size={16} stroke={2} /></span>
       <span>{children}</span>
     </div>
   )

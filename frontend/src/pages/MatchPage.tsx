@@ -9,6 +9,7 @@ import { AdminButton, ErrorBox, Loading, Sheet, Switch, TeamBadge } from '../com
 import { useClub, useClubEvent } from '../lib/club'
 import { fmtClock, GAME_STATUS_LABEL, newIdempotencyKey, teamColor } from '../lib/format'
 import { useAction, useAsync, useMatchClock } from '../lib/hooks'
+import { ThemeToggle } from '../lib/theme'
 
 export function MatchPage() {
   const { matchId } = useParams()
@@ -50,17 +51,17 @@ export function MatchPage() {
     <>
       <section className="scoreboard" aria-label="점수판">
         <div className="row between">
-          <Link to={`/c/${slug}/sessions/${d.sessionId}`} className="icon-btn" aria-label="일정으로" style={{ color: '#fff', marginLeft: -10 }}>
+          <Link to={`/c/${slug}/sessions/${d.sessionId}`} className="icon-btn" aria-label="일정으로" style={{ color: 'var(--sports-ink)', marginLeft: -10 }}>
             <Icon name="back" size={22} />
           </Link>
           <div className="row">
             {d.status === 'RUNNING' ? <span className="live-badge">LIVE</span>
-              : <span className="status-badge" style={{ background: d.status === 'PAUSED' ? 'var(--gold)' : '#2e3238', color: d.status === 'PAUSED' ? 'var(--on-light)' : '#fff' }}>
+              : <span className="status-badge" style={{ background: d.status === 'PAUSED' ? 'var(--gold)' : 'var(--sports-control)', color: d.status === 'PAUSED' ? 'var(--on-light)' : 'var(--sports-ink)' }}>
                 {d.finalized ? '확정' : GAME_STATUS_LABEL[d.status]}
               </span>}
-            <span className="small" style={{ color: 'var(--night-muted)' }}>{d.gameNo}경기</span>
+            <span className="small" style={{ color: 'var(--sports-muted)' }}>{d.gameNo}경기</span>
           </div>
-          <AdminButton onDark />
+          <div className="row" style={{ flexShrink: 0, gap: 4 }}><ThemeToggle /><AdminButton onDark /></div>
         </div>
 
         <div className="score-row">
@@ -86,7 +87,7 @@ export function MatchPage() {
             <Clock d={d} clock={clock} />
           )}
           <div className="progress" aria-hidden="true"><span style={{ width: `${clock.progress * 100}%` }} /></div>
-          <div className="small" style={{ color: 'var(--night-muted)' }}>
+          <div className="small" style={{ color: 'var(--sports-muted)' }}>
             {d.status === 'READY' ? `${Math.round(d.durationSec / 60)}분 경기 · 시작 전`
               : d.status === 'FINISHED' ? (winner ? `TEAM ${winner.teamCode} 승` : '무승부') + (d.endReason === 'TIME_UP' ? ' · 시간 종료' : d.endReason === 'EARLY_GOAL' ? ' · 조기 종료' : '')
                 : `남은 시간 · ${d.autoEnd ? '0이 되면 자동 종료' : '관리자가 종료'}`}

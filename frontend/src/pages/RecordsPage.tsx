@@ -70,18 +70,18 @@ function ThisWeek({ awards }: { awards: Award[] }) {
   const items = awards.filter((a) => a.periodStart === weekStart)
   const end = items[0]?.periodEnd ?? to
   return (
-    <section className="stack" style={{ gap: 10, padding: 14, borderRadius: 'var(--radius-s)', background: 'var(--night)', border: '1px solid var(--line)', color: '#fff' }}>
+    <section className="stack" style={{ gap: 10, padding: 14, borderRadius: 'var(--radius-s)', background: 'var(--night)', border: '1px solid var(--line)', color: 'var(--ink)' }}>
       <div className="row between">
         <h2 style={{ fontSize: 15, fontWeight: 700 }}>{weekStart === from ? '이번 주 타이틀' : '최근 타이틀'}</h2>
-        <span className="small" style={{ color: 'var(--night-muted)' }}>{fmtShortDate(weekStart)} – {fmtShortDate(end)}</span>
+        <span className="small" style={{ color: 'var(--muted)' }}>{fmtShortDate(weekStart)} – {fmtShortDate(end)}</span>
       </div>
       <div className="grid3">
         {items.map((a) => (
           <Link key={a.memberTitleId} to={`/c/${slug}/members/${a.memberId}`} className="stack"
-            style={{ gap: 4, padding: 10, borderRadius: 12, background: 'var(--night-2)', color: '#fff' }}>
-            <span style={{ fontSize: 11, color: 'var(--gold)', fontWeight: 700 }}>{a.titleName.replace('이주의 ', '')}</span>
+            style={{ gap: 4, padding: 10, borderRadius: 12, background: 'var(--night-2)', color: 'var(--ink)' }}>
+            <span style={{ fontSize: 11, color: 'var(--gold-ink)', fontWeight: 700 }}>{a.titleName.replace('이주의 ', '')}</span>
             <span style={{ fontSize: 15, fontWeight: 700 }}>{a.memberName}</span>
-            <span style={{ fontSize: 11, color: 'var(--night-muted)' }}>{awardNote(a)}</span>
+            <span style={{ fontSize: 11, color: 'var(--muted)' }}>{awardNote(a)}</span>
           </Link>
         ))}
       </div>

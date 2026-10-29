@@ -10,7 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import clubs, matches, members, sessions, stats, superadmin_auth, superadmin_teams, titles, wire, ws
+from app.api import appearance, clubs, matches, members, sessions, stats, superadmin_auth, superadmin_teams, titles, wire, ws
 from app.core.config import settings
 from app.core.errors import DomainError
 from app.core.ws import hub
@@ -61,7 +61,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 
 CLUB_PREFIX = "/api/clubs/{club_slug}"  # 클럽(tenant)은 URL로 구분
-for r in (clubs.router, members.router, sessions.router, matches.router, stats.router, titles.router, wire.router):
+for r in (clubs.router, appearance.router, members.router, sessions.router, matches.router, stats.router, titles.router, wire.router):
     app.include_router(r, prefix=CLUB_PREFIX)
 app.include_router(ws.router)
 app.include_router(superadmin_auth.router)

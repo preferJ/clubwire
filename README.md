@@ -132,6 +132,7 @@ scripts/gen_docs.py   문서 재생성
 
 ## 5. 문서
 
+- [docs/APPEARANCE.md](docs/APPEARANCE.md) — 팀 마크 디자인·이미지 등록 · 다크/화이트 테마 · 적용 방법
 - [docs/SUPERADMIN.md](docs/SUPERADMIN.md) — `/admin` 슈퍼관리자 · 팀 추가/수정/제거/복원 · 기존 소속팀 FK
 - [docs/DECISIONS.md](docs/DECISIONS.md) — 확정된 결정사항, 원 요구사항 대비 변경점과 이유, 남은 이슈
 - [docs/WIRE_RULES.md](docs/WIRE_RULES.md) — 기사거리(Insight) 26종의 조건과 제목 예시

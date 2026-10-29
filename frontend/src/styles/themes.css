@@ -1,0 +1,97 @@
+/* 배경·텍스트는 테마를 따르고, LIVE 점수판과 유니폼·로고의 고유 색은 유지한다. */
+:root {
+  --canvas: #0b0e12;
+  --nav-bg: #0e1116;
+  --hover-bg: #222933;
+  --panel-label: #c9d1dc;
+  --inverse-ink: #12161c;
+  --primary-hover: #a91824;
+  --control-off: #4a5361;
+  --progress-track: #2e3238;
+  --toast-bg: #29303b;
+  --toast-ink: #fff;
+  --toast-error-bg: #7c2d12;
+  --toast-error-ink: #fff;
+  --toast-shadow: 0 6px 20px rgba(0, 0, 0, .4);
+  --danger-ink: #f0656a;
+  --sports-bg: #0b0e12;
+  --sports-card: #171c23;
+  --sports-ink: #fff;
+  --sports-muted: #a9b2bf;
+  --sports-line: #2b323d;
+  --sports-control: #2e3238;
+  --pitch-turf: #173326;
+  --pitch-border: #2f5a44;
+  --pitch-line: #3f7259;
+  --pitch-label: #9ccbb2;
+  --pitch-label-sub: #7fae95;
+  --pitch-ink: #e8ecf1;
+  --pitch-stat: #b9d6c6;
+  --pitch-me-fill: var(--accent-soft);
+  --pitch-me-ink: #fff;
+  --chem-badge-ink: var(--on-light);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --card: #fff;
+  --panel-head: #edf1f6;
+  --line: #dbe1e9;
+  --line-strong: #b5c0ce;
+  --soft: #e9eef5;
+  --ink: #172335;
+  --ink-2: #293b50;
+  --ink-3: #41546b;
+  --muted: #586a80;
+  --accent-ink: #a91627;
+  --accent-soft: #fce9ec;
+  --green-dark: #176940;
+  --green-soft: #e3f3e9;
+  --warn-soft: #fff0df;
+  --warn-ink: #8c420d;
+  --gold-soft: #fff3cf;
+  --gold-ink: #785306;
+  --blue-soft: #e8f0ff;
+  --blue-ink: #2455a6;
+  --night: #e6ecf3;
+  --night-2: #edf1f6;
+  --night-line: #cbd5e1;
+  --night-muted: #586a80;
+  --canvas: #e5eaf1;
+  --nav-bg: #fff;
+  --hover-bg: #e9eef5;
+  --panel-label: #41546b;
+  --inverse-ink: #fff;
+  --control-off: #8793a3;
+  --progress-track: #d5dde8;
+  --toast-bg: #fff;
+  --toast-ink: #172335;
+  --toast-error-bg: #fff0df;
+  --toast-error-ink: #8c420d;
+  --toast-shadow: 0 6px 24px rgba(23, 35, 53, .16);
+  --danger-ink: #b42318;
+  --pitch-turf: #edf8f1;
+  --pitch-border: #75a587;
+  --pitch-line: #a4c5af;
+  --pitch-label: #235238;
+  --pitch-label-sub: #426951;
+  --pitch-ink: #173b29;
+  --pitch-stat: #315d45;
+  --pitch-me-fill: var(--accent);
+  --chem-hi: #2563eb;
+  --chem-mid: #64748b;
+  --chem-lo: #b45309;
+  --chem-badge-ink: #fff;
+}
+
+.theme-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; min-height: 36px; flex: none; padding: 0; border: 1px solid var(--line-strong);
+  border-radius: 9px; background: var(--card); color: var(--ink); font-size: 11px; font-weight: 700;
+}
+.theme-toggle:hover { background: var(--hover-bg); }
+.club-bar .theme-toggle { background: rgba(0, 0, 0, .25); color: #fff; border-color: rgba(255, 255, 255, .35); }
+.club-bar .theme-toggle:hover { background: rgba(0, 0, 0, .4); }
+.topbar.dark .theme-toggle, .scoreboard .theme-toggle { background: var(--sports-card); color: var(--sports-ink); border-color: var(--sports-line); }
+:root[data-theme] .club-content-error { color: var(--danger-ink); }

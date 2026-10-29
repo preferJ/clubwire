@@ -4,6 +4,32 @@ export type SessionStatus = 'OPEN' | 'CONFIRMED' | 'IN_PROGRESS' | 'CLOSED' | 'C
 export type GameStatus = 'READY' | 'RUNNING' | 'PAUSED' | 'FINISHED' | 'CANCELLED'
 export type ArticleStatus = 'PENDING' | 'GENERATED' | 'PUBLISHED' | 'REJECTED' | 'FAILED' | 'SUPERSEDED'
 
+export type ThemeMode = 'dark' | 'light'
+
+export interface CrestConfig {
+  mode: 'auto' | 'design' | 'image'
+  shape: 'shield' | 'circle' | 'rounded'
+  pattern: 'solid' | 'stripes' | 'diagonal'
+  primaryColor: string
+  secondaryColor: string
+  textColor: string
+  text: string
+  symbol: 'none' | 'ball' | 'star'
+}
+
+export interface ClubAppearance {
+  crest: CrestConfig
+  imageUrl: string | null
+  defaultTheme: ThemeMode
+  updatedAt: string | null
+}
+
+export interface ClubAppearanceUpdate {
+  crest?: CrestConfig
+  imageDataUrl?: string | null
+  defaultTheme?: ThemeMode
+}
+
 export interface Club {
   clubId: number
   clubSlug: string
@@ -11,6 +37,7 @@ export interface Club {
   sportType: string
   timezone: string
   isAdmin: boolean
+  appearance?: ClubAppearance
 }
 
 /** 와이어 상단 요약 줄 */
@@ -416,3 +443,4 @@ export type WsMessage =
   | { type: 'ARTICLE_UPDATED'; articleId: number; status: ArticleStatus }
   | { type: 'TITLE_UPDATED'; memberTitleId: number }
   | { type: 'CLUB_CONTENT_UPDATED' }
+  | { type: 'CLUB_APPEARANCE_UPDATED' }

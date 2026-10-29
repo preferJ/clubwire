@@ -1,0 +1,20 @@
+.appearance-editor { padding-bottom: 24px; }
+.appearance-editor h2, .appearance-fields legend { font-size: 16px; font-weight: 700; color: var(--ink); }
+.appearance-previews { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.appearance-preview { display: flex; align-items: center; flex-direction: column; justify-content: center; gap: 12px; min-width: 0; min-height: 190px; padding: 16px 8px; border: 1px solid var(--line); border-radius: 12px; background: var(--bg); color: var(--ink); }
+.appearance-preview[data-theme='dark'] { --bg: #12161c; --card: #1e242d; --ink: #e8ecf1; --muted: #9aa4b2; --line: #2b323d; }
+.appearance-preview[data-theme='light'] { --bg: #f1f4f8; --card: #fff; --ink: #1b2738; --muted: #536176; --line: #d1d9e4; }
+.appearance-preview-label { font-size: 11px; color: var(--muted); }
+.appearance-preview b { max-width: 100%; font-size: 14px; overflow-wrap: anywhere; text-align: center; }
+.appearance-fields { display: flex; flex-direction: column; gap: 16px; min-width: 0; margin: 0; }
+.appearance-fields legend { padding: 0 4px; }
+.appearance-mode-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.appearance-mode-grid .btn { min-width: 0; padding-inline: 6px; font-size: 12px; }
+.appearance-form-grid, .appearance-theme-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.appearance-form-grid .input { min-width: 0; width: 100%; }
+.appearance-color-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.appearance-color { width: 100%; height: 44px; padding: 3px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--bg); cursor: pointer; }
+.appearance-color-value { font-size: 10px; font-family: var(--mono); color: var(--muted); }
+.appearance-file { max-width: 100%; font: inherit; color: var(--ink); }
+.appearance-file::file-selector-button { min-height: 40px; margin-right: 10px; padding: 8px 12px; color: var(--ink); background: var(--soft); border: 1px solid var(--line-strong); border-radius: 8px; cursor: pointer; }
+.appearance-error { margin: 0; font-size: 13px; color: var(--warn-ink); }
