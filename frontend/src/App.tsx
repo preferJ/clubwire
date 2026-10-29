@@ -20,6 +20,7 @@ import { MembersAdminPage } from './pages/admin/MembersAdminPage'
 import { SessionFormPage } from './pages/admin/SessionFormPage'
 import { SettingsPage } from './pages/admin/SettingsPage'
 import { TeamsPage } from './pages/admin/TeamsPage'
+import { SuperAdminPage } from './pages/superadmin/SuperAdminPage'
 
 function ClubLayout() {
   const { slug = '' } = useParams()
@@ -94,6 +95,8 @@ export default function App() {
       <ToastProvider>
         <Routes>
           <Route path="/" element={<Landing />} />
+          <Route path="/admin" element={<SuperAdminPage />} />
+          <Route path="/admin/teams" element={<SuperAdminPage />} />
           <Route path="/c/:slug" element={<ClubLayout />}>
             <Route element={<TabShell />}>
               <Route index element={<HomePage />} />

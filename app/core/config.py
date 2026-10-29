@@ -5,6 +5,7 @@
 """
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -20,6 +21,10 @@ class Settings(BaseSettings):
     ADMIN_TOKEN_TTL_MIN: int = 720
     ADMIN_LOGIN_MAX_FAIL: int = 5
     ADMIN_LOGIN_LOCK_SEC: int = 300
+
+    # 전체 팀 관리용 인증. 클럽 관리자 PIN/토큰과 별개이며 서버에서만 읽는다.
+    SUPER_ADMIN_PIN: str = Field(default="7418", min_length=4, max_length=64, repr=False)
+    SUPER_ADMIN_TOKEN_TTL_MIN: int = Field(default=120, ge=1)
 
     # OpenAI (키는 서버 환경변수로만 주입한다. 브라우저/레포 금지)
     OPENAI_API_KEY: str | None = None

@@ -49,12 +49,19 @@ async def club_ws(websocket: WebSocket, club_slug: str):
     async def pump_out():
         while True:
             msg = await queue.get()
+            if msg.get("type") == "CLUB_DEACTIVATED":
+                await websocket.close(code=4404)
+                return
             await websocket.send_json(msg)
 
     async def pump_in():
         while True:
             text = await websocket.receive_text()
             if text.strip().lower() == "ping":
+                # 다른 프로세스에서 비활성화/주소 변경됐어도 기존 연결을 유지하지 않는다.
+                if await run_in_threadpool(_resolve_club_id, club_slug) != club_id:
+                    await websocket.close(code=4404)
+                    return
                 await websocket.send_json({"type": "PONG", "serverTime": to_iso(utcnow())})
 
     out_task = asyncio.create_task(pump_out())
