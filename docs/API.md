@@ -42,9 +42,10 @@
 | 🔓 | GET | `/matches/{match_id}` | 경기 상태 + 이벤트 타임라인(공개). 새 클라이언트는 이걸로 타이머 복원 |
 | 🔑 | POST | `/matches/{match_id}/cancel` | 경기 취소 |
 | 🔑 | POST | `/matches/{match_id}/end` | 경기 종료(관리자) |
+| 🔑 | PATCH | `/matches/{match_id}/events/{event_id}` | 골 수정(기존 골은 취소 표시, 고친 골을 새로 기록 + 점수 동시 반영) |
 | 🔑 | POST | `/matches/{match_id}/events/{event_id}/cancel` | 골 취소(삭제하지 않고 취소 이벤트 기록) |
 | 🔑 | POST | `/matches/{match_id}/finalize` | 기록 확정 → Rating/Stats/Pair 반영(중복 호출 409) |
-| 🔑 | POST | `/matches/{match_id}/goals` | 골 등록(+점수 동시 반영, 멱등키 지원) |
+| 🔓 | POST | `/matches/{match_id}/goals` | 골 등록(+점수 동시 반영, 멱등키 지원). 경기 중에는 누구나, 경기가 끝난 뒤에는 관리자만 |
 | 🔑 | POST | `/matches/{match_id}/members` | 출전 명단 추가/팀 변경(교체 투입 등) |
 | 🔑 | DELETE | `/matches/{match_id}/members/{member_id}` | 출전 명단 제외(결장) |
 | 🔑 | POST | `/matches/{match_id}/pause` | 일시정지 |

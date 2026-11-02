@@ -2609,7 +2609,7 @@
         "tags": [
           "matches"
         ],
-        "summary": "골 등록(+점수 동시 반영, 멱등키 지원)",
+        "summary": "골 등록(+점수 동시 반영, 멱등키 지원). 경기 중에는 누구나, 경기가 끝난 뒤에는 관리자만",
         "operationId": "add_goal_api_clubs__club_slug__matches__match_id__goals_post",
         "security": [
           {
@@ -2644,6 +2644,81 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/GoalRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clubs/{club_slug}/matches/{match_id}/events/{event_id}": {
+      "patch": {
+        "tags": [
+          "matches"
+        ],
+        "summary": "골 수정(기존 골은 취소 표시, 고친 골을 새로 기록 + 점수 동시 반영)",
+        "operationId": "edit_goal_api_clubs__club_slug__matches__match_id__events__event_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "match_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Match Id"
+            }
+          },
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Event Id"
+            }
+          },
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GoalEditRequest"
               }
             }
           }
@@ -4761,6 +4836,79 @@
         "additionalProperties": false,
         "type": "object",
         "title": "EventCancelRequest"
+      },
+      "GoalEditRequest": {
+        "properties": {
+          "teamId": {
+            "type": "integer",
+            "title": "Teamid",
+            "description": "점수를 얻는 팀(SESSION_TEAM_ID)"
+          },
+          "scorerMemberId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorermemberid"
+          },
+          "assistMemberId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assistmemberid"
+          },
+          "ownGoal": {
+            "type": "boolean",
+            "title": "Owngoal",
+            "default": false
+          },
+          "guestGoal": {
+            "type": "boolean",
+            "title": "Guestgoal",
+            "default": false
+          },
+          "elapsedSec": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Elapsedsec",
+            "description": "생략 시 원래 득점 시각 유지"
+          },
+          "memo": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memo"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "teamId"
+        ],
+        "title": "GoalEditRequest",
+        "description": "골 수정: 고친 뒤의 전체 값(득점 팀 · 득점자 · 도움 · 자책 · 게스트). 득점 시각은 생략하면 원래 시각 유지."
       },
       "GoalRequest": {
         "properties": {

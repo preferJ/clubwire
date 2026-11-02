@@ -5,9 +5,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { SessionDetail, SessionMatch } from '../api/types'
 import { Icon } from '../components/Icon'
 import { NextMatchSheet } from '../components/NextMatchSheet'
-import { AdminButton, ErrorBox, Loading, TopBar } from '../components/ui'
+import { AdminButton, ErrorBox, Loading, ResultTeam, TopBar } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
-import { fmtDate, fmtDateTime, teamColor } from '../lib/format'
+import { fmtDate, fmtDateTime, teamColor, winSide } from '../lib/format'
 import { useAction, useAsync } from '../lib/hooks'
 
 const STEPS: { key: string; label: string }[] = [
@@ -116,6 +116,7 @@ function Teams({ d }: { d: SessionDetail }) {
 
 function MatchRow({ m, slug }: { m: SessionMatch; slug: string }) {
   const live = m.status === 'RUNNING' || m.status === 'PAUSED'
+  const win = winSide(m)
   const right =
     m.status === 'READY' ? <span className="status-badge gold">대기</span>
       : live ? <span className="live-badge">{m.status === 'PAUSED' ? '정지' : 'LIVE'}</span>
@@ -127,7 +128,7 @@ function MatchRow({ m, slug }: { m: SessionMatch; slug: string }) {
       style={m.status === 'CANCELLED' ? { opacity: 0.6 } : undefined}>
       <span className={live ? '' : 'muted'} style={{ width: 44, color: live ? 'var(--sports-muted)' : undefined }}>{m.gameNo}경기</span>
       <span style={{ flex: 1, textAlign: 'center' }}>
-        TEAM {m.teamA.teamCode} <b className="mono" style={{ padding: '0 6px' }}>{m.status === 'READY' ? 'vs' : `${m.teamA.score} : ${m.teamB.score}`}</b> TEAM {m.teamB.teamCode}
+        <ResultTeam code={m.teamA.teamCode} side="A" win={win === 'A'} /> <b className="mono" style={{ padding: '0 6px' }}>{m.status === 'READY' ? 'vs' : `${m.teamA.score} : ${m.teamB.score}`}</b> <ResultTeam code={m.teamB.teamCode} side="B" win={win === 'B'} />
       </span>
       {right}
     </Link>

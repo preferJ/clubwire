@@ -101,6 +101,17 @@ class GoalRequest(CamelModel):
     memo: str | None = Field(default=None, max_length=200)
 
 
+class GoalEditRequest(CamelModel):
+    """골 수정: 고친 뒤의 전체 값(득점 팀 · 득점자 · 도움 · 자책 · 게스트). 득점 시각은 생략하면 원래 시각 유지."""
+    team_id: int = Field(description="점수를 얻는 팀(SESSION_TEAM_ID)")
+    scorer_member_id: int | None = None
+    assist_member_id: int | None = None
+    own_goal: bool = False
+    guest_goal: bool = False
+    elapsed_sec: int | None = Field(default=None, ge=0, description="생략 시 원래 득점 시각 유지")
+    memo: str | None = Field(default=None, max_length=200)
+
+
 class EventCancelRequest(CamelModel):
     memo: str | None = Field(default=None, max_length=200)
 

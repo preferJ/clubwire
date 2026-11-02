@@ -105,6 +105,19 @@ export const makeApi = (slug: string) => ({
       idempotencyKey: string
     },
   ) => request<{ eventId: number; duplicate: boolean; match: MatchState }>(slug, 'POST', `/matches/${id}/goals`, { body }),
+  /** 골 수정(관리자): 고친 뒤의 전체 값. elapsedSec를 비우면 원래 득점 시각 유지 */
+  editGoal: (
+    id: number,
+    eventId: number,
+    body: {
+      teamId: number
+      scorerMemberId?: number | null
+      assistMemberId?: number | null
+      ownGoal?: boolean
+      guestGoal?: boolean
+      elapsedSec?: number | null
+    },
+  ) => request<{ eventId: number; changed: boolean; match: MatchState }>(slug, 'PATCH', `/matches/${id}/events/${eventId}`, { body }),
   cancelGoal: (id: number, eventId: number) =>
     request<{ eventId: number; match: MatchState }>(slug, 'POST', `/matches/${id}/events/${eventId}/cancel`, { body: {} }),
   addMatchMember: (id: number, memberId: number, teamId: number) =>
