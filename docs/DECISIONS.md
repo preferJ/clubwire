@@ -418,6 +418,24 @@ DELETE MT FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_T
 
 - 테스트 `tests/test_superadmin_teams.py`: 시간대를 보내면 422 · 아무것도 저장 안 됨, 시간대 DB가 없어도 생성 · 수정 · 팀 요약이 되는지 확인
 
+## 3-15. 메인 팀 마크 크기 · 상단 공지 크기 · 선수 삭제 (2026-11-02)
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 팀 마크 크기 | 관리자 **팀 마크 · 테마** 화면 슬라이더(32~72px, 2px 단위, 기본 44 = 기존 크기). 저장하면 모든 방문자의 탭 머리(와이어 · 일정 · 기록 · 선수단 빨간 띠)에 같은 크기. 화면에 실제 머리 모양 미리보기 | 요청(관리자 저장 · 슬라이더). 72px에서도 360px 폭 가로 넘침 없음 확인 |
+| 마크 크기 저장 | `CLUB.CREST_SIZE`(NULL = 44). API: `GET /appearance`, 클럽 정보 `appearance.crestSize`, `PATCH /admin/appearance`의 `crestSize`(정수 32~72, 범위 밖 422 · null 400) | 기존 외형 저장(defaultTheme)과 같은 방식 |
+| 공지 크기 | **운영 수칙 · 공지** 화면 [작게 · 보통 · 크게]. 글자와 줄 높이를 함께 바꿈(작게 10px/24px · 보통 11px/29px = 기존 · 크게 14px/40px). 입력 칸 아래 미리보기 | 요청(글자 + 높이 3단계) |
+| 공지 크기 저장 | `CLUB.ANNOUNCEMENT_SIZE`(small/large, NULL = medium). API: `GET /content`의 `announcementSize`, `PATCH /admin/content`의 `announcementSize`(null = 보통). 크기만 바꾸면 공지 수정 시각은 그대로, 접속 화면에는 실시간 반영(`CLUB_CONTENT_UPDATED`) | |
+| 선수 삭제 | 관리자 **멤버 관리**의 [삭제] → 확인 → `MEMBER.DELETED_AT` 기록(행은 그대로). 기존 '비활성'(쉬는 선수, 관리자 목록 · 기록 순위에는 남음)과 별개 | 요청: 표시만 안 될 뿐 DB에는 남게 |
+| 숨기는 곳 | 선수단 · 관리자 멤버 목록 · 참석 선택 · 지각 추가 · 기록 순위(`/stats/members`) · 이달의 MVP 후보 · 와이어 요약 '멤버' 수. 새로 받는 상(이달의 MVP · 득점왕 · 도움왕 · 수동 수여)에서도 제외 | 요청(목록에서만 숨김) |
+| 남기는 곳 | 지난 일정 · 경기 · 기사 · 수상 이력 · 케미 속 이름, 선수 상세 화면(지난 기록 링크. 관리자에게만 '삭제한 선수' 표시, 정보 수정 칸 숨김) | 기록 보존 |
+| 막는 것 | 끝나지 않은 일정(예정 · 확정 · 진행 중)에 참석으로 잡힌 선수는 삭제 불가(409 `MEMBER_IN_OPEN_SESSION`, 날짜 안내) → 참석 취소나 마감 후 삭제. 삭제한 선수 수정은 409 `MEMBER_DELETED`, 새 참석은 404 | 팀 편성 · 경기 진행 중 명단이 어긋나지 않게 |
+| 복원 | 멤버 관리 [삭제한 선수] 탭(최근 삭제 순) → [복원] = `DELETED_AT` NULL. 활동/비활성은 삭제 전 그대로 | 요청(삭제한 선수 목록 + 복원). 일정 삭제(SESSION.DELETED_AT)와 같은 방식 |
+| API | `DELETE /members/{id}`(이미 삭제면 그대로) · `POST /members/{id}/restore` · `GET /members?deleted=true`(관리자, 삭제한 선수만). 멤버 응답에 `deleted` · `deletedAt` | |
+
+- alembic **0012**: `MEMBER.DELETED_AT`, `CLUB.CREST_SIZE`, `CLUB.ANNOUNCEMENT_SIZE`(모두 NULL 허용, 기존 행은 기본값으로 해석). 업그레이드 · 다운그레이드 확인
+- 테스트 `tests/test_member_delete_display_sizes.py`(마크 크기 저장 · 범위, 공지 3단계, 삭제 시 목록 · 순위 · MVP 후보 · 요약에서 빠지고 지난 기록 유지, 새 참석 · 수정 차단, 복원, 끝나지 않은 일정 참석자 삭제 차단). `tests/test_club_content.py`는 응답에 `announcementSize` 추가 반영
+
 ## 4. 남은 이슈 / 다음 단계
 
 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)

@@ -151,3 +151,5 @@ class ClubContentUpdate(CamelModel):
         default=None, description="운영수칙. null이면 YPR 원문을 사용하며, 생략하면 유지")
     announcement: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = Field(
         default=None, description="와이어 상단 한 줄 공지. 빈 문자열 또는 null로 숨김, 생략하면 유지")
+    announcement_size: Literal["small", "medium", "large"] | None = Field(
+        default=None, description="상단 공지 글자 · 높이. null이면 기본(medium), 생략하면 유지")

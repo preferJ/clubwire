@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage } from '../../api/client'
 import type { ClubAppearance, CrestConfig, ThemeMode } from '../../api/types'
-import { Crest } from '../../components/ClubCrest'
+import { Crest, CREST_SIZE_DEFAULT, CREST_SIZE_MAX, CREST_SIZE_MIN } from '../../components/ClubCrest'
 import { ErrorBox, Loading, TopBar } from '../../components/ui'
 import { useClub } from '../../lib/club'
 import { useAction } from '../../lib/hooks'
@@ -34,6 +34,7 @@ export function ClubAppearancePage() {
   const [initial, setInitial] = useState<ClubAppearance | null>(null)
   const [crest, setCrest] = useState<CrestConfig>(DEFAULT_CREST)
   const [defaultTheme, setDefaultTheme] = useState<ThemeMode>('dark')
+  const [crestSize, setCrestSize] = useState(CREST_SIZE_DEFAULT)
   // undefined는 기존 이미지를 유지한다. null만 명시적인 삭제다.
   const [imageDraft, setImageDraft] = useState<string | null | undefined>(undefined)
   const [loadError, setLoadError] = useState<unknown>()
@@ -49,6 +50,7 @@ export function ClubAppearancePage() {
     setInitial(saved)
     setCrest({ ...saved.crest })
     setDefaultTheme(saved.defaultTheme)
+    setCrestSize(saved.crestSize ?? CREST_SIZE_DEFAULT)
     setImageDraft(undefined)
     setFileError('')
     setSaveError('')
@@ -89,10 +91,11 @@ export function ClubAppearancePage() {
   const imageChanged = initial !== null && imageDraft !== undefined
     && (imageDraft === null || (crest.mode === 'image' && imageDraft !== initial.imageUrl))
   const themeChanged = initial !== null && defaultTheme !== initial.defaultTheme
-  const changed = crestChanged || imageChanged || themeChanged
+  const sizeChanged = initial !== null && crestSize !== (initial.crestSize ?? CREST_SIZE_DEFAULT)
+  const changed = crestChanged || imageChanged || themeChanged || sizeChanged
   const imageInvalid = crest.mode === 'image' && (!imageUrl || !imageReady || !!previewError)
   const canSave = changed && !busy && !reading && !fileError && !imageInvalid
-  const preview: ClubAppearance | null = initial ? { ...initial, crest, imageUrl, defaultTheme } : null
+  const preview: ClubAppearance | null = initial ? { ...initial, crest, imageUrl, defaultTheme, crestSize } : null
   const teamName = club?.clubName ?? slug
 
   const updateCrest = <K extends keyof CrestConfig>(key: K, value: CrestConfig[K]) => {
@@ -159,11 +162,12 @@ export function ClubAppearancePage() {
       ...(crestChanged ? { crest } : {}),
       ...(imageChanged ? { imageDataUrl: imageDraft } : {}),
       ...(themeChanged ? { defaultTheme } : {}),
+      ...(sizeChanged ? { crestSize } : {}),
     }
     const saved = await run(async () => {
       try { return await api.updateClubAppearance(body) }
       catch (error) { setSaveError(errorMessage(error)); throw error }
-    }, '팀 마크와 기본 테마를 저장했어요')
+    }, '팀 마크 · 테마를 저장했어요')
     if (!saved) return
     hydrate(saved)
     try { await refreshClub() }
@@ -250,6 +254,27 @@ export function ClubAppearancePage() {
             )}
             {reading ? <p className="small muted" role="status">이미지를 읽고 있어요…</p> : null}
             {fileError || previewError ? <p className="appearance-error" role="alert">{fileError || previewError}</p> : null}
+          </fieldset>
+
+          <fieldset className="card appearance-fields" disabled={busy}>
+            <legend>메인 화면 마크 크기</legend>
+            <p className="small muted">와이어 · 일정 · 기록 · 선수단 맨 위 빨간 띠에 보이는 마크 크기예요. 저장하면 모든 방문자에게 같은 크기로 보여요.</p>
+            <div className="appearance-size-row">
+              <input className="appearance-size-range" type="range" min={CREST_SIZE_MIN} max={CREST_SIZE_MAX} step={2}
+                value={crestSize} aria-label="메인 화면 마크 크기" aria-valuetext={`${crestSize}픽셀`}
+                onChange={(e) => { setCrestSize(Number(e.target.value)); setSaveError('') }} />
+              <b className="num appearance-size-value">{crestSize}px</b>
+            </div>
+            <div className="row between small muted"><span>작게 {CREST_SIZE_MIN}</span>
+              <button type="button" className="btn sm" disabled={crestSize === CREST_SIZE_DEFAULT}
+                onClick={() => { setCrestSize(CREST_SIZE_DEFAULT); setSaveError('') }}>기본 {CREST_SIZE_DEFAULT}px</button>
+              <span>크게 {CREST_SIZE_MAX}</span></div>
+            <div className="club-bar appearance-clubbar-preview" aria-label="메인 화면 머리 미리보기">
+              <div className="club-row">
+                <Crest name={teamName} size={crestSize} appearance={preview} />
+                <div className="club-title"><h1>{teamName}</h1><span>THE WIRE</span></div>
+              </div>
+            </div>
           </fieldset>
 
           <fieldset className="card appearance-fields" disabled={busy}>

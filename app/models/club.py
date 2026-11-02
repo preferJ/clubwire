@@ -34,6 +34,10 @@ class Club(TimestampMixin, Base):
     )
     default_theme: Mapped[str | None] = mapped_column("DEFAULT_THEME", String(10))
     appearance_updated_at: Mapped[datetime | None] = mapped_column("APPEARANCE_UPDATED_AT", UtcDateTime)
+    # 탭 머리(메인 화면) 팀 마크 크기(px). NULL이면 기본 44
+    crest_size: Mapped[int | None] = mapped_column("CREST_SIZE", SmallInteger)
+    # 상단 공지 글자 · 높이(small/medium/large). NULL이면 medium
+    announcement_size: Mapped[str | None] = mapped_column("ANNOUNCEMENT_SIZE", String(10))
 
 
 class ClubAdmin(TimestampMixin, Base):
@@ -50,7 +54,8 @@ class ClubAdmin(TimestampMixin, Base):
 
 
 class Member(TimestampMixin, Base):
-    """실제로 경기하는 구성원. 삭제하지 않고 ACTIVE_YN=false로 비활성화."""
+    """실제로 경기하는 구성원. 쉬는 선수는 ACTIVE_YN=false(비활성),
+    그만둔 선수는 DELETED_AT(삭제: 목록에서만 숨김, 행과 지난 기록은 그대로)."""
 
     __tablename__ = "MEMBER"
     __table_args__ = (Index("IX_MEMBER_CLUB_ID_ACTIVE_YN", "CLUB_ID", "ACTIVE_YN"),)
@@ -66,6 +71,8 @@ class Member(TimestampMixin, Base):
     jersey_number: Mapped[int | None] = mapped_column("JERSEY_NUMBER", SmallInteger)
     # 시작 Rating(이관·수동 지정). NULL이면 클럽 설정 INITIAL_RATING에서 시작. 재계산(rebuild)도 이 값에서 출발한다.
     initial_rating: Mapped[float | None] = mapped_column("INITIAL_RATING", Double)
+    # 삭제 시각. NULL = 정상. 선수단 · 참석 선택 · 기록 순위 · MVP 후보에서 숨기고, 지난 경기 · 기사 · 수상 기록은 보존
+    deleted_at: Mapped[datetime | None] = mapped_column("DELETED_AT", UtcDateTime)
 
 
 class SystemConfig(Base):

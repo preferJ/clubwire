@@ -64,7 +64,7 @@ export function HomePage() {
         </div>
       </ClubBar>
 
-      <AnnouncementTicker text={content.data?.announcement} />
+      <AnnouncementTicker text={content.data?.announcement} size={content.data?.announcementSize} />
 
       {/* 요약 줄: 누르면 해당 탭으로(멤버 → 선수단, 일정 → 일정, 기사 → 기록 탭 [기사]) */}
       <nav className="stat-ribbon" aria-label="클럽 요약">

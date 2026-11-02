@@ -16,3 +16,4 @@
 .member-admin-fields .field { min-width: 0; }
 .member-admin-fields .input { height: 40px; }
 .member-admin-actions { min-height: 34px; }
+.member-deleted-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; }

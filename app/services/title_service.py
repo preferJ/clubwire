@@ -77,7 +77,7 @@ def award_title(db: Session, club_id: int, admin_id: int | None, *, title_code: 
         raise NotFound("타이틀을 찾을 수 없습니다.", "TITLE_NOT_FOUND")
     if t.award_method != AwardMethod.MANUAL:
         raise BadRequest("자동 집계 타이틀은 직접 수여할 수 없습니다.", "AUTO_TITLE")
-    get_member(db, club_id, member_id)
+    get_member(db, club_id, member_id, include_deleted=False)  # 삭제한 선수에게는 새로 수여하지 않음
     s = get_session(db, club_id, session_id) if session_id else None
     d = s.session_date if s else award_date
     if d is None:

@@ -1,6 +1,11 @@
 import { useId, useState } from 'react'
 import type { ClubAppearance, CrestConfig } from '../api/types'
 
+/** 탭 머리(메인 화면) 팀 마크 크기(px). 관리자 슬라이더 범위 · 기본값(서버 CREST_SIZE_* 와 같게) */
+export const CREST_SIZE_MIN = 32
+export const CREST_SIZE_MAX = 72
+export const CREST_SIZE_DEFAULT = 44
+
 const AUTO_SHIELD = 'M20 2 L37 7 V22 C37 33 30 40 20 44 C10 40 3 33 3 22 V7 Z'
 const SHIELD = 'M50 3 L94 16 V54 C94 80 77 98 50 108 C23 98 6 80 6 54 V16 Z'
 
@@ -29,7 +34,7 @@ function Shape({ shape }: { shape: CrestConfig['shape'] }) {
 }
 
 /** 업로드 이미지는 필터 없이 원래 색상으로 표시한다. 로드 실패 시 기본 방패로 돌아간다. */
-export function Crest({ name, size = 44, appearance }: { name: string; size?: number; appearance?: ClubAppearance | null }) {
+export function Crest({ name, size = CREST_SIZE_DEFAULT, appearance }: { name: string; size?: number; appearance?: ClubAppearance | null }) {
   const clipId = `crest-${useId().replace(/:/g, '')}`
   const [failedImage, setFailedImage] = useState<string | null>(null)
   const config = appearance?.crest

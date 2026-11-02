@@ -49,13 +49,15 @@ export function PlayerPage() {
               {titleCounts.map(([name, n]) => <span key={name} className="tag gold">{name} ×{n}</span>)}
               {streak >= 2 ? <span className="tag green">{streak}연승 중</span> : null}
               {!s.active ? <span className="tag">비활성</span> : null}
+              {s.deleted && isAdmin ? <span className="tag">삭제한 선수</span> : null}
             </div>
           </div>
         </div>
       </header>
 
       <main className="page">
-        {isAdmin ? <ProfileEditor key={`${id}-${profile.joinedAt}-${profile.birthYear}-${profile.jerseyNumber}`} memberId={id} profile={profile} onSaved={detail.reload} /> : null}
+        {isAdmin && s.deleted ? <p className="small muted">삭제한 선수예요. 지난 기록만 보여요. 수정하려면 관리자 메뉴 → 멤버 관리 → 삭제한 선수에서 복원하세요.</p> : null}
+        {isAdmin && !s.deleted ? <ProfileEditor key={`${id}-${profile.joinedAt}-${profile.birthYear}-${profile.jerseyNumber}`} memberId={id} profile={profile} onSaved={detail.reload} /> : null}
 
         <div className="grid3">
           <Stat label="경기" value={s.games} />

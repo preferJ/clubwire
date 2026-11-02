@@ -9,7 +9,7 @@ def test_content_partial_update_clear_and_public_persistence(make_club, monkeypa
     api = make_club("content-edit")
     assert api.ok(api.get("/content", admin=False)) == {
         "operatingRules": None, "operatingRulesUpdatedAt": None,
-        "announcement": "", "announcementUpdatedAt": None,
+        "announcement": "", "announcementUpdatedAt": None, "announcementSize": "medium",
     }
     emitted = []
     monkeypatch.setattr(hub, "publish", lambda channel, message: emitted.append((channel, message)))

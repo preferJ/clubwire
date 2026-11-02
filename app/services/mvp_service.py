@@ -28,7 +28,7 @@ from app.models.enums import (
     TitleAutoRule,
     TitlePeriodType,
 )
-from app.services.common import lock_club, member_names
+from app.services.common import deleted_member_ids, lock_club, member_names
 from app.services.config_service import load_config
 from app.services.history import load_history, member_totals
 from app.services.stats_service import rebuild_member_stats
@@ -105,8 +105,10 @@ def month_rises(db: Session, club_id: int, start: date, end: date) -> dict[int, 
 
 
 def ranking(db: Session, club_id: int, start: date, end: date, min_sessions: int) -> list[MonthRise]:
-    """후보(자격 충족 + 상승) 상승률 높은 순. 같으면 경기 수 많은 순."""
-    rises = [r for r in month_rises(db, club_id, start, end).values() if r.sessions >= min_sessions and r.percent > 0]
+    """후보(자격 충족 + 상승) 상승률 높은 순. 같으면 경기 수 많은 순. 삭제한 선수는 후보 · 수상에서 뺀다."""
+    deleted = deleted_member_ids(db, club_id)
+    rises = [r for r in month_rises(db, club_id, start, end).values()
+             if r.sessions >= min_sessions and r.percent > 0 and r.member_id not in deleted]
     return sorted(rises, key=lambda r: (-r.percent, -r.games, r.member_id))
 
 
@@ -199,6 +201,8 @@ def close_month(db: Session, club: Club, month_start: date) -> list[int]:
 
     # 이달의 득점왕 · 도움왕: 그 달 확정 경기 골 · 도움 1위(동점 공동)
     totals = member_totals(load_history(db, club.club_id, session_ids=[x.session_id for x in sessions]))
+    deleted = deleted_member_ids(db, club.club_id)  # 삭제한 선수에게는 새로 수여하지 않음
+    totals = {mid: v for mid, v in totals.items() if mid not in deleted}
     awarded = 0
     for t, metric in stat_ts:
         best = max((getattr(v, metric) for v in totals.values()), default=0)
