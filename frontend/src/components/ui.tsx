@@ -129,6 +129,16 @@ export function TeamBadge({ code, size = 26, onDark }: { code: string | null | u
   )
 }
 
+/** 경기 결과의 팀 이름. 이긴 팀은 굵게 + 승리 색 + '승' 표시(색만으로 구분하지 않게 글자도 같이) */
+export function ResultTeam({ code, win, side }: { code: string | null | undefined; win: boolean; side: 'A' | 'B' }) {
+  const mark = win ? <span className="win-mark">승</span> : null
+  return (
+    <span className={`result-team ${win ? 'win' : ''}`}>
+      {side === 'A' ? mark : null}TEAM {code ?? '?'}{side === 'B' ? mark : null}
+    </span>
+  )
+}
+
 export function Tags({ tags }: { tags: string[] }) {
   if (!tags.length) return null
   return (

@@ -76,6 +76,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리�
 | `test_monthly_mvp.py` | 이달의 MVP: 상승률 계산(DB 이력과 일치) · 자격(일정 2회) · 열린 일정 있으면 대기 · 마지막 일정 마감 시 타이틀 + 기사 바로 게시 · 점수 비노출 · 한 달 한 번 · 후보 1~3위 |
 | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
 | `test_member_delete_display_sizes.py` | 메인 팀 마크 크기(32~72px 저장 · 범위 · null 거부), 상단 공지 크기 3단계, 선수 삭제(선수단 · 관리자 목록 · 기록 순위 · MVP 후보 · 요약 수에서 제외, 지난 기록 · 선수 상세 유지, 새 참석 · 수정 차단, 복원), 끝나지 않은 일정 참석자 삭제 차단 |
+| `test_member_goal_edit.py` | 일반 회원 골 · 도움 기록 · 수정 · 취소(경기 시작 후 확정 전까지, 시작 전 · 취소된 경기 409 · 확정 후 409, 멱등키, 검증 규칙 동일, 처리 관리자 NULL), 경기 진행 · 확정 · 출전 명단은 일반 회원 401, 골 수정(취소 표시 + 새 골 · refEventId · 시각 유지, 팀 변경 시 점수 이동, 자책골 전환 시 도움 제거, 같은 수정 재요청 · 변경 없음, 끝난 뒤 시각 수정, 확정 후 409, 취소된 골 409), 확정 통계는 고친 기록 기준 |
 
 ## 3. 운영 흐름 (API)
 
@@ -94,8 +95,11 @@ POST /sessions/{id}/teams/assignments 🔑              지각 ADD / 이동 MOVE
 GET  /sessions/{id}/matches/next-suggestion 🔑        팀별 오늘 경기 수 + 추천 대진(가장 오래 쉰 두 팀)
 POST /sessions/{id}/matches/next {"teamAId","teamBId"} 🔑   다음 경기 생성 (대진은 매번 관리자가 지정)
 POST /matches/{mid}/start | pause | resume | end 🔑
-POST /matches/{mid}/goals {"teamId","scorerMemberId","assistMemberId","ownGoal","guestGoal","idempotencyKey"} 🔑
-POST /matches/{mid}/events/{eid}/cancel 🔑            골 취소(삭제 X)
+── 골 기록 · 수정 · 취소: 경기 시작 후 확정 전까지 누구나(관리자 토큰 선택) ──
+POST /matches/{mid}/goals {"teamId","scorerMemberId","assistMemberId","ownGoal","guestGoal","idempotencyKey"}
+PATCH /matches/{mid}/events/{eid} {"teamId","scorerMemberId","assistMemberId","ownGoal","guestGoal","elapsedSec"}
+                                                      골 수정(기존 골 취소 표시 + 고친 골 새로 기록)
+POST /matches/{mid}/events/{eid}/cancel               골 취소(삭제 X)
 POST /matches/{mid}/finalize 🔑                       기록 확정 → Rating/통계/Pair 반영
 POST /sessions/{id}/close 🔑                          ★ [일정마감] → 수정 잠금, 자동 타이틀, SESSION_RECAP 기사
 

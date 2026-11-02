@@ -1,4 +1,4 @@
-// S04 LIVE 관전 + (관리자) A04 경기 진행 · A05 골 기록 · A06 기록 확정/다음 경기
+// S04 LIVE 관전 + A05 골 기록 · 수정 · 취소(경기 시작 후 확정 전까지 누구나) + (관리자) A04 경기 진행 · A06 기록 확정/다음 경기
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -18,6 +18,7 @@ export function MatchPage() {
   const detail = useAsync(() => api.match(id), [api, id])
   const { busy, run } = useAction()
   const [goalTeam, setGoalTeam] = useState<number | null>(null)
+  const [editing, setEditing] = useState<MatchEventView | null>(null)
   const [nextOpen, setNextOpen] = useState(false)
   const [rosterOpen, setRosterOpen] = useState(false)
 
@@ -43,7 +44,12 @@ export function MatchPage() {
 
   const live = d.status === 'RUNNING' || d.status === 'PAUSED'
   const editable = isAdmin && !d.finalized && d.status !== 'CANCELLED'
-  const goals = d.events.filter((e) => e.eventType === 'GOAL').sort((a, b) => (b.elapsedSec ?? 0) - (a.elapsedSec ?? 0) || b.eventId - a.eventId)
+  // 골 · 도움 기록 · 수정 · 취소: 경기가 시작된 뒤 확정 전까지 누구나(회원 아이디가 생기면 좁힐 예정)
+  const goalOpen = (live || d.status === 'FINISHED') && !d.finalized
+  // 수정으로 대체된 골(새 골의 refEventId가 가리키는 골)은 타임라인에서 숨기고, 고친 골에 '수정됨'을 붙인다
+  const replaced = new Set(d.events.filter((e) => e.eventType === 'GOAL' && e.refEventId != null).map((e) => e.refEventId))
+  const goals = d.events.filter((e) => e.eventType === 'GOAL' && !replaced.has(e.eventId))
+    .sort((a, b) => (b.elapsedSec ?? 0) - (a.elapsedSec ?? 0) || b.eventId - a.eventId)
   const teamOf = (tid: number | null) => (tid === d.teamA.sessionTeamId ? d.teamA : d.teamB)
   const winner = d.winTeamId ? teamOf(d.winTeamId) : null
 
@@ -65,9 +71,9 @@ export function MatchPage() {
         </div>
 
         <div className="score-row">
-          <TeamCol t={d.teamA} />
+          <TeamCol t={d.teamA} win={winner === d.teamA} />
           <div className="score" aria-label={`${d.teamA.score} 대 ${d.teamB.score}`}>{d.teamA.score}:{d.teamB.score}</div>
-          <TeamCol t={d.teamB} />
+          <TeamCol t={d.teamB} win={winner === d.teamB} />
         </div>
 
         <div className="stack" style={{ alignItems: 'center', gap: 8 }}>
@@ -89,7 +95,7 @@ export function MatchPage() {
           <div className="progress" aria-hidden="true"><span style={{ width: `${clock.progress * 100}%` }} /></div>
           <div className="small" style={{ color: 'var(--sports-muted)' }}>
             {d.status === 'READY' ? `${Math.round(d.durationSec / 60)}분 경기 · 시작 전`
-              : d.status === 'FINISHED' ? (winner ? `TEAM ${winner.teamCode} 승` : '무승부') + (d.endReason === 'TIME_UP' ? ' · 시간 종료' : d.endReason === 'EARLY_GOAL' ? ' · 조기 종료' : '')
+              : d.status === 'FINISHED' ? <>{winner ? <b className="win-text">TEAM {winner.teamCode} 승</b> : '무승부'}{d.endReason === 'TIME_UP' ? ' · 시간 종료' : d.endReason === 'EARLY_GOAL' ? ' · 조기 종료' : ''}</>
                 : `남은 시간 · ${d.autoEnd ? '0이 되면 자동 종료' : '관리자가 종료'}`}
           </div>
         </div>
@@ -97,7 +103,8 @@ export function MatchPage() {
 
       <div className="row small muted" style={{ padding: '10px 16px', background: 'var(--card)', borderBottom: '1px solid var(--line)' }}>
         <span style={{ width: 8, height: 8, borderRadius: 4, background: connected ? 'var(--green)' : 'var(--line-strong)' }} />
-        {connected ? '실시간 연결됨' : '연결 중…'}{!isAdmin ? ' · 경기 조작은 관리자만 할 수 있어요' : ''}
+        {connected ? '실시간 연결됨' : '연결 중…'}
+        {isAdmin ? '' : goalOpen ? ' · 골 · 도움 기록과 수정은 누구나, 경기 진행 · 확정은 관리자' : ' · 경기 조작은 관리자만 할 수 있어요'}
       </div>
 
       <main className="page">
@@ -110,7 +117,7 @@ export function MatchPage() {
           </div>
         ) : null}
 
-        {isAdmin && live ? (
+        {live ? (
           <div className="grid2" style={{ gap: 10 }}>
             {[d.teamA, d.teamB].map((t) => (
               <button key={t.sessionTeamId} type="button" className="goal-btn" style={{ background: teamColor(t.teamCode) }}
@@ -121,13 +128,16 @@ export function MatchPage() {
           </div>
         ) : null}
 
-        {isAdmin && d.status === 'FINISHED' && !d.finalized ? (
+        {d.status === 'FINISHED' && !d.finalized ? (
           <section className="card stack" style={{ gap: 10 }}>
             <div className="row between">
               <b>기록 검토</b>
               <span className="status-badge gold">확정 전</span>
             </div>
-            <p className="small muted">골 기록이 맞는지 확인하고 확정하세요. 확정하면 승패 · 개인 기록 · 팀 밸런스 계산에 반영돼요.</p>
+            <p className="small muted">
+              {isAdmin ? '골 기록이 맞는지 확인하고 확정하세요. 확정하면 승패 · 개인 기록 · 팀 밸런스 계산에 반영돼요.'
+                : '빠진 골은 추가하고, 틀린 골은 타임라인에서 고쳐 주세요. 확정은 관리자가 해요.'}
+            </p>
             <div className="grid2">
               {[d.teamA, d.teamB].map((t) => (
                 <button key={t.sessionTeamId} type="button" className="btn sm" onClick={() => setGoalTeam(t.sessionTeamId)}>
@@ -135,10 +145,14 @@ export function MatchPage() {
                 </button>
               ))}
             </div>
-            <button type="button" className="btn dark lg block" disabled={busy} onClick={() => act('finalize', '기록을 확정했어요')}>
-              <Icon name="check" size={20} stroke={2} />기록 확정
-            </button>
-            <button type="button" className="link-btn" style={{ color: 'var(--warn-ink)' }} onClick={() => act('cancel')}>이 경기 취소(기록 안 함)</button>
+            {isAdmin ? (
+              <>
+                <button type="button" className="btn dark lg block" disabled={busy} onClick={() => act('finalize', '기록을 확정했어요')}>
+                  <Icon name="check" size={20} stroke={2} />기록 확정
+                </button>
+                <button type="button" className="link-btn" style={{ color: 'var(--warn-ink)' }} onClick={() => act('cancel')}>이 경기 취소(기록 안 함)</button>
+              </>
+            ) : null}
           </section>
         ) : null}
 
@@ -161,7 +175,8 @@ export function MatchPage() {
           <h2 style={{ fontSize: 15, fontWeight: 700 }}>타임라인</h2>
           {goals.length === 0 ? <p className="small muted">아직 골이 없어요.</p> : null}
           {goals.map((e) => (
-            <GoalRow key={e.eventId} e={e} team={teamOf(e.teamId)} other={teamOf(e.teamId) === d.teamA ? d.teamB : d.teamA} canCancel={editable && !e.cancelled && d.status !== 'READY'}
+            <GoalRow key={e.eventId} e={e} team={teamOf(e.teamId)} other={teamOf(e.teamId) === d.teamA ? d.teamB : d.teamA}
+              canChange={goalOpen && !e.cancelled} onEdit={() => setEditing(e)}
               onCancel={async () => {
                 if (!window.confirm('이 골을 취소할까요? (기록은 남고 점수만 빠집니다)')) return
                 if (await run(() => api.cancelGoal(id, e.eventId), '골을 취소했어요')) detail.reload()
@@ -189,17 +204,21 @@ export function MatchPage() {
       {goalTeam ? (
         <GoalSheet d={d} teamId={goalTeam} onClose={() => setGoalTeam(null)} onDone={() => { setGoalTeam(null); detail.reload() }} />
       ) : null}
+      {editing ? (
+        <GoalSheet d={d} teamId={editing.teamId ?? d.teamA.sessionTeamId} editing={editing} onClose={() => setEditing(null)}
+          onDone={() => { setEditing(null); detail.reload() }} />
+      ) : null}
       <NextMatchSheet sessionId={d.sessionId} open={nextOpen} onClose={() => setNextOpen(false)} />
       {rosterOpen ? <RosterSheet d={d} onClose={() => setRosterOpen(false)} onChanged={detail.reload} /> : null}
     </>
   )
 }
 
-function TeamCol({ t }: { t: MatchDetailTeam }) {
+function TeamCol({ t, win }: { t: MatchDetailTeam; win: boolean }) {
   return (
-    <div className="score-team">
+    <div className={`score-team ${win ? 'win' : ''}`}>
       <TeamBadge code={t.teamCode} size={46} onDark />
-      TEAM {t.teamCode}
+      <span className="row" style={{ gap: 4 }}>TEAM {t.teamCode}{win ? <span className="win-mark">승</span> : null}</span>
     </div>
   )
 }
@@ -213,11 +232,12 @@ function Clock({ d, clock }: { d: MatchDetail; clock: ReturnType<typeof useMatch
   )
 }
 
-function GoalRow({ e, team, other, canCancel, onCancel }: {
+function GoalRow({ e, team, other, canChange, onEdit, onCancel }: {
   e: MatchEventView
   team: MatchDetailTeam
   other: MatchDetailTeam
-  canCancel: boolean
+  canChange: boolean
+  onEdit: () => void
   onCancel: () => void
 }) {
   const who = (e.guestGoal ? '게스트' : e.scorerName ?? '?') + (e.ownGoal ? ` (TEAM ${other.teamCode})` : '')
@@ -227,32 +247,52 @@ function GoalRow({ e, team, other, canCancel, onCancel }: {
       <span className="mini-badge" style={{ background: e.cancelled ? 'var(--line-strong)' : teamColor(team.teamCode) }}>{team.teamCode}</span>
       <div className="stack" style={{ flex: 1, gap: 0 }}>
         <span className="who" style={{ fontWeight: 700 }}>{e.ownGoal ? `자책골 · ${who}` : `골 · ${who}`}</span>
-        <span className="small muted">{e.cancelled ? '취소됨' : e.assistName ? `도움 ${e.assistName}` : '도움 없음'}</span>
+        <span className="small muted">
+          {e.cancelled ? '취소됨' : e.assistName ? `도움 ${e.assistName}` : '도움 없음'}{e.refEventId != null && !e.cancelled ? ' · 수정됨' : ''}
+        </span>
       </div>
-      {canCancel ? (
-        <button type="button" className="btn sm" style={{ border: 0, background: 'var(--soft)', color: 'var(--warn-ink)' }} onClick={onCancel}>취소</button>
+      {canChange ? (
+        <span className="row" style={{ gap: 6 }}>
+          <button type="button" className="btn sm" style={{ border: 0, background: 'var(--soft)' }} onClick={onEdit}>수정</button>
+          <button type="button" className="btn sm" style={{ border: 0, background: 'var(--soft)', color: 'var(--warn-ink)' }} onClick={onCancel}>취소</button>
+        </span>
       ) : null}
     </div>
   )
 }
 
-/** A05 골 기록 시트 */
-function GoalSheet({ d, teamId, onClose, onDone }: { d: MatchDetail; teamId: number; onClose: () => void; onDone: () => void }) {
+/** A05 골 기록 시트. editing이 있으면 그 골을 고친다: 득점 팀 · 자책 · 득점자 · 도움 · (끝난 경기면) 득점 시각 */
+function GoalSheet({ d, teamId, editing, onClose, onDone }: {
+  d: MatchDetail
+  teamId: number
+  editing?: MatchEventView
+  onClose: () => void
+  onDone: () => void
+}) {
   const { api } = useClub()
   const { busy, run } = useAction()
   const idemKey = useMemo(() => newIdempotencyKey(), [])
-  const team = teamId === d.teamA.sessionTeamId ? d.teamA : d.teamB
-  const other = teamId === d.teamA.sessionTeamId ? d.teamB : d.teamA
-  const [own, setOwn] = useState(false)
-  const [scorer, setScorer] = useState<number | 'guest' | null>(null)
-  const [assist, setAssist] = useState<number | null>(null)
+  const [tid, setTid] = useState(teamId)
+  const team = tid === d.teamA.sessionTeamId ? d.teamA : d.teamB
+  const other = tid === d.teamA.sessionTeamId ? d.teamB : d.teamA
+  const [own, setOwn] = useState(editing?.ownGoal ?? false)
+  const [scorer, setScorer] = useState<number | 'guest' | null>(editing ? (editing.guestGoal ? 'guest' : editing.scorerMemberId) : null)
+  const [assist, setAssist] = useState<number | null>(editing?.assistMemberId ?? null)
   const finished = d.status === 'FINISHED'
-  const [minute, setMinute] = useState(() => Math.round(d.durationSec / 60))
+  const startMinute = editing ? Math.floor((editing.elapsedSec ?? 0) / 60) : Math.round(d.durationSec / 60)
+  const [minute, setMinute] = useState(startMinute)
 
-  useEffect(() => {
+  // 득점 팀이나 자책을 바꾸면 고를 수 있는 선수가 달라지므로 득점자 · 도움을 다시 고른다
+  const changeTeam = (v: number) => {
+    setTid(v)
     setScorer(null)
     setAssist(null)
-  }, [own])
+  }
+  const changeOwn = (v: boolean) => {
+    setOwn(v)
+    setScorer(null)
+    setAssist(null)
+  }
 
   const scorerTeam = own ? other : team
   const scorerOptions = [...scorerTeam.members.map((m) => ({ id: m.memberId as number | 'guest', name: m.name })),
@@ -261,32 +301,44 @@ function GoalSheet({ d, teamId, onClose, onDone }: { d: MatchDetail; teamId: num
 
   const submit = async () => {
     if (scorer === null) return
-    const r = await run(() =>
-      api.addGoal(d.matchId, {
-        teamId,
-        scorerMemberId: scorer === 'guest' ? null : scorer,
-        guestGoal: scorer === 'guest',
-        ownGoal: own,
-        assistMemberId: own ? null : assist,
-        elapsedSec: finished ? Math.max(0, Math.min(d.durationSec * 3, minute * 60)) : null,
-        idempotencyKey: idemKey,
-      }),
-    )
+    const body = {
+      teamId: tid,
+      scorerMemberId: scorer === 'guest' ? null : scorer,
+      guestGoal: scorer === 'guest',
+      ownGoal: own,
+      assistMemberId: own ? null : assist,
+    }
+    const at = Math.max(0, Math.min(d.durationSec * 3, minute * 60))
+    const r = editing
+      // 득점 시각은 끝난 경기에서 분을 바꿨을 때만 보낸다(그대로면 원래 초 단위 시각 유지)
+      ? await run(() => api.editGoal(d.matchId, editing.eventId, { ...body, elapsedSec: finished && minute !== startMinute ? at : null }),
+        '골 기록을 고쳤어요')
+      : await run(() => api.addGoal(d.matchId, { ...body, elapsedSec: finished ? at : null, idempotencyKey: idemKey }))
     if (r) onDone()
   }
 
   return (
     <Sheet open onClose={onClose} labelledBy="goal-title">
       <div className="row between">
-        <div className="row"><TeamBadge code={team.teamCode} size={32} /><h2 id="goal-title">TEAM {team.teamCode} 골 기록</h2></div>
+        <div className="row"><TeamBadge code={team.teamCode} size={32} /><h2 id="goal-title">TEAM {team.teamCode} 골 {editing ? '수정' : '기록'}</h2></div>
       </div>
+
+      {editing ? (
+        <div className="segmented" role="group" aria-label="득점 팀" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+          {[d.teamA, d.teamB].map((t) => (
+            <button key={t.sessionTeamId} type="button" aria-pressed={tid === t.sessionTeamId} onClick={() => changeTeam(t.sessionTeamId)}>
+              TEAM {t.teamCode} 골
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       <div className="row between" style={{ padding: '10px 12px', borderRadius: 12, background: 'var(--bg)' }}>
         <div className="stack" style={{ gap: 2 }}>
           <b style={{ fontSize: 14 }}>자책골</b>
           <span className="small muted">켜면 상대(TEAM {other.teamCode}) 선수 중에서 고릅니다</span>
         </div>
-        <Switch checked={own} onChange={setOwn} label="자책골" />
+        <Switch checked={own} onChange={changeOwn} label="자책골" />
       </div>
 
       <section className="section">
@@ -323,7 +375,7 @@ function GoalSheet({ d, teamId, onClose, onDone }: { d: MatchDetail; teamId: num
       ) : null}
 
       <button type="button" className="btn primary lg block" disabled={busy || scorer === null} onClick={submit}>
-        {busy ? '기록 중…' : own ? '자책골 기록' : '골 기록'}
+        {busy ? (editing ? '저장 중…' : '기록 중…') : editing ? '고친 내용 저장' : own ? '자책골 기록' : '골 기록'}
       </button>
     </Sheet>
   )

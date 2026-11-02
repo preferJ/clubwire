@@ -4,9 +4,9 @@ import { useEffect } from 'react'
 import { Link, useLocation, useParams } from 'react-router-dom'
 import { ArticleMilestones } from '../components/ArticleMilestones'
 import { Icon } from '../components/Icon'
-import { ErrorBox, Loading, Tags, TopBar, type FromState } from '../components/ui'
+import { ErrorBox, Loading, ResultTeam, Tags, TopBar, type FromState } from '../components/ui'
 import { useClub } from '../lib/club'
-import { ARTICLE_TYPE_LABEL, fmtDateTime, initials } from '../lib/format'
+import { ARTICLE_TYPE_LABEL, fmtDateTime, initials, winSide } from '../lib/format'
 import { useAsync } from '../lib/hooks'
 import { markArticleRead } from '../lib/readStore'
 import { useToast } from '../lib/toast'
@@ -88,7 +88,7 @@ export function ArticlePage() {
               {results.map((m) => (
                 <div key={m.matchId} className="row between" style={{ fontSize: 14 }}>
                   <span className="muted">{m.gameNo}경기</span>
-                  <span>TEAM {m.teamA.teamCode} <b className="mono">{m.teamA.score} : {m.teamB.score}</b> TEAM {m.teamB.teamCode}</span>
+                  <span><ResultTeam code={m.teamA.teamCode} side="A" win={winSide(m) === 'A'} /> <b className="mono">{m.teamA.score} : {m.teamB.score}</b> <ResultTeam code={m.teamB.teamCode} side="B" win={winSide(m) === 'B'} /></span>
                 </div>
               ))}
             </section>

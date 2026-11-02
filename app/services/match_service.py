@@ -3,7 +3,8 @@
 동시성
 - 경기 상태/점수 변경은 MATCH_GAME 행을 SELECT … FOR UPDATE로 잠근 뒤 처리한다.
 - 골 등록은 IDEMPOTENCY_KEY(UNIQUE MATCH_ID+KEY)로 더블클릭 중복을 막는다.
-- 점수는 GOAL/GOAL_CANCEL 이벤트와 같은 트랜잭션에서만 바뀐다.
+- 점수는 GOAL/GOAL_CANCEL 이벤트(골 수정 포함)와 같은 트랜잭션에서만 바뀐다.
+- 골 수정은 기존 골을 취소 표시하고 고친 골을 새로 기록한다(REF_EVENT_ID로 연결, 이벤트 삭제 없음).
 """
 import math
 from datetime import datetime, timedelta
@@ -376,26 +377,14 @@ def auto_end_due_matches() -> int:
 
 
 # ------------------------------------------------------------------ 골
-def add_goal(db: Session, club_id: int, match_id: int, admin_id: int | None, *, team_id: int,
-             scorer_member_id: int | None = None, assist_member_id: int | None = None, own_goal: bool = False,
-             guest_goal: bool = False, elapsed_sec: int | None = None, idempotency_key: str | None = None,
-             memo: str | None = None) -> tuple[MatchEvent, MatchGame, bool]:
-    """반환: (이벤트, 경기, 새로 생성 여부). 같은 멱등키 재요청이면 기존 이벤트를 그대로 돌려준다."""
-    m, s = _lock(db, club_id, match_id)
-    if idempotency_key:
-        dup = db.scalar(select(MatchEvent).where(MatchEvent.match_id == match_id,
-                                                 MatchEvent.idempotency_key == idempotency_key))
-        if dup:
-            db.rollback()
-            return dup, m, False
-    if m.finalized_at:
-        raise Conflict("확정된 경기는 수정할 수 없습니다. 확정을 해제한 뒤 수정하세요.", "MATCH_FINALIZED")
-    _require(m, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)
+def _check_goal(db: Session, m: MatchGame, *, team_id: int, scorer_member_id: int | None,
+                assist_member_id: int | None, own_goal: bool, guest_goal: bool) -> None:
+    """득점 팀 · 득점자/자책/게스트 · 도움 검증(골 등록과 골 수정이 같은 규칙을 쓴다)."""
     if team_id not in (m.team_a_id, m.team_b_id):
         raise BadRequest("득점 팀은 이 경기의 팀이어야 합니다.", "INVALID_TEAM")
     other = m.team_b_id if team_id == m.team_a_id else m.team_a_id
     roster = {mm.member_id: mm.session_team_id
-              for mm in db.scalars(select(MatchMember).where(MatchMember.match_id == match_id))}
+              for mm in db.scalars(select(MatchMember).where(MatchMember.match_id == m.match_id))}
 
     def guests_on(tid: int) -> int:
         return db.scalar(select(func.count()).select_from(SessionGuest).where(
@@ -421,14 +410,47 @@ def add_goal(db: Session, club_id: int, match_id: int, admin_id: int | None, *, 
         if assist_member_id == scorer_member_id:
             raise BadRequest("득점자와 도움 선수가 같을 수 없습니다.", "INVALID_ASSIST")
 
-    now = utcnow()
+
+def _goal_elapsed(m: MatchGame, elapsed_sec: int | None, now: datetime) -> int:
+    """득점 시각(초). 생략하면 지금 경과 시간, 지정하면 0 ~ 지금 경과 시간 안이어야 한다."""
     current = elapsed_seconds(m, now)
-    if elapsed_sec is not None:
-        if elapsed_sec < 0 or elapsed_sec > math.ceil(current) + 1:
-            raise BadRequest("득점 시각(elapsedSec)이 경기 진행 시간을 벗어났습니다.")
-        el = int(elapsed_sec)
-    else:
-        el = int(current)
+    if elapsed_sec is None:
+        return int(current)
+    if elapsed_sec < 0 or elapsed_sec > math.ceil(current) + 1:
+        raise BadRequest("득점 시각(elapsedSec)이 경기 진행 시간을 벗어났습니다.")
+    return int(elapsed_sec)
+
+
+def _check_early_end(db: Session, m: MatchGame, now: datetime, admin_id: int | None) -> None:
+    if (m.early_end_goals and m.game_status in (GameStatus.RUNNING, GameStatus.PAUSED)
+            and max(m.score_a, m.score_b) >= m.early_end_goals):
+        _finish(db, m, now, EndReason.EARLY_GOAL, admin_id)
+
+
+def add_goal(db: Session, club_id: int, match_id: int, admin_id: int | None, *, team_id: int,
+             scorer_member_id: int | None = None, assist_member_id: int | None = None, own_goal: bool = False,
+             guest_goal: bool = False, elapsed_sec: int | None = None, idempotency_key: str | None = None,
+             memo: str | None = None) -> tuple[MatchEvent, MatchGame, bool]:
+    """반환: (이벤트, 경기, 새로 생성 여부). 같은 멱등키 재요청이면 기존 이벤트를 그대로 돌려준다.
+
+    골 등록 · 수정 · 취소는 경기가 시작된 뒤 확정 전까지 일반 회원도 할 수 있다(admin_id=None, DECISIONS 3-16).
+    경기 진행(시작 · 정지 · 종료) · 확정 · 출전 명단은 관리자만.
+    """
+    m, s = _lock(db, club_id, match_id)
+    if idempotency_key:
+        dup = db.scalar(select(MatchEvent).where(MatchEvent.match_id == match_id,
+                                                 MatchEvent.idempotency_key == idempotency_key))
+        if dup:
+            db.rollback()
+            return dup, m, False
+    if m.finalized_at:
+        raise Conflict("확정된 경기는 수정할 수 없습니다. 확정을 해제한 뒤 수정하세요.", "MATCH_FINALIZED")
+    _require(m, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)
+    _check_goal(db, m, team_id=team_id, scorer_member_id=scorer_member_id, assist_member_id=assist_member_id,
+                own_goal=own_goal, guest_goal=guest_goal)
+
+    now = utcnow()
+    el = _goal_elapsed(m, elapsed_sec, now)
 
     e = MatchEvent(match_id=match_id, event_type=EventType.GOAL, team_id=team_id,
                    scorer_member_id=scorer_member_id, assist_member_id=assist_member_id,
@@ -450,10 +472,7 @@ def add_goal(db: Session, club_id: int, match_id: int, admin_id: int | None, *, 
     else:
         m.score_b += 1
     m.version += 1
-
-    if (m.early_end_goals and m.game_status in (GameStatus.RUNNING, GameStatus.PAUSED)
-            and max(m.score_a, m.score_b) >= m.early_end_goals):
-        _finish(db, m, now, EndReason.EARLY_GOAL, admin_id)
+    _check_early_end(db, m, now, admin_id)
 
     names = member_names(db, [scorer_member_id, assist_member_id])
     emit(db, club_id, "MATCH_EVENT", {"matchId": m.match_id, "sessionId": m.session_id,
@@ -468,6 +487,7 @@ def cancel_goal(db: Session, club_id: int, match_id: int, event_id: int, admin_i
     m, _ = _lock(db, club_id, match_id)
     if m.finalized_at:
         raise Conflict("확정된 경기는 수정할 수 없습니다. 확정을 해제한 뒤 수정하세요.", "MATCH_FINALIZED")
+    _require(m, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)  # 취소된 경기의 골은 그대로 둔다
     ev = db.scalar(select(MatchEvent).where(MatchEvent.event_id == event_id, MatchEvent.match_id == match_id))
     if not ev or ev.event_type != EventType.GOAL:
         raise NotFound("골 이벤트를 찾을 수 없습니다.", "EVENT_NOT_FOUND")
@@ -486,6 +506,73 @@ def cancel_goal(db: Session, club_id: int, match_id: int, event_id: int, admin_i
     _emit_state(db, club_id, m)
     db.commit()
     return rev, m
+
+
+def _same_goal(e: MatchEvent, team_id: int, scorer_member_id: int | None, assist_member_id: int | None,
+               own_goal: bool, guest_goal: bool) -> bool:
+    return (e.team_id, e.scorer_member_id, e.assist_member_id, bool(e.own_goal_yn), bool(e.guest_goal_yn)) == \
+        (team_id, scorer_member_id, assist_member_id, own_goal, guest_goal)
+
+
+def edit_goal(db: Session, club_id: int, match_id: int, event_id: int, admin_id: int | None, *, team_id: int,
+              scorer_member_id: int | None = None, assist_member_id: int | None = None, own_goal: bool = False,
+              guest_goal: bool = False, elapsed_sec: int | None = None,
+              memo: str | None = None) -> tuple[MatchEvent, MatchGame, bool]:
+    """골 수정(득점 팀 · 득점자 · 도움 · 자책 · 게스트 · 득점 시각).
+
+    이벤트는 지우거나 덮어쓰지 않는다: 기존 골은 CANCELLED_YN만 켜고, 고친 내용으로 새 GOAL을 기록한다
+    (새 GOAL.REF_EVENT_ID = 수정 전 골). 통계 · 기사는 지금처럼 '취소되지 않은 GOAL'만 읽으므로 그대로 맞고,
+    수정 전 기록은 DB에 남는다. 득점 시각을 생략하면 원래 시각을 유지한다.
+    반환: (수정된 골, 경기, 실제로 바뀌었는지). 바뀐 게 없거나 같은 수정이 다시 오면(더블클릭) 기존 골을 돌려준다.
+    """
+    m, _ = _lock(db, club_id, match_id)
+    if m.finalized_at:
+        raise Conflict("확정된 경기는 수정할 수 없습니다. 확정을 해제한 뒤 수정하세요.", "MATCH_FINALIZED")
+    _require(m, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)
+    ev = db.scalar(select(MatchEvent).where(MatchEvent.event_id == event_id, MatchEvent.match_id == match_id))
+    if not ev or ev.event_type != EventType.GOAL:
+        raise NotFound("골 이벤트를 찾을 수 없습니다.", "EVENT_NOT_FOUND")
+    if own_goal:
+        assist_member_id = None
+    if ev.cancelled_yn:
+        edited = db.scalar(select(MatchEvent).where(MatchEvent.match_id == match_id,
+                                                    MatchEvent.event_type == EventType.GOAL,
+                                                    MatchEvent.ref_event_id == ev.event_id))
+        if edited and _same_goal(edited, team_id, scorer_member_id, assist_member_id, own_goal, guest_goal):
+            db.rollback()
+            return edited, m, False
+        raise Conflict("이미 취소되었거나 수정된 골입니다. 화면을 새로 고친 뒤 다시 시도하세요.", "ALREADY_CANCELLED")
+    _check_goal(db, m, team_id=team_id, scorer_member_id=scorer_member_id, assist_member_id=assist_member_id,
+                own_goal=own_goal, guest_goal=guest_goal)
+
+    now = utcnow()
+    el = ev.elapsed_sec if elapsed_sec is None else _goal_elapsed(m, elapsed_sec, now)
+    if _same_goal(ev, team_id, scorer_member_id, assist_member_id, own_goal, guest_goal) and el == ev.elapsed_sec:
+        db.rollback()
+        return ev, m, False
+
+    ev.cancelled_yn = True
+    e = _event(db, m, EventType.GOAL, admin_id, team_id=team_id, scorer_member_id=scorer_member_id,
+               assist_member_id=assist_member_id, own_goal_yn=own_goal, guest_goal_yn=guest_goal,
+               elapsed_sec=el, remaining_sec=None if el is None else m.game_duration_sec - el,
+               ref_event_id=ev.event_id, memo=memo if memo is not None else ev.memo)
+    if team_id != ev.team_id:  # 득점 팀이 바뀌면 점수도 옮긴다
+        if ev.team_id == m.team_a_id:
+            m.score_a = max(0, m.score_a - 1)
+            m.score_b += 1
+        else:
+            m.score_b = max(0, m.score_b - 1)
+            m.score_a += 1
+    m.version += 1
+    if team_id != ev.team_id:
+        _check_early_end(db, m, now, admin_id)
+
+    names = member_names(db, [scorer_member_id, assist_member_id])
+    emit(db, club_id, "MATCH_EVENT", {"matchId": m.match_id, "sessionId": m.session_id,
+                                      "event": serialize_event(e, names)})
+    _emit_state(db, club_id, m)
+    db.commit()
+    return e, m, True
 
 
 # ------------------------------------------------------------------ 출전 명단 수정

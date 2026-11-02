@@ -121,6 +121,12 @@ export const GAME_STATUS_LABEL: Record<GameStatus, string> = {
 
 export const RESULT_LABEL: Record<string, string> = { W: '승', D: '무', L: '패' }
 
+/** 끝난 경기에서 이긴 쪽('A' | 'B'). 무승부 · 진행 중 · 취소면 null(확정 전 '검토 중' 경기도 점수로 판단) */
+export function winSide(m: { status: GameStatus; teamA: { score: number }; teamB: { score: number } }): 'A' | 'B' | null {
+  if (m.status !== 'FINISHED' || m.teamA.score === m.teamB.score) return null
+  return m.teamA.score > m.teamB.score ? 'A' : 'B'
+}
+
 export function pct(rate: number | null | undefined): string {
   return rate == null ? '-' : `${Math.round(rate * 100)}%`
 }

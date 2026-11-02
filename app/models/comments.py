@@ -170,7 +170,7 @@ COMMENTS: dict[str, dict[str, str]] = {
         "SESSION_TEAM_ID": "출전 팀",
     },
     "MATCH_EVENT": {
-        "__table__": "경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL)",
+        "__table__": "경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL, 골 수정은 CANCELLED_YN + 새 GOAL)",
         "EVENT_ID": "이벤트 ID",
         "EVENT_TYPE": "START/PAUSE/RESUME/GOAL/GOAL_CANCEL/END/FINALIZE/UNFINALIZE/CANCEL/MEMBER_ADD/MEMBER_REMOVE",
         "TEAM_ID": "득점 팀(GOAL) / 대상 팀",
@@ -181,10 +181,11 @@ COMMENTS: dict[str, dict[str, str]] = {
         "GUEST_GOAL_YN": "게스트 득점 여부",
         "ELAPSED_SEC": "경기 경과 초",
         "REMAINING_SEC": "남은 초(음수=추가 시간)",
-        "REF_EVENT_ID": "취소 대상 이벤트",
-        "CANCELLED_YN": "취소된 골 여부",
+        "REF_EVENT_ID": "취소 대상 골(GOAL_CANCEL) / 수정 전 골(수정으로 새로 기록한 GOAL)",
+        "CANCELLED_YN": "취소되거나 수정된 골 여부(통계 · 기사에서 제외)",
         "IDEMPOTENCY_KEY": "중복 요청 방지 키(MATCH_ID와 UNIQUE)",
         "MEMO": "메모",
+        "ADMIN_ID": "처리 관리자 ID(NULL=관리자 모드가 아닌 일반 회원의 골 기록 · 수정 · 취소 또는 자동 처리)",
     },
     "PLAYER_RATING": {
         "__table__": "현재 Hidden Rating(파생, 재계산 가능)",

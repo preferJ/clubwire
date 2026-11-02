@@ -1,13 +1,13 @@
-"""경기 진행(LIVE). 쓰기는 관리자 모드만, 조회는 공개."""
+"""경기 진행(LIVE). 쓰기는 관리자 모드만(예외: 경기 시작 후 확정 전까지 골 · 도움 등록 · 수정 · 취소는 일반 회원도), 조회는 공개."""
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.api.deps import admin_dep, club_dep
+from app.api.deps import admin_dep, club_dep, optional_admin
 from app.core.database import get_db
 from app.core.security import AdminPrincipal
 from app.models import Club
 from app.models.enums import GameStatus
-from app.schemas.requests import EventCancelRequest, GoalRequest, MatchMemberRequest, NextMatchRequest
+from app.schemas.requests import EventCancelRequest, GoalEditRequest, GoalRequest, MatchMemberRequest, NextMatchRequest
 from app.services import match_service
 from app.services.common import get_match
 from app.services.match_service import match_detail, match_state
@@ -63,21 +63,37 @@ router.add_api_route("/matches/{match_id}/unfinalize", _action(match_service.unf
                      summary="확정 해제(일정마감 전까지)")
 
 
-@router.post("/matches/{match_id}/goals", summary="골 등록(+점수 동시 반영, 멱등키 지원)")
+@router.post("/matches/{match_id}/goals",
+             summary="골 등록(+점수 동시 반영, 멱등키 지원). 경기 시작 후 확정 전까지 누구나")
 def add_goal(match_id: int, body: GoalRequest, club: Club = Depends(club_dep),
-             admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
+             admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
     e, m, created = match_service.add_goal(
-        db, club.club_id, match_id, admin.admin_id, team_id=body.team_id, scorer_member_id=body.scorer_member_id,
-        assist_member_id=body.assist_member_id, own_goal=body.own_goal, guest_goal=body.guest_goal,
-        elapsed_sec=body.elapsed_sec, idempotency_key=body.idempotency_key, memo=body.memo)
+        db, club.club_id, match_id, admin.admin_id if admin else None, team_id=body.team_id,
+        scorer_member_id=body.scorer_member_id, assist_member_id=body.assist_member_id, own_goal=body.own_goal,
+        guest_goal=body.guest_goal, elapsed_sec=body.elapsed_sec, idempotency_key=body.idempotency_key,
+        memo=body.memo)
     m, _ = get_match(db, club.club_id, match_id)
     return {"eventId": e.event_id, "duplicate": not created, "match": match_state(db, m)}
 
 
-@router.post("/matches/{match_id}/events/{event_id}/cancel", summary="골 취소(삭제하지 않고 취소 이벤트 기록)")
+@router.patch("/matches/{match_id}/events/{event_id}",
+              summary="골 수정(기존 골은 취소 표시, 고친 골을 새로 기록 + 점수 동시 반영). 확정 전까지 누구나")
+def edit_goal(match_id: int, event_id: int, body: GoalEditRequest, club: Club = Depends(club_dep),
+              admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+    e, m, changed = match_service.edit_goal(
+        db, club.club_id, match_id, event_id, admin.admin_id if admin else None, team_id=body.team_id,
+        scorer_member_id=body.scorer_member_id, assist_member_id=body.assist_member_id, own_goal=body.own_goal,
+        guest_goal=body.guest_goal, elapsed_sec=body.elapsed_sec, memo=body.memo)
+    m, _ = get_match(db, club.club_id, match_id)
+    return {"eventId": e.event_id, "changed": changed, "match": match_state(db, m)}
+
+
+@router.post("/matches/{match_id}/events/{event_id}/cancel",
+             summary="골 취소(삭제하지 않고 취소 이벤트 기록). 확정 전까지 누구나")
 def cancel_goal(match_id: int, event_id: int, body: EventCancelRequest | None = None, club: Club = Depends(club_dep),
-                admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
-    rev, m = match_service.cancel_goal(db, club.club_id, match_id, event_id, admin.admin_id, body.memo if body else None)
+                admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+    rev, m = match_service.cancel_goal(db, club.club_id, match_id, event_id, admin.admin_id if admin else None,
+                                       body.memo if body else None)
     return {"eventId": rev.event_id, "match": match_state(db, m)}
 
 

@@ -339,7 +339,7 @@
 
 ### MATCH_EVENT
 
-경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL)  
+경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL, 골 수정은 CANCELLED_YN + 새 GOAL)  
 구분: **Source(원본)**
 
 | No | 컬럼 | 타입 | NULL | 키 | 설명 |
@@ -355,11 +355,11 @@
 | 9 | `GUEST_GOAL_YN` | BOOL | N |  | 게스트 득점 여부 |
 | 10 | `ELAPSED_SEC` | INTEGER | Y |  | 경기 경과 초 |
 | 11 | `REMAINING_SEC` | INTEGER | Y |  | 남은 초(음수=추가 시간) |
-| 12 | `REF_EVENT_ID` | BIGINT | Y | FK→MATCH_EVENT | 취소 대상 이벤트 |
-| 13 | `CANCELLED_YN` | BOOL | N |  | 취소된 골 여부 |
+| 12 | `REF_EVENT_ID` | BIGINT | Y | FK→MATCH_EVENT | 취소 대상 골(GOAL_CANCEL) / 수정 전 골(수정으로 새로 기록한 GOAL) |
+| 13 | `CANCELLED_YN` | BOOL | N |  | 취소되거나 수정된 골 여부(통계 · 기사에서 제외) |
 | 14 | `IDEMPOTENCY_KEY` | VARCHAR(64) | Y |  | 중복 요청 방지 키(MATCH_ID와 UNIQUE) |
 | 15 | `MEMO` | VARCHAR(200) | Y |  | 메모 |
-| 16 | `ADMIN_ID` | BIGINT | Y | FK→CLUB_ADMIN | 처리 관리자 ID |
+| 16 | `ADMIN_ID` | BIGINT | Y | FK→CLUB_ADMIN | 처리 관리자 ID(NULL=관리자 모드가 아닌 일반 회원의 골 기록 · 수정 · 취소 또는 자동 처리) |
 | 17 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
