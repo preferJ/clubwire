@@ -16,9 +16,11 @@
 | 🔑 | POST | `/admin/pin` | 관리자 암호 변경 |
 | 🔓 | GET | `/content` | 운영수칙과 상단 공지(공개) |
 | 🔓 | GET | `/summary` | 클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수 |
-| 🔓 | GET | `/members` | 멤버 목록(공개) |
+| 🔓 | GET | `/members` | 멤버 목록(공개, 삭제한 선수 제외). 관리자: includeInactive=true면 비활성 포함, deleted=true면 삭제한 선수만 |
 | 🔑 | POST | `/members` | 멤버 등록 |
-| 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제는 하지 않음 |
+| 🔑 | DELETE | `/members/{member_id}` | 선수 삭제(목록 · 참석 선택 · 기록 순위에서 숨김, DB 행과 지난 기록은 보존). 끝나지 않은 일정 참석자는 409 |
+| 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제한 선수는 409 |
+| 🔑 | POST | `/members/{member_id}/restore` | 삭제한 선수 복원 |
 | 🔓 | GET | `/sessions` | 일정 목록(관리자: 예정/완료/삭제 구분) |
 | 🔑 | POST | `/sessions` | 일정 생성 |
 | 🔑 | DELETE | `/sessions/{session_id}` | 일정 삭제(관리자 보관함으로 이동, 완료 기록 보존) |

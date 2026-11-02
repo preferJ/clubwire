@@ -21,6 +21,13 @@
 .announcement-window:focus .announcement-track,
 .announcement-ticker.is-paused .announcement-track { animation-play-state: paused; }
 @keyframes club-announcement-scroll { to { transform: translateX(-50%); } }
+/* 공지 크기 3단계(관리자 설정): 글자와 줄 높이를 함께. medium = 기존 크기 */
+.announcement-ticker.size-small { min-height: 24px; font-size: 10px; }
+.announcement-ticker.size-small .announcement-label { font-size: 9px; }
+.announcement-ticker.size-small .announcement-pause { width: 24px; height: 24px; }
+.announcement-ticker.size-large { min-height: 40px; padding: 4px 12px; font-size: 14px; font-weight: 600; color: var(--ink-2); }
+.announcement-ticker.size-large .announcement-label { font-size: 12px; }
+.announcement-ticker.size-large .announcement-pause { width: 34px; height: 34px; }
 
 .club-content-editor { min-width: 0; }
 .club-content-editor .card { min-width: 0; }

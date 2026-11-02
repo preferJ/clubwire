@@ -112,7 +112,7 @@ def club_summary(db: Session, club: Club, today: date) -> dict:
     """와이어 상단 요약 줄: 활동 멤버 수 · 올해 일정 수(취소 제외) · 올해 일정의 게시 기사와 올해 게시된 공지 수."""
     start, end = date(today.year, 1, 1), date(today.year, 12, 31)
     members = db.scalar(select(func.count()).select_from(Member)
-                        .where(Member.club_id == club.club_id, Member.active_yn.is_(True)))
+                        .where(Member.club_id == club.club_id, Member.active_yn.is_(True), Member.deleted_at.is_(None)))
     sessions = db.scalar(select(func.count()).select_from(ClubSession)
                          .where(ClubSession.club_id == club.club_id, ClubSession.status != SessionStatus.CANCELLED,
                                 ClubSession.session_date.between(start, end), ClubSession.deleted_at.is_(None)))

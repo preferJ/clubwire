@@ -5,7 +5,7 @@ import { errorMessage } from '../api/client'
 import { useClub } from '../lib/club'
 import { tagTone, teamColor } from '../lib/format'
 import { Icon } from './Icon'
-import { Crest } from './ClubCrest'
+import { Crest, CREST_SIZE_DEFAULT } from './ClubCrest'
 import { ThemeToggle } from '../lib/theme'
 
 export { Crest } from './ClubCrest'
@@ -49,7 +49,7 @@ export function ClubBar({ title, sub, children }: { title: ReactNode; sub?: Reac
   return (
     <header className="club-bar">
       <div className="club-row">
-        <Crest name={club?.clubName ?? slug} appearance={club?.appearance} />
+        <Crest name={club?.clubName ?? slug} size={club?.appearance?.crestSize ?? CREST_SIZE_DEFAULT} appearance={club?.appearance} />
         <div className="club-title">
           <h1>{title}</h1>
           <span>{sub ?? club?.clubName ?? ''}</span>

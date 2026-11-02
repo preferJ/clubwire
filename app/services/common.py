@@ -45,11 +45,19 @@ def get_match(db: Session, club_id: int, match_id: int, *, lock: bool = False) -
     return row[0], row[1]
 
 
-def get_member(db: Session, club_id: int, member_id: int, *, active_only: bool = False) -> Member:
+def get_member(db: Session, club_id: int, member_id: int, *, active_only: bool = False,
+               include_deleted: bool = True) -> Member:
+    """active_only = 새로 참석 · 배정할 선수(활동 중 + 삭제 안 됨). include_deleted=False = 삭제한 선수는 없는 것으로.
+    지난 기록 조회(선수 상세 · 두 선수 관계)는 삭제한 선수도 그대로 찾는다."""
     m = db.scalar(select(Member).where(Member.member_id == member_id, Member.club_id == club_id))
-    if not m or (active_only and not m.active_yn):
+    if not m or (active_only and not m.active_yn) or ((active_only or not include_deleted) and m.deleted_at is not None):
         raise NotFound(f"멤버({member_id})를 찾을 수 없습니다.", "MEMBER_NOT_FOUND")
     return m
+
+
+def deleted_member_ids(db: Session, club_id: int) -> set[int]:
+    """삭제한 선수 ID(목록 · 순위 · 새 수상 대상에서 뺄 때)."""
+    return set(db.scalars(select(Member.member_id).where(Member.club_id == club_id, Member.deleted_at.is_not(None))))
 
 
 def guard_not_closed(session: ClubSession) -> None:

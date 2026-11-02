@@ -38,7 +38,7 @@ export const makeApi = (slug: string) => ({
     request<ClubAppearance>(slug, 'PATCH', '/admin/appearance', { body }),
   clubSummary: () => request<ClubSummary>(slug, 'GET', '/summary'),
   clubContent: () => request<ClubContent>(slug, 'GET', '/content'),
-  updateClubContent: (body: Partial<Pick<ClubContent, 'operatingRules' | 'announcement'>>) =>
+  updateClubContent: (body: Partial<Pick<ClubContent, 'operatingRules' | 'announcement' | 'announcementSize'>>) =>
     request<ClubContent>(slug, 'PATCH', '/admin/content', { body }),
   adminAuth: (password: string) => request<AuthResponse>(slug, 'POST', '/admin/auth', { body: { password } }),
   changePin: (newPassword: string) => request<{ ok: boolean }>(slug, 'POST', '/admin/pin', { body: { newPassword } }),
@@ -52,6 +52,10 @@ export const makeApi = (slug: string) => ({
     request<Member>(slug, 'POST', '/members', { body: { name, initialRating, jerseyNumber } }),
   updateMember: (memberId: number, body: Partial<{ name: string; active: boolean; displayOrder: number } & MemberProfile>) =>
     request<Member>(slug, 'PATCH', `/members/${memberId}`, { body }),
+  /** 삭제한 선수만(관리자) */
+  deletedMembers: () => request<Member[]>(slug, 'GET', '/members', { query: { deleted: true } }),
+  deleteMember: (memberId: number) => request<Member>(slug, 'DELETE', `/members/${memberId}`),
+  restoreMember: (memberId: number) => request<Member>(slug, 'POST', `/members/${memberId}/restore`),
 
   // 일정
   sessions: (limit = 30, category?: 'upcoming' | 'completed' | 'deleted') =>

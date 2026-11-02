@@ -5,6 +5,8 @@ export type GameStatus = 'READY' | 'RUNNING' | 'PAUSED' | 'FINISHED' | 'CANCELLE
 export type ArticleStatus = 'PENDING' | 'GENERATED' | 'PUBLISHED' | 'REJECTED' | 'FAILED' | 'SUPERSEDED'
 
 export type ThemeMode = 'dark' | 'light'
+/** 상단 공지 크기(글자 · 높이 3단계) */
+export type AnnouncementSize = 'small' | 'medium' | 'large'
 
 export interface CrestConfig {
   mode: 'auto' | 'design' | 'image'
@@ -21,6 +23,8 @@ export interface ClubAppearance {
   crest: CrestConfig
   imageUrl: string | null
   defaultTheme: ThemeMode
+  /** 탭 머리(메인 화면) 팀 마크 크기(px, 32~72, 기본 44) */
+  crestSize: number
   updatedAt: string | null
 }
 
@@ -28,6 +32,7 @@ export interface ClubAppearanceUpdate {
   crest?: CrestConfig
   imageDataUrl?: string | null
   defaultTheme?: ThemeMode
+  crestSize?: number
 }
 
 export interface Club {
@@ -53,6 +58,7 @@ export interface ClubContent {
   operatingRulesUpdatedAt: string | null
   announcement: string
   announcementUpdatedAt: string | null
+  announcementSize: AnnouncementSize
 }
 
 export type ArticleType = 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP' | 'MONTHLY_MVP' | 'NOTICE'
@@ -93,6 +99,9 @@ export interface Member {
   jerseyNumber: number | null
   profileImageUrl: string | null
   displayOrder: number | null
+  /** 삭제한 선수(목록에서만 숨김, 기록은 보존). 관리자 '삭제한 선수' 목록에서만 true */
+  deleted: boolean
+  deletedAt: string | null
 }
 
 export interface PersonRef {
@@ -299,6 +308,8 @@ export interface MemberStat {
   memberId: number
   name: string
   active: boolean
+  /** 선수 상세에서만 true 가능(삭제한 선수의 지난 기록 링크) */
+  deleted?: boolean
   jerseyNumber: number | null
   games: number
   wins: number

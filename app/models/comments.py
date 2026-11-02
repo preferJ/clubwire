@@ -33,6 +33,8 @@ COMMENTS: dict[str, dict[str, str]] = {
         "CREST_IMAGE": "검증·정규화한 업로드 엠블럼 PNG 바이너리. 공개 API는 이미지 모드일 때만 제공",
         "DEFAULT_THEME": "클럽 기본 테마(dark/light). NULL이면 dark, 방문자가 저장한 선택이 우선",
         "APPEARANCE_UPDATED_AT": "엠블럼·기본 테마 수정 시각(UTC)",
+        "CREST_SIZE": "탭 머리(메인 화면) 팀 마크 크기(px, 32~72). NULL이면 44",
+        "ANNOUNCEMENT_SIZE": "상단 공지 크기(small/medium/large, 글자·높이). NULL이면 medium",
     },
     "CLUB_ADMIN": {
         "__table__": "클럽 관리자 PIN(Argon2 해시). 회원 로그인은 추후 확장",
@@ -42,7 +44,7 @@ COMMENTS: dict[str, dict[str, str]] = {
         "LAST_LOGIN_AT": "마지막 관리자 모드 진입 일시",
     },
     "MEMBER": {
-        "__table__": "클럽 구성원(경기하는 사람). 삭제 대신 ACTIVE_YN=false",
+        "__table__": "클럽 구성원(경기하는 사람). 쉬면 ACTIVE_YN=false, 그만두면 DELETED_AT(행은 남김)",
         "NAME": "이름",
         "PROFILE_IMAGE_URL": "프로필 이미지 URL",
         "DISPLAY_ORDER": "표시 순서",
@@ -50,6 +52,7 @@ COMMENTS: dict[str, dict[str, str]] = {
         "BIRTH_YEAR": "출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시",
         "JERSEY_NUMBER": "등번호(0~99). 미지정이면 NULL",
         "INITIAL_RATING": "시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작",
+        "DELETED_AT": "선수 삭제 시각(UTC). NULL=정상. 목록·참석 선택·기록 순위·MVP 후보에서 숨기고 지난 기록은 보존, 복원 가능",
     },
     "SYSTEM_CONFIG": {
         "__table__": "클럽별 운영 설정값(Rating K, 경기 시간, 밀어내기 규칙 등)",

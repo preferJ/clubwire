@@ -27,8 +27,10 @@
 | 13 | `CREST_IMAGE` | MEDIUMBLOB | Y |  | 검증·정규화한 업로드 엠블럼 PNG 바이너리. 공개 API는 이미지 모드일 때만 제공 |
 | 14 | `DEFAULT_THEME` | VARCHAR(10) | Y |  | 클럽 기본 테마(dark/light). NULL이면 dark, 방문자가 저장한 선택이 우선 |
 | 15 | `APPEARANCE_UPDATED_AT` | DATETIME(3) | Y |  | 엠블럼·기본 테마 수정 시각(UTC) |
-| 16 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 17 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 16 | `CREST_SIZE` | SMALLINT | Y |  | 탭 머리(메인 화면) 팀 마크 크기(px, 32~72). NULL이면 44 |
+| 17 | `ANNOUNCEMENT_SIZE` | VARCHAR(10) | Y |  | 상단 공지 크기(small/medium/large, 글자·높이). NULL이면 medium |
+| 18 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 19 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 
@@ -57,7 +59,7 @@
 
 ### MEMBER
 
-클럽 구성원(경기하는 사람). 삭제 대신 ACTIVE_YN=false  
+클럽 구성원(경기하는 사람). 쉬면 ACTIVE_YN=false, 그만두면 DELETED_AT(행은 남김)  
 구분: **Source(원본)**
 
 | No | 컬럼 | 타입 | NULL | 키 | 설명 |
@@ -72,8 +74,9 @@
 | 8 | `BIRTH_YEAR` | SMALLINT | Y |  | 출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시 |
 | 9 | `JERSEY_NUMBER` | SMALLINT | Y |  | 등번호(0~99). 미지정이면 NULL |
 | 10 | `INITIAL_RATING` | DOUBLE | Y |  | 시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작 |
-| 11 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 12 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 11 | `DELETED_AT` | DATETIME(3) | Y |  | 선수 삭제 시각(UTC). NULL=정상. 목록·참석 선택·기록 순위·MVP 후보에서 숨기고 지난 기록은 보존, 복원 가능 |
+| 12 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 13 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 

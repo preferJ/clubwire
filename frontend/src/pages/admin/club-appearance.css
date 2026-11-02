@@ -18,3 +18,7 @@
 .appearance-file { max-width: 100%; font: inherit; color: var(--ink); }
 .appearance-file::file-selector-button { min-height: 40px; margin-right: 10px; padding: 8px 12px; color: var(--ink); background: var(--soft); border: 1px solid var(--line-strong); border-radius: 8px; cursor: pointer; }
 .appearance-error { margin: 0; font-size: 13px; color: var(--warn-ink); }
+.appearance-size-row { display: flex; align-items: center; gap: 12px; }
+.appearance-size-range { flex: 1; min-width: 0; accent-color: var(--accent); }
+.appearance-size-value { min-width: 48px; text-align: right; font-size: 15px; }
+.appearance-clubbar-preview { border-radius: 10px; overflow: hidden; }

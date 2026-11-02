@@ -18,7 +18,7 @@ from app.core.database import emit
 from app.core.errors import BadRequest, NotFound
 from app.core.timeutil import to_iso, utcnow
 from app.models import Club
-from app.schemas.appearance import ClubAppearanceUpdate, CrestConfig
+from app.schemas.appearance import CREST_SIZE_DEFAULT, ClubAppearanceUpdate, CrestConfig
 
 
 MAX_IMAGE_BYTES = 2 * 1024 * 1024
@@ -54,6 +54,7 @@ def serialize_appearance(club: Club) -> dict:
         "crest": crest.model_dump(by_alias=True),
         "imageUrl": image_url,
         "defaultTheme": club.default_theme if club.default_theme in ("dark", "light") else "dark",
+        "crestSize": club.crest_size or CREST_SIZE_DEFAULT,
         "updatedAt": to_iso(club.appearance_updated_at),
     }
 
@@ -116,8 +117,8 @@ def update_appearance(db: Session, club_id: int, changes: dict) -> Club:
         raise BadRequest("엠블럼 또는 테마 설정이 올바르지 않습니다.", "INVALID_CLUB_APPEARANCE") from exc
     fields = body.model_fields_set
     # 이미지는 null로 삭제한다. 나머지 설정은 생략과 혼동하지 않도록 null을 거부한다.
-    if any(field in fields and getattr(body, field) is None for field in ("crest", "default_theme")):
-        raise BadRequest("엠블럼 설정과 기본 테마에는 null을 사용할 수 없습니다.", "INVALID_CLUB_APPEARANCE")
+    if any(field in fields and getattr(body, field) is None for field in ("crest", "default_theme", "crest_size")):
+        raise BadRequest("엠블럼 설정 · 기본 테마 · 마크 크기에는 null을 사용할 수 없습니다.", "INVALID_CLUB_APPEARANCE")
     # 이미지 디코딩은 행을 잠그거나 값을 변경하기 전에 끝낸다.
     replacement_image = (normalize_crest_image(body.image_data_url) if body.image_data_url is not None else None)
     club = db.scalar(select(Club).where(Club.club_id == club_id, Club.active_yn.is_(True)).with_for_update())
@@ -141,6 +142,9 @@ def update_appearance(db: Session, club_id: int, changes: dict) -> Club:
             changed = True
         if "default_theme" in fields and theme != (club.default_theme or "dark"):
             club.default_theme = theme
+            changed = True
+        if "crest_size" in fields and body.crest_size != (club.crest_size or CREST_SIZE_DEFAULT):
+            club.crest_size = body.crest_size
             changed = True
         if changed:
             now = utcnow()

@@ -1,4 +1,4 @@
-"""클럽별 공개 운영수칙과 상단 공지. 변경 알림은 커밋 이후에만 전송한다."""
+"""클럽별 공개 운영수칙과 상단 공지(+ 공지 크기). 변경 알림은 커밋 이후에만 전송한다."""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -7,6 +7,9 @@ from app.core.errors import NotFound
 from app.core.timeutil import to_iso, utcnow
 from app.models import Club
 
+ANNOUNCEMENT_SIZES = ("small", "medium", "large")
+ANNOUNCEMENT_SIZE_DEFAULT = "medium"
+
 
 def serialize_content(club: Club) -> dict:
     return {
@@ -14,6 +17,8 @@ def serialize_content(club: Club) -> dict:
         "operatingRulesUpdatedAt": to_iso(club.operating_rules_updated_at),
         "announcement": club.announcement or "",
         "announcementUpdatedAt": to_iso(club.announcement_updated_at),
+        "announcementSize": club.announcement_size if club.announcement_size in ANNOUNCEMENT_SIZES
+        else ANNOUNCEMENT_SIZE_DEFAULT,
     }
 
 
@@ -38,6 +43,13 @@ def update_content(db: Session, club_id: int, changes: dict) -> Club:
         if getattr(club, field) != value:
             setattr(club, field, value)
             setattr(club, field + "_updated_at", changed_at)
+            changed = True
+    if "announcement_size" in changes:
+        # 기본값(medium)은 NULL로 둔다. 크기만 바꾸면 공지 문구 수정 시각은 그대로
+        size = changes["announcement_size"] or ANNOUNCEMENT_SIZE_DEFAULT
+        stored = None if size == ANNOUNCEMENT_SIZE_DEFAULT else size
+        if club.announcement_size != stored:
+            club.announcement_size = stored
             changed = True
 
     if changed:

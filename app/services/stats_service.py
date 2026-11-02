@@ -144,7 +144,7 @@ def member_summaries(db: Session, club_id: int) -> list[dict]:
     rows = db.execute(
         select(Member, MemberStatSummary)
         .join(MemberStatSummary, MemberStatSummary.member_id == Member.member_id, isouter=True)
-        .where(Member.club_id == club_id)
+        .where(Member.club_id == club_id, Member.deleted_at.is_(None))  # 삭제한 선수는 선수단 · 기록 순위에서 숨김
         .order_by(Member.display_order, Member.name)
     ).all()
     out = []
@@ -157,6 +157,7 @@ def _summary_dict(m: Member, s: MemberStatSummary | None) -> dict:
     g = s.games if s else 0
     return {
         "memberId": m.member_id, "name": m.name, "active": m.active_yn, "jerseyNumber": m.jersey_number,
+        "deleted": m.deleted_at is not None,  # 선수 상세(지난 기록 링크)에서만 true가 될 수 있음
         "games": g, "wins": s.wins if s else 0, "draws": s.draws if s else 0, "losses": s.losses if s else 0,
         "winRate": _rate(s.wins, g) if s else None,
         "goals": s.goals if s else 0, "assists": s.assists if s else 0, "ownGoals": s.own_goals if s else 0,
