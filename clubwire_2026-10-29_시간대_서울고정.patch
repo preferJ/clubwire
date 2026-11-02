@@ -1,0 +1,338 @@
+From e780a6bd92db1476f41ebfba66ab2cc253bceaba Mon Sep 17 00:00:00 2001
+From: "prefer.Jin" <104110991+preferJ@users.noreply.github.com>
+Date: Thu, 29 Oct 2026 10:29:58 +0900
+Subject: [PATCH] =?UTF-8?q?=EC=8A=88=ED=8D=BC=EA=B4=80=EB=A6=AC=EC=9E=90?=
+ =?UTF-8?q?=20=ED=8C=80=20=EC=8B=9C=EA=B0=84=EB=8C=80=20=EC=84=A4=EC=A0=95?=
+ =?UTF-8?q?=20=EC=A0=9C=EA=B1=B0,=20Asia/Seoul=20=EA=B3=A0=EC=A0=95?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 팀 생성·수정에서 시간대 입력·검증(_validate_timezone) 제거. 새 팀은 CLUB.TIMEZONE 기본값 Asia/Seoul
+- timezone을 보내면 422(CamelModel extra=forbid), 목록·상세 응답에서도 제외
+- tzdata 없는 Windows 파이썬에서 ZoneInfo("Asia/Seoul") 실패로 올바른 값도 저장이 막히던 문제 해소
+- DB 컬럼·alembic 변경 없음. 날짜 계산은 기존 club_tz(+9 대체값) 그대로
+- 테스트: 시간대 전송 시 422·무변경, 시간대 DB 없어도 생성·수정·요약 동작
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Xm9YmfakrZY2viAbwm7Uxy
+---
+ app/schemas/superadmin.py                     |  8 +--
+ app/services/superadmin_service.py            | 25 ++++------
+ docs/DECISIONS.md                             | 10 ++++
+ docs/SUPERADMIN.md                            |  4 +-
+ frontend/src/api/superadmin.ts                |  4 +-
+ .../src/pages/superadmin/SuperAdminPage.tsx   | 11 ++--
+ tests/test_superadmin_teams.py                | 50 +++++++++++++------
+ 7 files changed, 66 insertions(+), 46 deletions(-)
+
+diff --git a/app/schemas/superadmin.py b/app/schemas/superadmin.py
+index a496fa1..83cb1c4 100644
+--- a/app/schemas/superadmin.py
++++ b/app/schemas/superadmin.py
+@@ -1,4 +1,8 @@
+-"""슈퍼관리자가 운영팀(CLUB)을 관리하는 요청. 경기의 A/B팀과는 별개다."""
++"""슈퍼관리자가 운영팀(CLUB)을 관리하는 요청. 경기의 A/B팀과는 별개다.
++
++시간대는 받지 않는다. 한국 전용 서비스라 모든 팀은 Asia/Seoul(CLUB.TIMEZONE 기본값)로 고정한다.
++(timezone을 보내면 CamelModel의 extra="forbid"로 422)
++"""
+ from typing import Annotated
+ 
+ from pydantic import StringConstraints
+@@ -17,11 +21,9 @@ class SuperAdminClubCreate(CamelModel):
+     club_name: ClubName
+     admin_pin: AdminPin
+     sport_type: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=20)] = "FUTSAL"
+-    timezone: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)] = "Asia/Seoul"
+ 
+ 
+ class SuperAdminClubUpdate(CamelModel):
+     club_slug: ClubSlug | None = None
+     club_name: ClubName | None = None
+     admin_pin: AdminPin | None = None
+-    timezone: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=50)] | None = None
+diff --git a/app/services/superadmin_service.py b/app/services/superadmin_service.py
+index 71b385e..3ed7ddf 100644
+--- a/app/services/superadmin_service.py
++++ b/app/services/superadmin_service.py
+@@ -1,6 +1,9 @@
+-"""전역 슈퍼관리자의 운영팀 관리. 기존 CLUB_ID와 소속 기록을 유지한다."""
++"""전역 슈퍼관리자의 운영팀 관리. 기존 CLUB_ID와 소속 기록을 유지한다.
++
++시간대는 관리하지 않는다(한국 전용). 새 팀은 club_service.create_club 기본값 Asia/Seoul로 만들고,
++수정에서도 바꾸지 않는다. 그래서 tzdata가 없는 Windows 파이썬에서도 팀 생성 · 수정이 막히지 않는다.
++"""
+ from typing import Any
+-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+ 
+ from sqlalchemy import func, select
+ from sqlalchemy.exc import IntegrityError
+@@ -13,13 +16,6 @@ from app.models import AiArticle, Club, ClubAdmin, ClubSession, Member
+ from app.services import club_service
+ 
+ 
+-def _validate_timezone(value: str) -> None:
+-    try:
+-        ZoneInfo(value)
+-    except (ZoneInfoNotFoundError, ValueError) as exc:
+-        raise BadRequest("올바른 시간대를 입력하세요(예: Asia/Seoul).", "INVALID_TIMEZONE") from exc
+-
+-
+ def _get_club(db: Session, club_id: int, *, lock: bool = False) -> Club:
+     stmt = select(Club).where(Club.club_id == club_id)
+     if lock:
+@@ -47,7 +43,7 @@ def list_clubs(db: Session) -> list[dict[str, Any]]:
+ def _serialize(club: Club, member_count: int, session_count: int, article_count: int) -> dict[str, Any]:
+     return {
+         "clubId": club.club_id, "clubSlug": club.club_slug, "clubName": club.club_name,
+-        "sportType": club.sport_type, "timezone": club.timezone, "active": club.active_yn,
++        "sportType": club.sport_type, "active": club.active_yn,
+         "memberCount": member_count, "sessionCount": session_count, "articleCount": article_count,
+     }
+ 
+@@ -62,11 +58,10 @@ def club_detail(db: Session, club: Club) -> dict[str, Any]:
+ 
+ 
+ def create_club(db: Session, **values) -> dict[str, Any]:
+-    _validate_timezone(values["timezone"])
+     try:
+-        club = club_service.create_club(
++        club = club_service.create_club(  # timezone은 기본값(Asia/Seoul)
+             db, values["club_slug"], values["club_name"], values["admin_pin"],
+-            sport_type=values["sport_type"], timezone=values["timezone"],
++            sport_type=values["sport_type"],
+         )
+     except IntegrityError as exc:
+         db.rollback()
+@@ -77,15 +72,13 @@ def create_club(db: Session, **values) -> dict[str, Any]:
+ def update_club(db: Session, club_id: int, values: dict[str, Any]) -> dict[str, Any]:
+     if not values or any(value is None for value in values.values()):
+         raise BadRequest("변경할 값을 입력하세요. 빈 값(null)은 허용하지 않습니다.", "INVALID_CLUB_UPDATE")
+-    if "timezone" in values:
+-        _validate_timezone(values["timezone"])
+     try:
+         club = _get_club(db, club_id, lock=True)
+         slug = values.get("club_slug")
+         if slug is not None and db.scalar(select(Club.club_id).where(
+                 Club.club_slug == slug, Club.club_id != club_id)) is not None:
+             raise Conflict("이미 사용 중인 팀 주소입니다.", "SLUG_TAKEN")
+-        for key in ("club_slug", "club_name", "timezone"):
++        for key in ("club_slug", "club_name"):
+             if key in values:
+                 setattr(club, key, values[key])
+         if "admin_pin" in values:
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index fd1fbe8..e72688d 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -408,6 +408,16 @@ DELETE MT FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_T
+ - DB · alembic 변경 없음(0008 그대로), 샘플 데이터 그대로
+ - 테스트 `tests/test_titles_v2.py`에 `titleCode`(정확 · 앞부분) · 기간 · `limit` · `top` 확인 추가
+ 
++## 3-14. 팀 시간대는 서울 고정 (2026-10-29)
++
++| 항목 | 결정 | 이유 |
++|---|---|---|
++| 슈퍼관리자 팀 생성 · 수정 | 시간대 입력 칸과 검증(`_validate_timezone`) 제거. 새 팀은 `CLUB.TIMEZONE` 기본값 `Asia/Seoul` | 한국에서만 사용. tzdata가 없는 Windows 파이썬에서 `ZoneInfo("Asia/Seoul")`이 실패해 올바른 값도 '올바른 시간대를 입력하세요'로 저장이 막혔음 |
++| API | `POST/PATCH /api/admin/clubs`에서 `timezone` 필드 삭제(보내면 422). 목록 · 상세 응답에서도 `timezone` 제외 | 바꿀 수 없는 값은 받지도 보이지도 않게 |
++| DB | `CLUB.TIMEZONE` 컬럼은 그대로 둔다(alembic 변경 없음) | 날짜 계산(`local_today`, `club_tz`)이 이 값을 읽고, 기존 행은 모두 기본값. tzdata가 없으면 `club_tz`가 서울을 +9 고정으로 대신함 |
++
++- 테스트 `tests/test_superadmin_teams.py`: 시간대를 보내면 422 · 아무것도 저장 안 됨, 시간대 DB가 없어도 생성 · 수정 · 팀 요약이 되는지 확인
++
+ ## 4. 남은 이슈 / 다음 단계
+ 
+ 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
+diff --git a/docs/SUPERADMIN.md b/docs/SUPERADMIN.md
+index 2dc3dfb..dd10c6a 100644
+--- a/docs/SUPERADMIN.md
++++ b/docs/SUPERADMIN.md
+@@ -4,8 +4,8 @@
+ 
+ 팀 목록은 실제 `CLUB` 데이터를 조회한다. 기존 DB에 YPR만 있으면 YPR만 보이며, 접속 시 임의의 팀을 생성하거나 기존 기록을 다른 팀에 배정하지 않는다. 새 팀을 생성하면 해당 팀의 관리자 PIN, 기본 설정, 기본 타이틀을 함께 초기화한다.
+ 
+-- 생성: 팀 이름, 고유 주소, 팀 운영진 PIN, 시간대를 지정한다.
+-- 수정: 팀 이름·주소·시간대와 운영진 PIN을 변경한다. 팀 ID와 소속 기록은 보존한다.
++- 생성: 팀 이름, 고유 주소, 팀 운영진 PIN을 지정한다. 시간대는 입력받지 않고 `Asia/Seoul`로 고정한다(한국 전용).
++- 수정: 팀 이름·주소와 운영진 PIN을 변경한다. 팀 ID와 소속 기록은 보존한다. 요청에 `timezone`을 보내면 422로 거절한다.
+ - 제거: `CLUB.ACTIVE_YN=false`로 전환한다. 선수·일정·경기·기사·통계·관리자 계정을 삭제하지 않는다. 공개 조회, 기존 팀 운영진의 조회·쓰기, 새 WebSocket 접속을 차단하고 열려 있던 해당 팀의 연결도 종료한다.
+ - 복원: ‘제거된 팀’ 목록에서 복원한다. 같은 팀 ID와 기존 기록, 팀 운영진 PIN을 유지한 채 다시 접근할 수 있다. 제거된 팀의 주소도 다른 팀에서 재사용할 수 없다.
+ 
+diff --git a/frontend/src/api/superadmin.ts b/frontend/src/api/superadmin.ts
+index 82328d5..51fa168 100644
+--- a/frontend/src/api/superadmin.ts
++++ b/frontend/src/api/superadmin.ts
+@@ -6,7 +6,6 @@ export interface ManagedClub {
+   clubSlug: string
+   clubName: string
+   sportType: string
+-  timezone: string
+   active: boolean
+   memberCount: number
+   sessionCount: number
+@@ -18,14 +17,13 @@ export interface ManagedClubCreate {
+   clubName: string
+   adminPin: string
+   sportType?: string
+-  timezone?: string
+ }
+ 
++/** 시간대는 보내지 않는다(모든 팀 Asia/Seoul 고정, 보내면 서버가 422) */
+ export interface ManagedClubUpdate {
+   clubSlug?: string
+   clubName?: string
+   adminPin?: string
+-  timezone?: string
+ }
+ 
+ interface SuperAdminAuth {
+diff --git a/frontend/src/pages/superadmin/SuperAdminPage.tsx b/frontend/src/pages/superadmin/SuperAdminPage.tsx
+index c1346ac..70abc24 100644
+--- a/frontend/src/pages/superadmin/SuperAdminPage.tsx
++++ b/frontend/src/pages/superadmin/SuperAdminPage.tsx
+@@ -213,7 +213,7 @@ function ManagedTeamsPage() {
+                   <div><dt>일정</dt><dd>{club.sessionCount}개</dd></div>
+                   <div><dt>기사</dt><dd>{club.articleCount}건</dd></div>
+                 </dl>
+-                <p className="small muted">{club.sportType} · {club.timezone}</p>
++                <p className="small muted">{club.sportType}</p>
+                 <div className="grid2">
+                   {club.active ? <Link className="btn sm" to={`/c/${encodeURIComponent(club.clubSlug)}`}>팀 화면 보기</Link>
+                     : <button type="button" className="btn sm primary" disabled={saving} onClick={() => { void restore(club) }}>팀 복원</button>}
+@@ -258,14 +258,13 @@ function ManagedTeamForm({ club, busy, error, onSave, onCancel }: {
+ }) {
+   const [name, setName] = useState(club?.clubName ?? '')
+   const [slug, setSlug] = useState(club?.clubSlug ?? '')
+-  const [timezone, setTimezone] = useState(club?.timezone ?? 'Asia/Seoul')
+   const [pin, setPin] = useState('')
+   const valid = name.trim().length > 0 && /^[a-z0-9_-]{1,50}$/.test(slug.trim())
+-    && timezone.trim().length > 0 && (club && pin === '' ? true : pin.length >= 4 && pin.length <= 64)
++    && (club && pin === '' ? true : pin.length >= 4 && pin.length <= 64)
+   const submit = (event: FormEvent) => {
+     event.preventDefault()
+     if (busy || !valid) return
+-    const body = { clubName: name.trim(), clubSlug: slug.trim(), timezone: timezone.trim() }
++    const body = { clubName: name.trim(), clubSlug: slug.trim() }  // 시간대는 Asia/Seoul 고정이라 보내지 않음
+     void onSave(club ? { ...body, ...(pin ? { adminPin: pin } : {}) } : { ...body, adminPin: pin })
+   }
+   return (
+@@ -281,10 +280,6 @@ function ManagedTeamForm({ club, busy, error, onSave, onCancel }: {
+         <span id="managed-team-slug-help" className="small muted">영문 소문자·숫자·밑줄·하이픈을 사용합니다. /c/{slug || 'team-address'}</span>
+         {club ? <span className="small muted">주소를 바꾸면 기존 팀 링크도 새 주소로 바꿔야 합니다.</span> : null}
+       </label>
+-      <label className="field">시간대
+-        <input className="input" name="club-timezone" required maxLength={50} value={timezone} disabled={busy}
+-          onChange={(event) => setTimezone(event.target.value)} placeholder="Asia/Seoul" />
+-      </label>
+       <label className="field">{club ? '새 팀 관리자 PIN (변경할 때만 입력)' : '팀 관리자 PIN'}
+         <input className="input" type="password" name="club-admin-pin" inputMode="numeric" autoComplete="new-password"
+           required={!club} minLength={4} maxLength={64} value={pin} disabled={busy} onChange={(event) => setPin(event.target.value)} />
+diff --git a/tests/test_superadmin_teams.py b/tests/test_superadmin_teams.py
+index bbc6307..f03179e 100644
+--- a/tests/test_superadmin_teams.py
++++ b/tests/test_superadmin_teams.py
+@@ -78,7 +78,7 @@ def test_global_list_includes_existing_ypr_data_and_accurate_counts(client, make
+     by_id = {row["clubId"]: row for row in rows}
+     row = by_id[records["clubId"]]
+     assert row == {"clubId": records["clubId"], "clubSlug": ypr.slug, "clubName": "YPR",
+-                   "sportType": "FUTSAL", "timezone": "Asia/Seoul", "active": True,
++                   "sportType": "FUTSAL", "active": True,
+                    "memberCount": 2, "sessionCount": 1, "articleCount": 1}
+     assert by_id[other["clubId"]]["memberCount"] == 0
+     assert by_id[other["clubId"]]["sessionCount"] == 0
+@@ -92,8 +92,9 @@ def test_global_list_includes_existing_ypr_data_and_accurate_counts(client, make
+ def test_creating_team_seeds_its_own_admin_config_and_titles(client, db, super_headers):
+     created = _create_team(client, super_headers)
+     cid = created["clubId"]
+-    assert created["sportType"] == "FUTSAL" and created["timezone"] == "Asia/Seoul" and created["active"] is True
++    assert created["sportType"] == "FUTSAL" and created["active"] is True and "timezone" not in created
+     assert created["memberCount"] == created["sessionCount"] == created["articleCount"] == 0
++    assert db.get(Club, cid).timezone == "Asia/Seoul"  # 시간대는 입력받지 않고 서울 고정
+     admins = list(db.scalars(select(ClubAdmin).where(ClubAdmin.club_id == cid)))
+     assert len(admins) == 1 and admins[0].active_yn
+     assert admins[0].password_hash != "8624" and verify_password(admins[0].password_hash, "8624")
+@@ -134,9 +135,10 @@ def test_rename_preserves_ids_records_and_club_admin_access(client, make_club, d
+     before = _records(api, db)
+     new_slug = _slug("rename-new")
+     changed = _ok(client.patch(f"/api/admin/clubs/{before['clubId']}", headers=super_headers,
+-                               json={"clubSlug": new_slug, "clubName": "이름을 바꾼 팀", "timezone": "UTC"}))
++                               json={"clubSlug": new_slug, "clubName": "이름을 바꾼 팀"}))
+     assert changed["clubId"] == before["clubId"] and changed["clubSlug"] == new_slug
+-    assert changed["clubName"] == "이름을 바꾼 팀" and changed["timezone"] == "UTC"
++    assert changed["clubName"] == "이름을 바꾼 팀"
++    assert db.get(Club, before["clubId"]).timezone == "Asia/Seoul"
+     assert (changed["memberCount"], changed["sessionCount"], changed["articleCount"]) == (2, 1, 1)
+     assert client.get(f"/api/clubs/{api.slug}").status_code == 404
+     headers = {"Authorization": f"Bearer {api.token}"}
+@@ -160,30 +162,50 @@ def test_pin_reset_updates_only_target_team(client, db, super_headers):
+     assert client.post(f"/api/clubs/{b['clubSlug']}/admin/auth", json={"password": "5362"}).status_code == 401
+ 
+ 
+-def test_invalid_timezone_cannot_create_or_partially_update_team(client, db, super_headers):
+-    invalid_slug = _slug("bad-zone")
++@pytest.mark.parametrize("timezone", ["Asia/Seoul", "UTC", "Invalid/Time_Zone"])
++def test_timezone_cannot_be_sent_on_create_or_update(client, db, super_headers, timezone):
++    """시간대는 서울 고정. 보내면 값과 상관없이 422이고, 함께 보낸 다른 값도 저장되지 않는다."""
++    blocked_slug = _slug("tz-create")
+     before_count = db.scalar(select(func.count()).select_from(Club))
+     response = client.post("/api/admin/clubs", headers=super_headers,
+-                           json={"clubSlug": invalid_slug, "clubName": "저장되면 안 되는 팀",
+-                                 "adminPin": "8624", "timezone": "Invalid/Time_Zone"})
+-    assert response.status_code == 400 and response.json()["error"]["code"] == "INVALID_TIMEZONE"
++                           json={"clubSlug": blocked_slug, "clubName": "저장되면 안 되는 팀",
++                                 "adminPin": "8624", "timezone": timezone})
++    assert response.status_code == 422 and response.json()["error"]["code"] == "VALIDATION_ERROR"
+     assert db.scalar(select(func.count()).select_from(Club)) == before_count
+-    assert db.scalar(select(Club).where(Club.club_slug == invalid_slug)) is None
++    assert db.scalar(select(Club).where(Club.club_slug == blocked_slug)) is None
+     db.rollback()  # 다른 API 세션에서 만드는 다음 팀을 새 DB 스냅샷으로 조회한다.
+ 
+     created = _create_team(client, super_headers)
+     changed_slug = _slug("not-saved")
+     response = client.patch(f"/api/admin/clubs/{created['clubId']}", headers=super_headers,
+                             json={"clubSlug": changed_slug, "clubName": "저장되면 안 되는 이름",
+-                                  "adminPin": "5362", "timezone": "Invalid/Time_Zone"})
+-    assert response.status_code == 400
++                                  "adminPin": "5362", "timezone": timezone})
++    assert response.status_code == 422
+     db.rollback()
+     club = db.get(Club, created["clubId"])
+-    assert (club.club_slug, club.club_name, club.timezone) == (created["clubSlug"], created["clubName"], created["timezone"])
++    assert (club.club_slug, club.club_name, club.timezone) == (created["clubSlug"], created["clubName"], "Asia/Seoul")
+     _team_headers(client, created["clubSlug"], "8624")
+     assert client.get(f"/api/clubs/{changed_slug}").status_code == 404
+ 
+ 
++def test_team_management_works_without_timezone_database(client, db, super_headers, monkeypatch):
++    """tzdata가 없는 Windows 파이썬 흉내: ZoneInfo가 어떤 키도 못 찾아도 팀 생성 · 수정 · 팀 화면 요약이 된다."""
++    import app.core.timeutil as timeutil
++    from zoneinfo import ZoneInfoNotFoundError
++
++    def no_tz_database(key):
++        raise ZoneInfoNotFoundError(f"No time zone found with key {key}")
++
++    monkeypatch.setattr(timeutil, "ZoneInfo", no_tz_database)
++    created = _create_team(client, super_headers, name="시간대 DB 없는 서버의 팀")
++    changed = _ok(client.patch(f"/api/admin/clubs/{created['clubId']}", headers=super_headers,
++                               json={"clubName": "이름만 바꾼 팀", "adminPin": "5362"}))
++    assert changed["clubName"] == "이름만 바꾼 팀"
++    assert db.get(Club, created["clubId"]).timezone == "Asia/Seoul"
++    _ok(client.get(f"/api/clubs/{created['clubSlug']}/summary"))  # 서울 날짜 계산은 +9 고정값으로 대체
++    assert timeutil.club_tz("Asia/Seoul").utcoffset(None).total_seconds() == 9 * 3600
++
++
+ def test_duplicate_slug_is_safe_on_creation_and_atomic_update(client, db, super_headers):
+     a, b = [_create_team(client, super_headers) for _ in range(2)]
+     before_count = db.scalar(select(func.count()).select_from(Club))
+@@ -201,7 +223,7 @@ def test_duplicate_slug_is_safe_on_creation_and_atomic_update(client, db, super_
+     _team_headers(client, b["clubSlug"])
+ 
+ 
+-@pytest.mark.parametrize("body", [{}, {"clubName": None}, {"clubSlug": None}, {"timezone": None}, {"adminPin": None}])
++@pytest.mark.parametrize("body", [{}, {"clubName": None}, {"clubSlug": None}, {"adminPin": None}])
+ def test_empty_or_null_updates_are_rejected(client, super_headers, body):
+     created = _create_team(client, super_headers)
+     response = client.patch(f"/api/admin/clubs/{created['clubId']}", headers=super_headers, json=body)
+-- 
+2.43.0
+

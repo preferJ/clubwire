@@ -1,0 +1,1656 @@
+From a5edf2bb8e41ae74d39ce6c39356c3da32ad340a Mon Sep 17 00:00:00 2001
+From: "prefer.Jin" <104110991+preferJ@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 09:51:06 +0900
+Subject: [PATCH] =?UTF-8?q?=EB=A9=94=EC=9D=B8=20=ED=8C=80=20=EB=A7=88?=
+ =?UTF-8?q?=ED=81=AC=20=ED=81=AC=EA=B8=B0=20=C2=B7=20=EC=83=81=EB=8B=A8=20?=
+ =?UTF-8?q?=EA=B3=B5=EC=A7=80=20=ED=81=AC=EA=B8=B0=20=EC=A1=B0=EC=A0=88,?=
+ =?UTF-8?q?=20=EC=84=A0=EC=88=98=20=EC=82=AD=EC=A0=9C(=EB=AA=A9=EB=A1=9D?=
+ =?UTF-8?q?=EC=97=90=EC=84=9C=EB=A7=8C=20=EC=88=A8=EA=B9=80)=20=C2=B7=20?=
+ =?UTF-8?q?=EB=B3=B5=EC=9B=90?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 팀 마크 · 테마: 메인 화면 마크 크기 슬라이더(32~72px, 기본 44) → CLUB.CREST_SIZE, appearance.crestSize
+- 운영 수칙 · 공지: 공지 크기 [작게 · 보통 · 크게](글자 + 줄 높이) → CLUB.ANNOUNCEMENT_SIZE, content.announcementSize
+- 멤버 관리: [삭제] → MEMBER.DELETED_AT(행 · 지난 기록 보존), '삭제한 선수' 탭에서 복원
+  - 선수단 · 관리자 목록 · 참석 선택 · 기록 순위 · MVP 후보 · 요약 수 · 새 수상에서 제외
+  - 끝나지 않은 일정 참석자는 삭제 불가(409), 삭제한 선수 수정 409 · 새 참석 404
+  - API: DELETE /members/{id}, POST /members/{id}/restore, GET /members?deleted=true
+- alembic 0012, 테스트 test_member_delete_display_sizes.py, DECISIONS 3-15, 문서 재생성
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Xm9YmfakrZY2viAbwm7Uxy
+---
+ README.md                                     |   9 +
+ .../0012_member_delete_display_sizes.py       |  25 +++
+ app/api/members.py                            |  30 ++-
+ app/models/club.py                            |   9 +-
+ app/models/comments.py                        |   5 +-
+ app/schemas/appearance.py                     |   5 +-
+ app/schemas/requests.py                       |   2 +
+ app/services/club_appearance_service.py       |  10 +-
+ app/services/club_content_service.py          |  14 +-
+ app/services/club_service.py                  |   2 +-
+ app/services/common.py                        |  12 +-
+ app/services/member_service.py                |  49 ++++-
+ app/services/mvp_service.py                   |  10 +-
+ app/services/stats_service.py                 |   3 +-
+ app/services/title_service.py                 |   2 +-
+ docs/API.md                                   |   6 +-
+ docs/DECISIONS.md                             |  18 ++
+ docs/ERD.md                                   |   3 +
+ docs/TABLES.md                                |  13 +-
+ docs/openapi.json                             | 174 +++++++++++++++---
+ docs/schema.sql                               |   5 +-
+ frontend/src/api/endpoints.ts                 |   6 +-
+ frontend/src/api/types.ts                     |  11 ++
+ .../src/components/AnnouncementTicker.tsx     |   7 +-
+ frontend/src/components/ClubCrest.tsx         |   7 +-
+ frontend/src/components/ui.tsx                |   4 +-
+ frontend/src/pages/HomePage.tsx               |   2 +-
+ frontend/src/pages/PlayerPage.tsx             |   4 +-
+ .../src/pages/admin/ClubAppearancePage.tsx    |  33 +++-
+ .../src/pages/admin/ClubContentAdminPage.tsx  |  30 ++-
+ frontend/src/pages/admin/MembersAdminPage.tsx | 147 ++++++++++++---
+ frontend/src/pages/admin/club-appearance.css  |   4 +
+ frontend/src/styles/club-content.css          |   7 +
+ frontend/src/styles/member-numbers.css        |   1 +
+ tests/test_club_content.py                    |   2 +-
+ tests/test_member_delete_display_sizes.py     | 115 ++++++++++++
+ 36 files changed, 689 insertions(+), 97 deletions(-)
+ create mode 100644 alembic/versions/0012_member_delete_display_sizes.py
+ create mode 100644 tests/test_member_delete_display_sizes.py
+
+diff --git a/README.md b/README.md
+index 9510ee3..3ba662b 100644
+--- a/README.md
++++ b/README.md
+@@ -75,6 +75,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리
+ | `test_article_writer.py` | AI 창의성 · 답변 최대 길이가 요청에 실림, temperature 미지원 모델 재요청, 연결 실패 · 크레딧 초과 · 키 오류 · 답변 잘림 → 기본형 기사(게시 규칙 그대로) + 원인 표시, [다시 쓰기]로 AI 복귀, 키 없음 |
+ | `test_monthly_mvp.py` | 이달의 MVP: 상승률 계산(DB 이력과 일치) · 자격(일정 2회) · 열린 일정 있으면 대기 · 마지막 일정 마감 시 타이틀 + 기사 바로 게시 · 점수 비노출 · 한 달 한 번 · 후보 1~3위 |
+ | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
++| `test_member_delete_display_sizes.py` | 메인 팀 마크 크기(32~72px 저장 · 범위 · null 거부), 상단 공지 크기 3단계, 선수 삭제(선수단 · 관리자 목록 · 기록 순위 · MVP 후보 · 요약 수에서 제외, 지난 기록 · 선수 상세 유지, 새 참석 · 수정 차단, 복원), 끝나지 않은 일정 참석자 삭제 차단 |
+ 
+ ## 3. 운영 흐름 (API)
+ 
+@@ -193,6 +194,14 @@ PIN(오답→정답) → 멤버 18명 → 일정·게스트 → 3팀 편성·[
+ 
+ 업데이트 시 백엔드를 종료한 뒤 `alembic upgrade head`와 `npm --prefix frontend run build`를 실행하고 백엔드를 다시 시작한다. 마이그레이션 `0010`은 기존 데이터를 유지하며 등번호·운영수칙·공지 컬럼만 추가한다. 클럽별 내용은 `GET /api/clubs/{slug}/content`로 공개 조회하며, 수정은 관리자 전용 `PATCH /api/clubs/{slug}/admin/content`를 사용한다.
+ 
++## 팀 마크 크기 · 공지 크기 · 선수 삭제
++
++- **관리자 메뉴 → 팀 마크 · 테마 → 메인 화면 마크 크기**: 슬라이더(32~72px, 기본 44)로 탭 머리(와이어 · 일정 · 기록 · 선수단 빨간 띠)의 팀 마크 크기를 정한다. 저장하면 모든 방문자에게 같은 크기로 보인다.
++- **관리자 메뉴 → 운영 수칙 · 공지 → 공지 크기**: [작게 · 보통 · 크게]로 상단 공지의 글자와 줄 높이를 함께 바꾼다. 기본은 보통(기존 크기).
++- **관리자 메뉴 → 멤버 관리 → [삭제]**: 그만둔 선수를 선수단 · 참석 선택 · 기록 순위 · 이달의 MVP 후보에서 숨긴다. DB 행과 지난 경기 · 기사 · 수상 기록은 그대로 남고, **삭제한 선수** 탭에서 복원한다. 쉬는 선수는 기존처럼 활동을 끈다(비활성). 끝나지 않은 일정에 참석으로 잡힌 선수는 참석을 취소하거나 일정을 마감한 뒤 삭제한다.
++
++업데이트 시 백엔드를 종료한 뒤 `alembic upgrade head`(마이그레이션 `0012`: `MEMBER.DELETED_AT`, `CLUB.CREST_SIZE`, `CLUB.ANNOUNCEMENT_SIZE` 추가, 기존 데이터 유지)와 `npm --prefix frontend run build`를 실행하고 백엔드를 다시 시작한다.
++
+ ## YPR 테스트 시작용 로컬 DB 초기화
+ 
+ 먼저 백엔드를 종료하고 MySQL은 실행한 상태로 둔다. 프로젝트 루트에서 가상환경을 활성화한 뒤 아래 명령으로 **대상 DB와 삭제 범위만 미리 확인**한다. `.env`의 `DATABASE_URL`을 사용하며 원격/다른 PC의 DB에 자동 연결하지 않는다.
+diff --git a/alembic/versions/0012_member_delete_display_sizes.py b/alembic/versions/0012_member_delete_display_sizes.py
+new file mode 100644
+index 0000000..ffc5d9c
+--- /dev/null
++++ b/alembic/versions/0012_member_delete_display_sizes.py
+@@ -0,0 +1,25 @@
++"""선수 삭제(목록에서만 숨김, 행 보존) + 메인 팀 마크 크기 · 상단 공지 크기. 기존 데이터는 그대로 유지한다."""
++from alembic import op
++import sqlalchemy as sa
++from sqlalchemy.dialects import mysql
++
++
++revision = "0012"
++down_revision = "0011"
++branch_labels = None
++depends_on = None
++
++
++def upgrade() -> None:
++    op.add_column("MEMBER", sa.Column("DELETED_AT", mysql.DATETIME(fsp=3), nullable=True,
++                                     comment="선수 삭제 시각(UTC). NULL=정상. 목록·참석 선택·기록 순위·MVP 후보에서 숨기고 지난 기록은 보존, 복원 가능"))
++    op.add_column("CLUB", sa.Column("CREST_SIZE", sa.SmallInteger(), nullable=True,
++                                   comment="탭 머리(메인 화면) 팀 마크 크기(px, 32~72). NULL이면 44"))
++    op.add_column("CLUB", sa.Column("ANNOUNCEMENT_SIZE", sa.String(10), nullable=True,
++                                   comment="상단 공지 크기(small/medium/large, 글자·높이). NULL이면 medium"))
++
++
++def downgrade() -> None:
++    op.drop_column("CLUB", "ANNOUNCEMENT_SIZE")
++    op.drop_column("CLUB", "CREST_SIZE")
++    op.drop_column("MEMBER", "DELETED_AT")
+diff --git a/app/api/members.py b/app/api/members.py
+index d689bf4..68ef90d 100644
+--- a/app/api/members.py
++++ b/app/api/members.py
+@@ -3,7 +3,9 @@ from sqlalchemy.orm import Session
+ 
+ from app.api.deps import admin_dep, club_dep, optional_admin
+ from app.core.database import get_db
++from app.core.errors import Unauthorized
+ from app.core.security import AdminPrincipal
++from app.core.timeutil import to_iso
+ from app.models import Club, Member
+ from app.schemas.requests import MemberCreate, MemberUpdate
+ from app.services import member_service
+@@ -14,13 +16,17 @@ router = APIRouter(prefix="/members", tags=["members"])
+ def _m(m: Member) -> dict:
+     return {"memberId": m.member_id, "name": m.name, "active": m.active_yn, "joinedAt": m.joined_at,
+             "birthYear": m.birth_year, "jerseyNumber": m.jersey_number,
+-            "profileImageUrl": m.profile_image_url, "displayOrder": m.display_order}
++            "profileImageUrl": m.profile_image_url, "displayOrder": m.display_order,
++            "deleted": m.deleted_at is not None, "deletedAt": to_iso(m.deleted_at)}
+ 
+ 
+-@router.get("", summary="멤버 목록(공개)")
+-def list_members(include_inactive: bool = Query(False, alias="includeInactive"), club: Club = Depends(club_dep),
+-                 admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+-    return [_m(m) for m in member_service.list_members(db, club.club_id, include_inactive and admin is not None)]
++@router.get("", summary="멤버 목록(공개, 삭제한 선수 제외). 관리자: includeInactive=true면 비활성 포함, deleted=true면 삭제한 선수만")
++def list_members(include_inactive: bool = Query(False, alias="includeInactive"), deleted: bool = Query(False),
++                 club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depends(optional_admin),
++                 db: Session = Depends(get_db)):
++    if deleted and admin is None:
++        raise Unauthorized("관리자 모드가 필요합니다.", "ADMIN_REQUIRED")
++    return [_m(m) for m in member_service.list_members(db, club.club_id, include_inactive and admin is not None, deleted)]
+ 
+ 
+ @router.post("", status_code=201, summary="멤버 등록")
+@@ -30,7 +36,7 @@ def create_member(body: MemberCreate, club: Club = Depends(club_dep), admin: Adm
+                                            body.display_order, body.initial_rating, body.birth_year, body.jersey_number))
+ 
+ 
+-@router.patch("/{member_id}", summary="멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제는 하지 않음")
++@router.patch("/{member_id}", summary="멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제한 선수는 409")
+ def update_member(member_id: int, body: MemberUpdate, club: Club = Depends(club_dep),
+                   admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
+     fields = dict(name=body.name, profile_image_url=body.profile_image_url, display_order=body.display_order,
+@@ -40,3 +46,15 @@ def update_member(member_id: int, body: MemberUpdate, club: Club = Depends(club_
+         if k in body.model_fields_set:
+             fields[k] = getattr(body, k)
+     return _m(member_service.update_member(db, club.club_id, member_id, **fields))
++
++
++@router.delete("/{member_id}", summary="선수 삭제(목록 · 참석 선택 · 기록 순위에서 숨김, DB 행과 지난 기록은 보존). 끝나지 않은 일정 참석자는 409")
++def delete_member(member_id: int, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
++                  db: Session = Depends(get_db)):
++    return _m(member_service.delete_member(db, club.club_id, member_id))
++
++
++@router.post("/{member_id}/restore", summary="삭제한 선수 복원")
++def restore_member(member_id: int, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
++                   db: Session = Depends(get_db)):
++    return _m(member_service.restore_member(db, club.club_id, member_id))
+diff --git a/app/models/club.py b/app/models/club.py
+index 9479ff3..97f6c80 100644
+--- a/app/models/club.py
++++ b/app/models/club.py
+@@ -34,6 +34,10 @@ class Club(TimestampMixin, Base):
+     )
+     default_theme: Mapped[str | None] = mapped_column("DEFAULT_THEME", String(10))
+     appearance_updated_at: Mapped[datetime | None] = mapped_column("APPEARANCE_UPDATED_AT", UtcDateTime)
++    # 탭 머리(메인 화면) 팀 마크 크기(px). NULL이면 기본 44
++    crest_size: Mapped[int | None] = mapped_column("CREST_SIZE", SmallInteger)
++    # 상단 공지 글자 · 높이(small/medium/large). NULL이면 medium
++    announcement_size: Mapped[str | None] = mapped_column("ANNOUNCEMENT_SIZE", String(10))
+ 
+ 
+ class ClubAdmin(TimestampMixin, Base):
+@@ -50,7 +54,8 @@ class ClubAdmin(TimestampMixin, Base):
+ 
+ 
+ class Member(TimestampMixin, Base):
+-    """실제로 경기하는 구성원. 삭제하지 않고 ACTIVE_YN=false로 비활성화."""
++    """실제로 경기하는 구성원. 쉬는 선수는 ACTIVE_YN=false(비활성),
++    그만둔 선수는 DELETED_AT(삭제: 목록에서만 숨김, 행과 지난 기록은 그대로)."""
+ 
+     __tablename__ = "MEMBER"
+     __table_args__ = (Index("IX_MEMBER_CLUB_ID_ACTIVE_YN", "CLUB_ID", "ACTIVE_YN"),)
+@@ -66,6 +71,8 @@ class Member(TimestampMixin, Base):
+     jersey_number: Mapped[int | None] = mapped_column("JERSEY_NUMBER", SmallInteger)
+     # 시작 Rating(이관·수동 지정). NULL이면 클럽 설정 INITIAL_RATING에서 시작. 재계산(rebuild)도 이 값에서 출발한다.
+     initial_rating: Mapped[float | None] = mapped_column("INITIAL_RATING", Double)
++    # 삭제 시각. NULL = 정상. 선수단 · 참석 선택 · 기록 순위 · MVP 후보에서 숨기고, 지난 경기 · 기사 · 수상 기록은 보존
++    deleted_at: Mapped[datetime | None] = mapped_column("DELETED_AT", UtcDateTime)
+ 
+ 
+ class SystemConfig(Base):
+diff --git a/app/models/comments.py b/app/models/comments.py
+index acc013d..e3efa0f 100644
+--- a/app/models/comments.py
++++ b/app/models/comments.py
+@@ -33,6 +33,8 @@ COMMENTS: dict[str, dict[str, str]] = {
+         "CREST_IMAGE": "검증·정규화한 업로드 엠블럼 PNG 바이너리. 공개 API는 이미지 모드일 때만 제공",
+         "DEFAULT_THEME": "클럽 기본 테마(dark/light). NULL이면 dark, 방문자가 저장한 선택이 우선",
+         "APPEARANCE_UPDATED_AT": "엠블럼·기본 테마 수정 시각(UTC)",
++        "CREST_SIZE": "탭 머리(메인 화면) 팀 마크 크기(px, 32~72). NULL이면 44",
++        "ANNOUNCEMENT_SIZE": "상단 공지 크기(small/medium/large, 글자·높이). NULL이면 medium",
+     },
+     "CLUB_ADMIN": {
+         "__table__": "클럽 관리자 PIN(Argon2 해시). 회원 로그인은 추후 확장",
+@@ -42,7 +44,7 @@ COMMENTS: dict[str, dict[str, str]] = {
+         "LAST_LOGIN_AT": "마지막 관리자 모드 진입 일시",
+     },
+     "MEMBER": {
+-        "__table__": "클럽 구성원(경기하는 사람). 삭제 대신 ACTIVE_YN=false",
++        "__table__": "클럽 구성원(경기하는 사람). 쉬면 ACTIVE_YN=false, 그만두면 DELETED_AT(행은 남김)",
+         "NAME": "이름",
+         "PROFILE_IMAGE_URL": "프로필 이미지 URL",
+         "DISPLAY_ORDER": "표시 순서",
+@@ -50,6 +52,7 @@ COMMENTS: dict[str, dict[str, str]] = {
+         "BIRTH_YEAR": "출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시",
+         "JERSEY_NUMBER": "등번호(0~99). 미지정이면 NULL",
+         "INITIAL_RATING": "시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작",
++        "DELETED_AT": "선수 삭제 시각(UTC). NULL=정상. 목록·참석 선택·기록 순위·MVP 후보에서 숨기고 지난 기록은 보존, 복원 가능",
+     },
+     "SYSTEM_CONFIG": {
+         "__table__": "클럽별 운영 설정값(Rating K, 경기 시간, 밀어내기 규칙 등)",
+diff --git a/app/schemas/appearance.py b/app/schemas/appearance.py
+index f1bb246..a3c38b7 100644
+--- a/app/schemas/appearance.py
++++ b/app/schemas/appearance.py
+@@ -1,12 +1,14 @@
+ """클럽별 엠블럼·기본 테마. 임의 SVG/HTML 대신 검증된 디자인 값만 저장한다."""
+ from typing import Annotated, Literal
+ 
+-from pydantic import StringConstraints
++from pydantic import Field, StringConstraints
+ 
+ from app.schemas.requests import CamelModel
+ 
+ 
+ MAX_IMAGE_DATA_URL_LENGTH = 2_800_000  # 2MiB 이미지의 base64 + data URL 헤더
++# 탭 머리(메인 화면) 팀 마크 크기(px). 관리자 슬라이더 범위, 저장 안 했으면 기본값
++CREST_SIZE_MIN, CREST_SIZE_MAX, CREST_SIZE_DEFAULT = 32, 72, 44
+ HexColor = Annotated[str, StringConstraints(pattern=r"^#[0-9a-fA-F]{6}$")]
+ CrestText = Annotated[str, StringConstraints(strip_whitespace=True, max_length=6,
+                                            pattern=r"^[^\x00-\x1f\x7f<>]*$")]
+@@ -27,3 +29,4 @@ class ClubAppearanceUpdate(CamelModel):
+     crest: CrestConfig | None = None
+     image_data_url: Annotated[str, StringConstraints(max_length=MAX_IMAGE_DATA_URL_LENGTH)] | None = None
+     default_theme: Literal["dark", "light"] | None = None
++    crest_size: Annotated[int, Field(strict=True, ge=CREST_SIZE_MIN, le=CREST_SIZE_MAX)] | None = None
+diff --git a/app/schemas/requests.py b/app/schemas/requests.py
+index 8f14ca8..a469a30 100644
+--- a/app/schemas/requests.py
++++ b/app/schemas/requests.py
+@@ -151,3 +151,5 @@ class ClubContentUpdate(CamelModel):
+         default=None, description="운영수칙. null이면 YPR 원문을 사용하며, 생략하면 유지")
+     announcement: Annotated[str, StringConstraints(strip_whitespace=True, max_length=500)] | None = Field(
+         default=None, description="와이어 상단 한 줄 공지. 빈 문자열 또는 null로 숨김, 생략하면 유지")
++    announcement_size: Literal["small", "medium", "large"] | None = Field(
++        default=None, description="상단 공지 글자 · 높이. null이면 기본(medium), 생략하면 유지")
+diff --git a/app/services/club_appearance_service.py b/app/services/club_appearance_service.py
+index 818dabd..96b7118 100644
+--- a/app/services/club_appearance_service.py
++++ b/app/services/club_appearance_service.py
+@@ -18,7 +18,7 @@ from app.core.database import emit
+ from app.core.errors import BadRequest, NotFound
+ from app.core.timeutil import to_iso, utcnow
+ from app.models import Club
+-from app.schemas.appearance import ClubAppearanceUpdate, CrestConfig
++from app.schemas.appearance import CREST_SIZE_DEFAULT, ClubAppearanceUpdate, CrestConfig
+ 
+ 
+ MAX_IMAGE_BYTES = 2 * 1024 * 1024
+@@ -54,6 +54,7 @@ def serialize_appearance(club: Club) -> dict:
+         "crest": crest.model_dump(by_alias=True),
+         "imageUrl": image_url,
+         "defaultTheme": club.default_theme if club.default_theme in ("dark", "light") else "dark",
++        "crestSize": club.crest_size or CREST_SIZE_DEFAULT,
+         "updatedAt": to_iso(club.appearance_updated_at),
+     }
+ 
+@@ -116,8 +117,8 @@ def update_appearance(db: Session, club_id: int, changes: dict) -> Club:
+         raise BadRequest("엠블럼 또는 테마 설정이 올바르지 않습니다.", "INVALID_CLUB_APPEARANCE") from exc
+     fields = body.model_fields_set
+     # 이미지는 null로 삭제한다. 나머지 설정은 생략과 혼동하지 않도록 null을 거부한다.
+-    if any(field in fields and getattr(body, field) is None for field in ("crest", "default_theme")):
+-        raise BadRequest("엠블럼 설정과 기본 테마에는 null을 사용할 수 없습니다.", "INVALID_CLUB_APPEARANCE")
++    if any(field in fields and getattr(body, field) is None for field in ("crest", "default_theme", "crest_size")):
++        raise BadRequest("엠블럼 설정 · 기본 테마 · 마크 크기에는 null을 사용할 수 없습니다.", "INVALID_CLUB_APPEARANCE")
+     # 이미지 디코딩은 행을 잠그거나 값을 변경하기 전에 끝낸다.
+     replacement_image = (normalize_crest_image(body.image_data_url) if body.image_data_url is not None else None)
+     club = db.scalar(select(Club).where(Club.club_id == club_id, Club.active_yn.is_(True)).with_for_update())
+@@ -142,6 +143,9 @@ def update_appearance(db: Session, club_id: int, changes: dict) -> Club:
+         if "default_theme" in fields and theme != (club.default_theme or "dark"):
+             club.default_theme = theme
+             changed = True
++        if "crest_size" in fields and body.crest_size != (club.crest_size or CREST_SIZE_DEFAULT):
++            club.crest_size = body.crest_size
++            changed = True
+         if changed:
+             now = utcnow()
+             changed_at = now.replace(microsecond=(now.microsecond // 1000) * 1000)
+diff --git a/app/services/club_content_service.py b/app/services/club_content_service.py
+index 84efcd7..73ca1e1 100644
+--- a/app/services/club_content_service.py
++++ b/app/services/club_content_service.py
+@@ -1,4 +1,4 @@
+-"""클럽별 공개 운영수칙과 상단 공지. 변경 알림은 커밋 이후에만 전송한다."""
++"""클럽별 공개 운영수칙과 상단 공지(+ 공지 크기). 변경 알림은 커밋 이후에만 전송한다."""
+ from sqlalchemy import select
+ from sqlalchemy.orm import Session
+ 
+@@ -7,6 +7,9 @@ from app.core.errors import NotFound
+ from app.core.timeutil import to_iso, utcnow
+ from app.models import Club
+ 
++ANNOUNCEMENT_SIZES = ("small", "medium", "large")
++ANNOUNCEMENT_SIZE_DEFAULT = "medium"
++
+ 
+ def serialize_content(club: Club) -> dict:
+     return {
+@@ -14,6 +17,8 @@ def serialize_content(club: Club) -> dict:
+         "operatingRulesUpdatedAt": to_iso(club.operating_rules_updated_at),
+         "announcement": club.announcement or "",
+         "announcementUpdatedAt": to_iso(club.announcement_updated_at),
++        "announcementSize": club.announcement_size if club.announcement_size in ANNOUNCEMENT_SIZES
++        else ANNOUNCEMENT_SIZE_DEFAULT,
+     }
+ 
+ 
+@@ -39,6 +44,13 @@ def update_content(db: Session, club_id: int, changes: dict) -> Club:
+             setattr(club, field, value)
+             setattr(club, field + "_updated_at", changed_at)
+             changed = True
++    if "announcement_size" in changes:
++        # 기본값(medium)은 NULL로 둔다. 크기만 바꾸면 공지 문구 수정 시각은 그대로
++        size = changes["announcement_size"] or ANNOUNCEMENT_SIZE_DEFAULT
++        stored = None if size == ANNOUNCEMENT_SIZE_DEFAULT else size
++        if club.announcement_size != stored:
++            club.announcement_size = stored
++            changed = True
+ 
+     if changed:
+         emit(db, club_id, "CLUB_CONTENT_UPDATED", {})
+diff --git a/app/services/club_service.py b/app/services/club_service.py
+index 1ae553e..316fd4d 100644
+--- a/app/services/club_service.py
++++ b/app/services/club_service.py
+@@ -112,7 +112,7 @@ def club_summary(db: Session, club: Club, today: date) -> dict:
+     """와이어 상단 요약 줄: 활동 멤버 수 · 올해 일정 수(취소 제외) · 올해 일정의 게시 기사와 올해 게시된 공지 수."""
+     start, end = date(today.year, 1, 1), date(today.year, 12, 31)
+     members = db.scalar(select(func.count()).select_from(Member)
+-                        .where(Member.club_id == club.club_id, Member.active_yn.is_(True)))
++                        .where(Member.club_id == club.club_id, Member.active_yn.is_(True), Member.deleted_at.is_(None)))
+     sessions = db.scalar(select(func.count()).select_from(ClubSession)
+                          .where(ClubSession.club_id == club.club_id, ClubSession.status != SessionStatus.CANCELLED,
+                                 ClubSession.session_date.between(start, end), ClubSession.deleted_at.is_(None)))
+diff --git a/app/services/common.py b/app/services/common.py
+index b528bee..b9079f8 100644
+--- a/app/services/common.py
++++ b/app/services/common.py
+@@ -45,13 +45,21 @@ def get_match(db: Session, club_id: int, match_id: int, *, lock: bool = False) -
+     return row[0], row[1]
+ 
+ 
+-def get_member(db: Session, club_id: int, member_id: int, *, active_only: bool = False) -> Member:
++def get_member(db: Session, club_id: int, member_id: int, *, active_only: bool = False,
++               include_deleted: bool = True) -> Member:
++    """active_only = 새로 참석 · 배정할 선수(활동 중 + 삭제 안 됨). include_deleted=False = 삭제한 선수는 없는 것으로.
++    지난 기록 조회(선수 상세 · 두 선수 관계)는 삭제한 선수도 그대로 찾는다."""
+     m = db.scalar(select(Member).where(Member.member_id == member_id, Member.club_id == club_id))
+-    if not m or (active_only and not m.active_yn):
++    if not m or (active_only and not m.active_yn) or ((active_only or not include_deleted) and m.deleted_at is not None):
+         raise NotFound(f"멤버({member_id})를 찾을 수 없습니다.", "MEMBER_NOT_FOUND")
+     return m
+ 
+ 
++def deleted_member_ids(db: Session, club_id: int) -> set[int]:
++    """삭제한 선수 ID(목록 · 순위 · 새 수상 대상에서 뺄 때)."""
++    return set(db.scalars(select(Member.member_id).where(Member.club_id == club_id, Member.deleted_at.is_not(None))))
++
++
+ def guard_not_closed(session: ClubSession) -> None:
+     if session.deleted_at is not None:
+         raise Conflict("삭제된 일정은 수정할 수 없습니다.", "SESSION_DELETED")
+diff --git a/app/services/member_service.py b/app/services/member_service.py
+index 7efe370..ce4d883 100644
+--- a/app/services/member_service.py
++++ b/app/services/member_service.py
+@@ -3,20 +3,61 @@ from datetime import date, timedelta
+ from sqlalchemy import select
+ from sqlalchemy.orm import Session
+ 
+-from app.core.errors import BadRequest
+-from app.models import Member
++from app.core.errors import BadRequest, Conflict
++from app.core.timeutil import utcnow
++from app.models import ClubSession, Member, SessionMember
++from app.models.enums import AttendanceStatus, SessionStatus
+ from app.services.common import get_member
+ from app.services.config_service import load_config
+ from app.services.rating_service import ensure_player_rating
+ 
+ 
+-def list_members(db: Session, club_id: int, include_inactive: bool = False) -> list[Member]:
++def list_members(db: Session, club_id: int, include_inactive: bool = False, deleted: bool = False) -> list[Member]:
++    """deleted=False: 삭제 안 한 선수(기본은 활동 중만). deleted=True: 삭제한 선수만(최근 삭제 순, 관리자 보관함)."""
+     stmt = select(Member).where(Member.club_id == club_id)
++    if deleted:
++        return list(db.scalars(stmt.where(Member.deleted_at.is_not(None))
++                               .order_by(Member.deleted_at.desc(), Member.member_id.desc())))
++    stmt = stmt.where(Member.deleted_at.is_(None))
+     if not include_inactive:
+         stmt = stmt.where(Member.active_yn.is_(True))
+     return list(db.scalars(stmt.order_by(Member.display_order, Member.name)))
+ 
+ 
++def delete_member(db: Session, club_id: int, member_id: int) -> Member:
++    """선수 삭제 = DELETED_AT 기록(행 · 지난 경기 · 기사 · 수상 기록은 그대로). 이미 삭제했으면 그대로 둔다.
++    예정 · 진행 중 일정에 참석으로 잡혀 있으면 팀 편성 · 경기와 어긋나므로 먼저 참석을 빼야 한다."""
++    m = get_member(db, club_id, member_id)
++    if m.deleted_at is not None:
++        return m
++    open_dates = list(db.scalars(
++        select(ClubSession.session_date)
++        .join(SessionMember, SessionMember.session_id == ClubSession.session_id)
++        .where(SessionMember.member_id == member_id,
++               SessionMember.attendance_status == AttendanceStatus.ATTENDING,
++               ClubSession.club_id == club_id, ClubSession.deleted_at.is_(None),
++               ClubSession.status.in_([SessionStatus.OPEN, SessionStatus.CONFIRMED, SessionStatus.IN_PROGRESS]))
++        .order_by(ClubSession.session_date)))
++    if open_dates:
++        days = ", ".join(f"{d.month}/{d.day}" for d in open_dates)
++        raise Conflict(f"{m.name} 선수는 아직 끝나지 않은 일정({days})에 참석으로 되어 있어요. 참석을 취소하거나 일정을 마감한 뒤 삭제하세요.",
++                       "MEMBER_IN_OPEN_SESSION")
++    now = utcnow()
++    # MySQL DATETIME(3) 반올림 때문에 응답 시각과 재조회 시각이 달라지지 않게 밀리초로 맞춘다
++    m.deleted_at = now.replace(microsecond=(now.microsecond // 1000) * 1000)
++    db.commit()
++    return m
++
++
++def restore_member(db: Session, club_id: int, member_id: int) -> Member:
++    """삭제 취소. 활동/비활성 상태는 삭제 전 그대로."""
++    m = get_member(db, club_id, member_id)
++    if m.deleted_at is not None:
++        m.deleted_at = None
++        db.commit()
++    return m
++
++
+ def create_member(db: Session, club_id: int, name: str, joined_at: date | None = None,
+                   profile_image_url: str | None = None, display_order: int | None = None,
+                   initial_rating: float | None = None, birth_year: int | None = None,
+@@ -43,6 +84,8 @@ CLEARABLE = ("joined_at", "birth_year", "jersey_number")
+ 
+ def update_member(db: Session, club_id: int, member_id: int, **fields) -> Member:
+     m = get_member(db, club_id, member_id)
++    if m.deleted_at is not None:
++        raise Conflict("삭제한 선수는 복원한 뒤 수정하세요.", "MEMBER_DELETED")
+     _check_profile(fields.get("joined_at"), fields.get("birth_year"))
+     _check_jersey_number(fields.get("jersey_number"))
+     for k in ("name", "joined_at", "birth_year", "jersey_number", "profile_image_url", "display_order", "active_yn"):
+diff --git a/app/services/mvp_service.py b/app/services/mvp_service.py
+index 8edca5e..fd65423 100644
+--- a/app/services/mvp_service.py
++++ b/app/services/mvp_service.py
+@@ -28,7 +28,7 @@ from app.models.enums import (
+     TitleAutoRule,
+     TitlePeriodType,
+ )
+-from app.services.common import lock_club, member_names
++from app.services.common import deleted_member_ids, lock_club, member_names
+ from app.services.config_service import load_config
+ from app.services.history import load_history, member_totals
+ from app.services.stats_service import rebuild_member_stats
+@@ -105,8 +105,10 @@ def month_rises(db: Session, club_id: int, start: date, end: date) -> dict[int,
+ 
+ 
+ def ranking(db: Session, club_id: int, start: date, end: date, min_sessions: int) -> list[MonthRise]:
+-    """후보(자격 충족 + 상승) 상승률 높은 순. 같으면 경기 수 많은 순."""
+-    rises = [r for r in month_rises(db, club_id, start, end).values() if r.sessions >= min_sessions and r.percent > 0]
++    """후보(자격 충족 + 상승) 상승률 높은 순. 같으면 경기 수 많은 순. 삭제한 선수는 후보 · 수상에서 뺀다."""
++    deleted = deleted_member_ids(db, club_id)
++    rises = [r for r in month_rises(db, club_id, start, end).values()
++             if r.sessions >= min_sessions and r.percent > 0 and r.member_id not in deleted]
+     return sorted(rises, key=lambda r: (-r.percent, -r.games, r.member_id))
+ 
+ 
+@@ -199,6 +201,8 @@ def close_month(db: Session, club: Club, month_start: date) -> list[int]:
+ 
+     # 이달의 득점왕 · 도움왕: 그 달 확정 경기 골 · 도움 1위(동점 공동)
+     totals = member_totals(load_history(db, club.club_id, session_ids=[x.session_id for x in sessions]))
++    deleted = deleted_member_ids(db, club.club_id)  # 삭제한 선수에게는 새로 수여하지 않음
++    totals = {mid: v for mid, v in totals.items() if mid not in deleted}
+     awarded = 0
+     for t, metric in stat_ts:
+         best = max((getattr(v, metric) for v in totals.values()), default=0)
+diff --git a/app/services/stats_service.py b/app/services/stats_service.py
+index a4d16c9..5692578 100644
+--- a/app/services/stats_service.py
++++ b/app/services/stats_service.py
+@@ -144,7 +144,7 @@ def member_summaries(db: Session, club_id: int) -> list[dict]:
+     rows = db.execute(
+         select(Member, MemberStatSummary)
+         .join(MemberStatSummary, MemberStatSummary.member_id == Member.member_id, isouter=True)
+-        .where(Member.club_id == club_id)
++        .where(Member.club_id == club_id, Member.deleted_at.is_(None))  # 삭제한 선수는 선수단 · 기록 순위에서 숨김
+         .order_by(Member.display_order, Member.name)
+     ).all()
+     out = []
+@@ -157,6 +157,7 @@ def _summary_dict(m: Member, s: MemberStatSummary | None) -> dict:
+     g = s.games if s else 0
+     return {
+         "memberId": m.member_id, "name": m.name, "active": m.active_yn, "jerseyNumber": m.jersey_number,
++        "deleted": m.deleted_at is not None,  # 선수 상세(지난 기록 링크)에서만 true가 될 수 있음
+         "games": g, "wins": s.wins if s else 0, "draws": s.draws if s else 0, "losses": s.losses if s else 0,
+         "winRate": _rate(s.wins, g) if s else None,
+         "goals": s.goals if s else 0, "assists": s.assists if s else 0, "ownGoals": s.own_goals if s else 0,
+diff --git a/app/services/title_service.py b/app/services/title_service.py
+index 8ca4949..9a35f83 100644
+--- a/app/services/title_service.py
++++ b/app/services/title_service.py
+@@ -77,7 +77,7 @@ def award_title(db: Session, club_id: int, admin_id: int | None, *, title_code:
+         raise NotFound("타이틀을 찾을 수 없습니다.", "TITLE_NOT_FOUND")
+     if t.award_method != AwardMethod.MANUAL:
+         raise BadRequest("자동 집계 타이틀은 직접 수여할 수 없습니다.", "AUTO_TITLE")
+-    get_member(db, club_id, member_id)
++    get_member(db, club_id, member_id, include_deleted=False)  # 삭제한 선수에게는 새로 수여하지 않음
+     s = get_session(db, club_id, session_id) if session_id else None
+     d = s.session_date if s else award_date
+     if d is None:
+diff --git a/docs/API.md b/docs/API.md
+index d1eb134..a3e7dc6 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -16,9 +16,11 @@
+ | 🔑 | POST | `/admin/pin` | 관리자 암호 변경 |
+ | 🔓 | GET | `/content` | 운영수칙과 상단 공지(공개) |
+ | 🔓 | GET | `/summary` | 클럽 요약(공개): 활동 멤버 · 올해 일정 · 올해 기사 수 |
+-| 🔓 | GET | `/members` | 멤버 목록(공개) |
++| 🔓 | GET | `/members` | 멤버 목록(공개, 삭제한 선수 제외). 관리자: includeInactive=true면 비활성 포함, deleted=true면 삭제한 선수만 |
+ | 🔑 | POST | `/members` | 멤버 등록 |
+-| 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제는 하지 않음 |
++| 🔑 | DELETE | `/members/{member_id}` | 선수 삭제(목록 · 참석 선택 · 기록 순위에서 숨김, DB 행과 지난 기록은 보존). 끝나지 않은 일정 참석자는 409 |
++| 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제한 선수는 409 |
++| 🔑 | POST | `/members/{member_id}/restore` | 삭제한 선수 복원 |
+ | 🔓 | GET | `/sessions` | 일정 목록(관리자: 예정/완료/삭제 구분) |
+ | 🔑 | POST | `/sessions` | 일정 생성 |
+ | 🔑 | DELETE | `/sessions/{session_id}` | 일정 삭제(관리자 보관함으로 이동, 완료 기록 보존) |
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index e72688d..fa18baf 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -418,6 +418,24 @@ DELETE MT FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_T
+ 
+ - 테스트 `tests/test_superadmin_teams.py`: 시간대를 보내면 422 · 아무것도 저장 안 됨, 시간대 DB가 없어도 생성 · 수정 · 팀 요약이 되는지 확인
+ 
++## 3-15. 메인 팀 마크 크기 · 상단 공지 크기 · 선수 삭제 (2026-11-02)
++
++| 항목 | 결정 | 이유 |
++|---|---|---|
++| 팀 마크 크기 | 관리자 **팀 마크 · 테마** 화면 슬라이더(32~72px, 2px 단위, 기본 44 = 기존 크기). 저장하면 모든 방문자의 탭 머리(와이어 · 일정 · 기록 · 선수단 빨간 띠)에 같은 크기. 화면에 실제 머리 모양 미리보기 | 요청(관리자 저장 · 슬라이더). 72px에서도 360px 폭 가로 넘침 없음 확인 |
++| 마크 크기 저장 | `CLUB.CREST_SIZE`(NULL = 44). API: `GET /appearance`, 클럽 정보 `appearance.crestSize`, `PATCH /admin/appearance`의 `crestSize`(정수 32~72, 범위 밖 422 · null 400) | 기존 외형 저장(defaultTheme)과 같은 방식 |
++| 공지 크기 | **운영 수칙 · 공지** 화면 [작게 · 보통 · 크게]. 글자와 줄 높이를 함께 바꿈(작게 10px/24px · 보통 11px/29px = 기존 · 크게 14px/40px). 입력 칸 아래 미리보기 | 요청(글자 + 높이 3단계) |
++| 공지 크기 저장 | `CLUB.ANNOUNCEMENT_SIZE`(small/large, NULL = medium). API: `GET /content`의 `announcementSize`, `PATCH /admin/content`의 `announcementSize`(null = 보통). 크기만 바꾸면 공지 수정 시각은 그대로, 접속 화면에는 실시간 반영(`CLUB_CONTENT_UPDATED`) | |
++| 선수 삭제 | 관리자 **멤버 관리**의 [삭제] → 확인 → `MEMBER.DELETED_AT` 기록(행은 그대로). 기존 '비활성'(쉬는 선수, 관리자 목록 · 기록 순위에는 남음)과 별개 | 요청: 표시만 안 될 뿐 DB에는 남게 |
++| 숨기는 곳 | 선수단 · 관리자 멤버 목록 · 참석 선택 · 지각 추가 · 기록 순위(`/stats/members`) · 이달의 MVP 후보 · 와이어 요약 '멤버' 수. 새로 받는 상(이달의 MVP · 득점왕 · 도움왕 · 수동 수여)에서도 제외 | 요청(목록에서만 숨김) |
++| 남기는 곳 | 지난 일정 · 경기 · 기사 · 수상 이력 · 케미 속 이름, 선수 상세 화면(지난 기록 링크. 관리자에게만 '삭제한 선수' 표시, 정보 수정 칸 숨김) | 기록 보존 |
++| 막는 것 | 끝나지 않은 일정(예정 · 확정 · 진행 중)에 참석으로 잡힌 선수는 삭제 불가(409 `MEMBER_IN_OPEN_SESSION`, 날짜 안내) → 참석 취소나 마감 후 삭제. 삭제한 선수 수정은 409 `MEMBER_DELETED`, 새 참석은 404 | 팀 편성 · 경기 진행 중 명단이 어긋나지 않게 |
++| 복원 | 멤버 관리 [삭제한 선수] 탭(최근 삭제 순) → [복원] = `DELETED_AT` NULL. 활동/비활성은 삭제 전 그대로 | 요청(삭제한 선수 목록 + 복원). 일정 삭제(SESSION.DELETED_AT)와 같은 방식 |
++| API | `DELETE /members/{id}`(이미 삭제면 그대로) · `POST /members/{id}/restore` · `GET /members?deleted=true`(관리자, 삭제한 선수만). 멤버 응답에 `deleted` · `deletedAt` | |
++
++- alembic **0012**: `MEMBER.DELETED_AT`, `CLUB.CREST_SIZE`, `CLUB.ANNOUNCEMENT_SIZE`(모두 NULL 허용, 기존 행은 기본값으로 해석). 업그레이드 · 다운그레이드 확인
++- 테스트 `tests/test_member_delete_display_sizes.py`(마크 크기 저장 · 범위, 공지 3단계, 삭제 시 목록 · 순위 · MVP 후보 · 요약에서 빠지고 지난 기록 유지, 새 참석 · 수정 차단, 복원, 끝나지 않은 일정 참석자 삭제 차단). `tests/test_club_content.py`는 응답에 `announcementSize` 추가 반영
++
+ ## 4. 남은 이슈 / 다음 단계
+ 
+ 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
+diff --git a/docs/ERD.md b/docs/ERD.md
+index cf76306..4e989c9 100644
+--- a/docs/ERD.md
++++ b/docs/ERD.md
+@@ -22,6 +22,8 @@ erDiagram
+         MEDIUMBLOB CREST_IMAGE
+         VARCHAR DEFAULT_THEME
+         DATETIME APPEARANCE_UPDATED_AT
++        SMALLINT CREST_SIZE
++        VARCHAR ANNOUNCEMENT_SIZE
+         DATETIME UPDATED_AT
+         DATETIME CREATED_AT
+     }
+@@ -46,6 +48,7 @@ erDiagram
+         SMALLINT BIRTH_YEAR
+         SMALLINT JERSEY_NUMBER
+         DOUBLE INITIAL_RATING
++        DATETIME DELETED_AT
+         DATETIME UPDATED_AT
+         DATETIME CREATED_AT
+     }
+diff --git a/docs/TABLES.md b/docs/TABLES.md
+index d86b75f..9ef5709 100644
+--- a/docs/TABLES.md
++++ b/docs/TABLES.md
+@@ -27,8 +27,10 @@
+ | 13 | `CREST_IMAGE` | MEDIUMBLOB | Y |  | 검증·정규화한 업로드 엠블럼 PNG 바이너리. 공개 API는 이미지 모드일 때만 제공 |
+ | 14 | `DEFAULT_THEME` | VARCHAR(10) | Y |  | 클럽 기본 테마(dark/light). NULL이면 dark, 방문자가 저장한 선택이 우선 |
+ | 15 | `APPEARANCE_UPDATED_AT` | DATETIME(3) | Y |  | 엠블럼·기본 테마 수정 시각(UTC) |
+-| 16 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+-| 17 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
++| 16 | `CREST_SIZE` | SMALLINT | Y |  | 탭 머리(메인 화면) 팀 마크 크기(px, 32~72). NULL이면 44 |
++| 17 | `ANNOUNCEMENT_SIZE` | VARCHAR(10) | Y |  | 상단 공지 크기(small/medium/large, 글자·높이). NULL이면 medium |
++| 18 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
++| 19 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+ 
+ 제약/인덱스
+ 
+@@ -57,7 +59,7 @@
+ 
+ ### MEMBER
+ 
+-클럽 구성원(경기하는 사람). 삭제 대신 ACTIVE_YN=false  
++클럽 구성원(경기하는 사람). 쉬면 ACTIVE_YN=false, 그만두면 DELETED_AT(행은 남김)  
+ 구분: **Source(원본)**
+ 
+ | No | 컬럼 | 타입 | NULL | 키 | 설명 |
+@@ -72,8 +74,9 @@
+ | 8 | `BIRTH_YEAR` | SMALLINT | Y |  | 출생연도(예: 1992). 선수 프로필에 'n년생'으로 표시 |
+ | 9 | `JERSEY_NUMBER` | SMALLINT | Y |  | 등번호(0~99). 미지정이면 NULL |
+ | 10 | `INITIAL_RATING` | DOUBLE | Y |  | 시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작 |
+-| 11 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+-| 12 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
++| 11 | `DELETED_AT` | DATETIME(3) | Y |  | 선수 삭제 시각(UTC). NULL=정상. 목록·참석 선택·기록 순위·MVP 후보에서 숨기고 지난 기록은 보존, 복원 가능 |
++| 12 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
++| 13 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+ 
+ 제약/인덱스
+ 
+diff --git a/docs/openapi.json b/docs/openapi.json
+index 4b1eae5..926d649 100644
+--- a/docs/openapi.json
++++ b/docs/openapi.json
+@@ -645,7 +645,7 @@
+         "tags": [
+           "members"
+         ],
+-        "summary": "멤버 목록(공개)",
++        "summary": "멤버 목록(공개, 삭제한 선수 제외). 관리자: includeInactive=true면 비활성 포함, deleted=true면 삭제한 선수만",
+         "operationId": "list_members_api_clubs__club_slug__members_get",
+         "security": [
+           {
+@@ -673,6 +673,16 @@
+               "default": false,
+               "title": "Includeinactive"
+             }
++          },
++          {
++            "name": "deleted",
++            "in": "query",
++            "required": false,
++            "schema": {
++              "type": "boolean",
++              "default": false,
++              "title": "Deleted"
++            }
+           }
+         ],
+         "responses": {
+@@ -757,7 +767,7 @@
+         "tags": [
+           "members"
+         ],
+-        "summary": "멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제는 하지 않음",
++        "summary": "멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제한 선수는 409",
+         "operationId": "update_member_api_clubs__club_slug__members__member_id__patch",
+         "security": [
+           {
+@@ -816,6 +826,116 @@
+             }
+           }
+         }
++      },
++      "delete": {
++        "tags": [
++          "members"
++        ],
++        "summary": "선수 삭제(목록 · 참석 선택 · 기록 순위에서 숨김, DB 행과 지난 기록은 보존). 끝나지 않은 일정 참석자는 409",
++        "operationId": "delete_member_api_clubs__club_slug__members__member_id__delete",
++        "security": [
++          {
++            "HTTPBearer": []
++          }
++        ],
++        "parameters": [
++          {
++            "name": "member_id",
++            "in": "path",
++            "required": true,
++            "schema": {
++              "type": "integer",
++              "title": "Member Id"
++            }
++          },
++          {
++            "name": "club_slug",
++            "in": "path",
++            "required": true,
++            "schema": {
++              "type": "string",
++              "description": "클럽 주소(slug)",
++              "title": "Club Slug"
++            },
++            "description": "클럽 주소(slug)"
++          }
++        ],
++        "responses": {
++          "200": {
++            "description": "Successful Response",
++            "content": {
++              "application/json": {
++                "schema": {}
++              }
++            }
++          },
++          "422": {
++            "description": "Validation Error",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/HTTPValidationError"
++                }
++              }
++            }
++          }
++        }
++      }
++    },
++    "/api/clubs/{club_slug}/members/{member_id}/restore": {
++      "post": {
++        "tags": [
++          "members"
++        ],
++        "summary": "삭제한 선수 복원",
++        "operationId": "restore_member_api_clubs__club_slug__members__member_id__restore_post",
++        "security": [
++          {
++            "HTTPBearer": []
++          }
++        ],
++        "parameters": [
++          {
++            "name": "member_id",
++            "in": "path",
++            "required": true,
++            "schema": {
++              "type": "integer",
++              "title": "Member Id"
++            }
++          },
++          {
++            "name": "club_slug",
++            "in": "path",
++            "required": true,
++            "schema": {
++              "type": "string",
++              "description": "클럽 주소(slug)",
++              "title": "Club Slug"
++            },
++            "description": "클럽 주소(slug)"
++          }
++        ],
++        "responses": {
++          "200": {
++            "description": "Successful Response",
++            "content": {
++              "application/json": {
++                "schema": {}
++              }
++            }
++          },
++          "422": {
++            "description": "Validation Error",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/HTTPValidationError"
++                }
++              }
++            }
++          }
++        }
+       }
+     },
+     "/api/clubs/{club_slug}/sessions": {
+@@ -4467,6 +4587,19 @@
+               }
+             ],
+             "title": "Defaulttheme"
++          },
++          "crestSize": {
++            "anyOf": [
++              {
++                "type": "integer",
++                "maximum": 72.0,
++                "minimum": 32.0
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Crestsize"
+           }
+         },
+         "additionalProperties": false,
+@@ -4500,6 +4633,23 @@
+             ],
+             "title": "Announcement",
+             "description": "와이어 상단 한 줄 공지. 빈 문자열 또는 null로 숨김, 생략하면 유지"
++          },
++          "announcementSize": {
++            "anyOf": [
++              {
++                "type": "string",
++                "enum": [
++                  "small",
++                  "medium",
++                  "large"
++                ]
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Announcementsize",
++            "description": "상단 공지 글자 · 높이. null이면 기본(medium), 생략하면 유지"
+           }
+         },
+         "additionalProperties": false,
+@@ -5087,13 +5237,6 @@
+             "minLength": 1,
+             "title": "Sporttype",
+             "default": "FUTSAL"
+-          },
+-          "timezone": {
+-            "type": "string",
+-            "maxLength": 50,
+-            "minLength": 1,
+-            "title": "Timezone",
+-            "default": "Asia/Seoul"
+           }
+         },
+         "additionalProperties": false,
+@@ -5146,19 +5289,6 @@
+               }
+             ],
+             "title": "Adminpin"
+-          },
+-          "timezone": {
+-            "anyOf": [
+-              {
+-                "type": "string",
+-                "maxLength": 50,
+-                "minLength": 1
+-              },
+-              {
+-                "type": "null"
+-              }
+-            ],
+-            "title": "Timezone"
+           }
+         },
+         "additionalProperties": false,
+diff --git a/docs/schema.sql b/docs/schema.sql
+index e677024..a40f4b3 100644
+--- a/docs/schema.sql
++++ b/docs/schema.sql
+@@ -17,6 +17,8 @@ CREATE TABLE `CLUB` (
+ 	`CREST_IMAGE` MEDIUMBLOB COMMENT '검증·정규화한 업로드 엠블럼 PNG 바이너리. 공개 API는 이미지 모드일 때만 제공',
+ 	`DEFAULT_THEME` VARCHAR(10) COMMENT '클럽 기본 테마(dark/light). NULL이면 dark, 방문자가 저장한 선택이 우선',
+ 	`APPEARANCE_UPDATED_AT` DATETIME(3) COMMENT '엠블럼·기본 테마 수정 시각(UTC)',
++	`CREST_SIZE` SMALLINT COMMENT '탭 머리(메인 화면) 팀 마크 크기(px, 32~72). NULL이면 44',
++	`ANNOUNCEMENT_SIZE` VARCHAR(10) COMMENT '상단 공지 크기(small/medium/large, 글자·높이). NULL이면 medium',
+ 	`UPDATED_AT` DATETIME(3) NOT NULL COMMENT '수정 일시(UTC)',
+ 	`CREATED_AT` DATETIME(3) NOT NULL COMMENT '생성 일시(UTC)',
+ 	CONSTRAINT `PK_CLUB` PRIMARY KEY (`CLUB_ID`),
+@@ -74,11 +76,12 @@ CREATE TABLE `MEMBER` (
+ 	`BIRTH_YEAR` SMALLINT COMMENT '출생연도(예: 1992). 선수 프로필에 ''n년생''으로 표시',
+ 	`JERSEY_NUMBER` SMALLINT COMMENT '등번호(0~99). 미지정이면 NULL',
+ 	`INITIAL_RATING` DOUBLE COMMENT '시작 Rating(이관·수동 지정, 관리자 전용). NULL이면 설정 INITIAL_RATING. 재계산도 이 값에서 시작',
++	`DELETED_AT` DATETIME(3) COMMENT '선수 삭제 시각(UTC). NULL=정상. 목록·참석 선택·기록 순위·MVP 후보에서 숨기고 지난 기록은 보존, 복원 가능',
+ 	`UPDATED_AT` DATETIME(3) NOT NULL COMMENT '수정 일시(UTC)',
+ 	`CREATED_AT` DATETIME(3) NOT NULL COMMENT '생성 일시(UTC)',
+ 	CONSTRAINT `PK_MEMBER` PRIMARY KEY (`MEMBER_ID`),
+ 	CONSTRAINT `FK_MEMBER_CLUB_ID` FOREIGN KEY(`CLUB_ID`) REFERENCES `CLUB` (`CLUB_ID`)
+-)COMMENT='클럽 구성원(경기하는 사람). 삭제 대신 ACTIVE_YN=false' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
++)COMMENT='클럽 구성원(경기하는 사람). 쉬면 ACTIVE_YN=false, 그만두면 DELETED_AT(행은 남김)' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+ CREATE INDEX `IX_MEMBER_CLUB_ID_ACTIVE_YN` ON `MEMBER` (`CLUB_ID`, `ACTIVE_YN`);
+ 
+ CREATE TABLE `SESSION` (
+diff --git a/frontend/src/api/endpoints.ts b/frontend/src/api/endpoints.ts
+index c4a8524..56adc8b 100644
+--- a/frontend/src/api/endpoints.ts
++++ b/frontend/src/api/endpoints.ts
+@@ -38,7 +38,7 @@ export const makeApi = (slug: string) => ({
+     request<ClubAppearance>(slug, 'PATCH', '/admin/appearance', { body }),
+   clubSummary: () => request<ClubSummary>(slug, 'GET', '/summary'),
+   clubContent: () => request<ClubContent>(slug, 'GET', '/content'),
+-  updateClubContent: (body: Partial<Pick<ClubContent, 'operatingRules' | 'announcement'>>) =>
++  updateClubContent: (body: Partial<Pick<ClubContent, 'operatingRules' | 'announcement' | 'announcementSize'>>) =>
+     request<ClubContent>(slug, 'PATCH', '/admin/content', { body }),
+   adminAuth: (password: string) => request<AuthResponse>(slug, 'POST', '/admin/auth', { body: { password } }),
+   changePin: (newPassword: string) => request<{ ok: boolean }>(slug, 'POST', '/admin/pin', { body: { newPassword } }),
+@@ -52,6 +52,10 @@ export const makeApi = (slug: string) => ({
+     request<Member>(slug, 'POST', '/members', { body: { name, initialRating, jerseyNumber } }),
+   updateMember: (memberId: number, body: Partial<{ name: string; active: boolean; displayOrder: number } & MemberProfile>) =>
+     request<Member>(slug, 'PATCH', `/members/${memberId}`, { body }),
++  /** 삭제한 선수만(관리자) */
++  deletedMembers: () => request<Member[]>(slug, 'GET', '/members', { query: { deleted: true } }),
++  deleteMember: (memberId: number) => request<Member>(slug, 'DELETE', `/members/${memberId}`),
++  restoreMember: (memberId: number) => request<Member>(slug, 'POST', `/members/${memberId}/restore`),
+ 
+   // 일정
+   sessions: (limit = 30, category?: 'upcoming' | 'completed' | 'deleted') =>
+diff --git a/frontend/src/api/types.ts b/frontend/src/api/types.ts
+index 1b91698..e87574f 100644
+--- a/frontend/src/api/types.ts
++++ b/frontend/src/api/types.ts
+@@ -5,6 +5,8 @@ export type GameStatus = 'READY' | 'RUNNING' | 'PAUSED' | 'FINISHED' | 'CANCELLE
+ export type ArticleStatus = 'PENDING' | 'GENERATED' | 'PUBLISHED' | 'REJECTED' | 'FAILED' | 'SUPERSEDED'
+ 
+ export type ThemeMode = 'dark' | 'light'
++/** 상단 공지 크기(글자 · 높이 3단계) */
++export type AnnouncementSize = 'small' | 'medium' | 'large'
+ 
+ export interface CrestConfig {
+   mode: 'auto' | 'design' | 'image'
+@@ -21,6 +23,8 @@ export interface ClubAppearance {
+   crest: CrestConfig
+   imageUrl: string | null
+   defaultTheme: ThemeMode
++  /** 탭 머리(메인 화면) 팀 마크 크기(px, 32~72, 기본 44) */
++  crestSize: number
+   updatedAt: string | null
+ }
+ 
+@@ -28,6 +32,7 @@ export interface ClubAppearanceUpdate {
+   crest?: CrestConfig
+   imageDataUrl?: string | null
+   defaultTheme?: ThemeMode
++  crestSize?: number
+ }
+ 
+ export interface Club {
+@@ -53,6 +58,7 @@ export interface ClubContent {
+   operatingRulesUpdatedAt: string | null
+   announcement: string
+   announcementUpdatedAt: string | null
++  announcementSize: AnnouncementSize
+ }
+ 
+ export type ArticleType = 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP' | 'MONTHLY_MVP' | 'NOTICE'
+@@ -93,6 +99,9 @@ export interface Member {
+   jerseyNumber: number | null
+   profileImageUrl: string | null
+   displayOrder: number | null
++  /** 삭제한 선수(목록에서만 숨김, 기록은 보존). 관리자 '삭제한 선수' 목록에서만 true */
++  deleted: boolean
++  deletedAt: string | null
+ }
+ 
+ export interface PersonRef {
+@@ -299,6 +308,8 @@ export interface MemberStat {
+   memberId: number
+   name: string
+   active: boolean
++  /** 선수 상세에서만 true 가능(삭제한 선수의 지난 기록 링크) */
++  deleted?: boolean
+   jerseyNumber: number | null
+   games: number
+   wins: number
+diff --git a/frontend/src/components/AnnouncementTicker.tsx b/frontend/src/components/AnnouncementTicker.tsx
+index b226181..7187632 100644
+--- a/frontend/src/components/AnnouncementTicker.tsx
++++ b/frontend/src/components/AnnouncementTicker.tsx
+@@ -1,16 +1,17 @@
+ import { useState, type CSSProperties } from 'react'
++import type { AnnouncementSize } from '../api/types'
+ import { Icon } from './Icon'
+ import '../styles/club-content.css'
+ 
+-/** 한 줄 공지. 복제된 문구는 화면 낭독기에 한 번만 전달한다. */
+-export function AnnouncementTicker({ text }: { text: string | null | undefined }) {
++/** 한 줄 공지. 복제된 문구는 화면 낭독기에 한 번만 전달한다. size = 글자 · 높이 3단계(관리자 설정, 기본 medium) */
++export function AnnouncementTicker({ text, size = 'medium' }: { text: string | null | undefined; size?: AnnouncementSize }) {
+   const [paused, setPaused] = useState(false)
+   const notice = text?.replace(/\s+/g, ' ').trim() ?? ''
+   if (!notice) return null
+   const style = { '--announcement-duration': `${Math.max(18, Math.min(90, notice.length * 0.35))}s` } as CSSProperties
+ 
+   return (
+-    <aside className={`announcement-ticker${paused ? ' is-paused' : ''}`} aria-label="클럽 공지" style={style}>
++    <aside className={`announcement-ticker size-${size}${paused ? ' is-paused' : ''}`} aria-label="클럽 공지" style={style}>
+       <span className="announcement-label">공지</span>
+       <div className="announcement-window" role="region" aria-label={notice} tabIndex={0} title={notice}>
+         <div className="announcement-track" key={notice} aria-hidden="true">
+diff --git a/frontend/src/components/ClubCrest.tsx b/frontend/src/components/ClubCrest.tsx
+index ede7dfc..eb9717d 100644
+--- a/frontend/src/components/ClubCrest.tsx
++++ b/frontend/src/components/ClubCrest.tsx
+@@ -1,6 +1,11 @@
+ import { useId, useState } from 'react'
+ import type { ClubAppearance, CrestConfig } from '../api/types'
+ 
++/** 탭 머리(메인 화면) 팀 마크 크기(px). 관리자 슬라이더 범위 · 기본값(서버 CREST_SIZE_* 와 같게) */
++export const CREST_SIZE_MIN = 32
++export const CREST_SIZE_MAX = 72
++export const CREST_SIZE_DEFAULT = 44
++
+ const AUTO_SHIELD = 'M20 2 L37 7 V22 C37 33 30 40 20 44 C10 40 3 33 3 22 V7 Z'
+ const SHIELD = 'M50 3 L94 16 V54 C94 80 77 98 50 108 C23 98 6 80 6 54 V16 Z'
+ 
+@@ -29,7 +34,7 @@ function Shape({ shape }: { shape: CrestConfig['shape'] }) {
+ }
+ 
+ /** 업로드 이미지는 필터 없이 원래 색상으로 표시한다. 로드 실패 시 기본 방패로 돌아간다. */
+-export function Crest({ name, size = 44, appearance }: { name: string; size?: number; appearance?: ClubAppearance | null }) {
++export function Crest({ name, size = CREST_SIZE_DEFAULT, appearance }: { name: string; size?: number; appearance?: ClubAppearance | null }) {
+   const clipId = `crest-${useId().replace(/:/g, '')}`
+   const [failedImage, setFailedImage] = useState<string | null>(null)
+   const config = appearance?.crest
+diff --git a/frontend/src/components/ui.tsx b/frontend/src/components/ui.tsx
+index 7081132..9dd1e9b 100644
+--- a/frontend/src/components/ui.tsx
++++ b/frontend/src/components/ui.tsx
+@@ -5,7 +5,7 @@ import { errorMessage } from '../api/client'
+ import { useClub } from '../lib/club'
+ import { tagTone, teamColor } from '../lib/format'
+ import { Icon } from './Icon'
+-import { Crest } from './ClubCrest'
++import { Crest, CREST_SIZE_DEFAULT } from './ClubCrest'
+ import { ThemeToggle } from '../lib/theme'
+ 
+ export { Crest } from './ClubCrest'
+@@ -49,7 +49,7 @@ export function ClubBar({ title, sub, children }: { title: ReactNode; sub?: Reac
+   return (
+     <header className="club-bar">
+       <div className="club-row">
+-        <Crest name={club?.clubName ?? slug} appearance={club?.appearance} />
++        <Crest name={club?.clubName ?? slug} size={club?.appearance?.crestSize ?? CREST_SIZE_DEFAULT} appearance={club?.appearance} />
+         <div className="club-title">
+           <h1>{title}</h1>
+           <span>{sub ?? club?.clubName ?? ''}</span>
+diff --git a/frontend/src/pages/HomePage.tsx b/frontend/src/pages/HomePage.tsx
+index e6284eb..5f376d2 100644
+--- a/frontend/src/pages/HomePage.tsx
++++ b/frontend/src/pages/HomePage.tsx
+@@ -64,7 +64,7 @@ export function HomePage() {
+         </div>
+       </ClubBar>
+ 
+-      <AnnouncementTicker text={content.data?.announcement} />
++      <AnnouncementTicker text={content.data?.announcement} size={content.data?.announcementSize} />
+ 
+       {/* 요약 줄: 누르면 해당 탭으로(멤버 → 선수단, 일정 → 일정, 기사 → 기록 탭 [기사]) */}
+       <nav className="stat-ribbon" aria-label="클럽 요약">
+diff --git a/frontend/src/pages/PlayerPage.tsx b/frontend/src/pages/PlayerPage.tsx
+index 58a42f3..237923d 100644
+--- a/frontend/src/pages/PlayerPage.tsx
++++ b/frontend/src/pages/PlayerPage.tsx
+@@ -49,13 +49,15 @@ export function PlayerPage() {
+               {titleCounts.map(([name, n]) => <span key={name} className="tag gold">{name} ×{n}</span>)}
+               {streak >= 2 ? <span className="tag green">{streak}연승 중</span> : null}
+               {!s.active ? <span className="tag">비활성</span> : null}
++              {s.deleted && isAdmin ? <span className="tag">삭제한 선수</span> : null}
+             </div>
+           </div>
+         </div>
+       </header>
+ 
+       <main className="page">
+-        {isAdmin ? <ProfileEditor key={`${id}-${profile.joinedAt}-${profile.birthYear}-${profile.jerseyNumber}`} memberId={id} profile={profile} onSaved={detail.reload} /> : null}
++        {isAdmin && s.deleted ? <p className="small muted">삭제한 선수예요. 지난 기록만 보여요. 수정하려면 관리자 메뉴 → 멤버 관리 → 삭제한 선수에서 복원하세요.</p> : null}
++        {isAdmin && !s.deleted ? <ProfileEditor key={`${id}-${profile.joinedAt}-${profile.birthYear}-${profile.jerseyNumber}`} memberId={id} profile={profile} onSaved={detail.reload} /> : null}
+ 
+         <div className="grid3">
+           <Stat label="경기" value={s.games} />
+diff --git a/frontend/src/pages/admin/ClubAppearancePage.tsx b/frontend/src/pages/admin/ClubAppearancePage.tsx
+index 240b701..ecf04da 100644
+--- a/frontend/src/pages/admin/ClubAppearancePage.tsx
++++ b/frontend/src/pages/admin/ClubAppearancePage.tsx
+@@ -1,7 +1,7 @@
+ import { useEffect, useRef, useState } from 'react'
+ import { errorMessage } from '../../api/client'
+ import type { ClubAppearance, CrestConfig, ThemeMode } from '../../api/types'
+-import { Crest } from '../../components/ClubCrest'
++import { Crest, CREST_SIZE_DEFAULT, CREST_SIZE_MAX, CREST_SIZE_MIN } from '../../components/ClubCrest'
+ import { ErrorBox, Loading, TopBar } from '../../components/ui'
+ import { useClub } from '../../lib/club'
+ import { useAction } from '../../lib/hooks'
+@@ -34,6 +34,7 @@ export function ClubAppearancePage() {
+   const [initial, setInitial] = useState<ClubAppearance | null>(null)
+   const [crest, setCrest] = useState<CrestConfig>(DEFAULT_CREST)
+   const [defaultTheme, setDefaultTheme] = useState<ThemeMode>('dark')
++  const [crestSize, setCrestSize] = useState(CREST_SIZE_DEFAULT)
+   // undefined는 기존 이미지를 유지한다. null만 명시적인 삭제다.
+   const [imageDraft, setImageDraft] = useState<string | null | undefined>(undefined)
+   const [loadError, setLoadError] = useState<unknown>()
+@@ -49,6 +50,7 @@ export function ClubAppearancePage() {
+     setInitial(saved)
+     setCrest({ ...saved.crest })
+     setDefaultTheme(saved.defaultTheme)
++    setCrestSize(saved.crestSize ?? CREST_SIZE_DEFAULT)
+     setImageDraft(undefined)
+     setFileError('')
+     setSaveError('')
+@@ -89,10 +91,11 @@ export function ClubAppearancePage() {
+   const imageChanged = initial !== null && imageDraft !== undefined
+     && (imageDraft === null || (crest.mode === 'image' && imageDraft !== initial.imageUrl))
+   const themeChanged = initial !== null && defaultTheme !== initial.defaultTheme
+-  const changed = crestChanged || imageChanged || themeChanged
++  const sizeChanged = initial !== null && crestSize !== (initial.crestSize ?? CREST_SIZE_DEFAULT)
++  const changed = crestChanged || imageChanged || themeChanged || sizeChanged
+   const imageInvalid = crest.mode === 'image' && (!imageUrl || !imageReady || !!previewError)
+   const canSave = changed && !busy && !reading && !fileError && !imageInvalid
+-  const preview: ClubAppearance | null = initial ? { ...initial, crest, imageUrl, defaultTheme } : null
++  const preview: ClubAppearance | null = initial ? { ...initial, crest, imageUrl, defaultTheme, crestSize } : null
+   const teamName = club?.clubName ?? slug
+ 
+   const updateCrest = <K extends keyof CrestConfig>(key: K, value: CrestConfig[K]) => {
+@@ -159,11 +162,12 @@ export function ClubAppearancePage() {
+       ...(crestChanged ? { crest } : {}),
+       ...(imageChanged ? { imageDataUrl: imageDraft } : {}),
+       ...(themeChanged ? { defaultTheme } : {}),
++      ...(sizeChanged ? { crestSize } : {}),
+     }
+     const saved = await run(async () => {
+       try { return await api.updateClubAppearance(body) }
+       catch (error) { setSaveError(errorMessage(error)); throw error }
+-    }, '팀 마크와 기본 테마를 저장했어요')
++    }, '팀 마크 · 테마를 저장했어요')
+     if (!saved) return
+     hydrate(saved)
+     try { await refreshClub() }
+@@ -252,6 +256,27 @@ export function ClubAppearancePage() {
+             {fileError || previewError ? <p className="appearance-error" role="alert">{fileError || previewError}</p> : null}
+           </fieldset>
+ 
++          <fieldset className="card appearance-fields" disabled={busy}>
++            <legend>메인 화면 마크 크기</legend>
++            <p className="small muted">와이어 · 일정 · 기록 · 선수단 맨 위 빨간 띠에 보이는 마크 크기예요. 저장하면 모든 방문자에게 같은 크기로 보여요.</p>
++            <div className="appearance-size-row">
++              <input className="appearance-size-range" type="range" min={CREST_SIZE_MIN} max={CREST_SIZE_MAX} step={2}
++                value={crestSize} aria-label="메인 화면 마크 크기" aria-valuetext={`${crestSize}픽셀`}
++                onChange={(e) => { setCrestSize(Number(e.target.value)); setSaveError('') }} />
++              <b className="num appearance-size-value">{crestSize}px</b>
++            </div>
++            <div className="row between small muted"><span>작게 {CREST_SIZE_MIN}</span>
++              <button type="button" className="btn sm" disabled={crestSize === CREST_SIZE_DEFAULT}
++                onClick={() => { setCrestSize(CREST_SIZE_DEFAULT); setSaveError('') }}>기본 {CREST_SIZE_DEFAULT}px</button>
++              <span>크게 {CREST_SIZE_MAX}</span></div>
++            <div className="club-bar appearance-clubbar-preview" aria-label="메인 화면 머리 미리보기">
++              <div className="club-row">
++                <Crest name={teamName} size={crestSize} appearance={preview} />
++                <div className="club-title"><h1>{teamName}</h1><span>THE WIRE</span></div>
++              </div>
++            </div>
++          </fieldset>
++
+           <fieldset className="card appearance-fields" disabled={busy}>
+             <legend>팀 기본 테마</legend>
+             <p className="small muted">개인 테마를 선택하지 않은 방문자에게 적용됩니다. 각자 고른 화면 테마는 그대로 유지돼요.</p>
+diff --git a/frontend/src/pages/admin/ClubContentAdminPage.tsx b/frontend/src/pages/admin/ClubContentAdminPage.tsx
+index fec6c04..d81f379 100644
+--- a/frontend/src/pages/admin/ClubContentAdminPage.tsx
++++ b/frontend/src/pages/admin/ClubContentAdminPage.tsx
+@@ -1,5 +1,6 @@
+ import { useEffect, useState } from 'react'
+ import { errorMessage } from '../../api/client'
++import type { AnnouncementSize } from '../../api/types'
+ import { AnnouncementTicker } from '../../components/AnnouncementTicker'
+ import { RulesText } from '../../components/MembersGuide'
+ import { ErrorBox, Loading, TopBar } from '../../components/ui'
+@@ -10,13 +11,15 @@ import '../../styles/club-content.css'
+ 
+ const RULES_LIMIT = 20000
+ const ANNOUNCEMENT_LIMIT = 500
++const SIZE_OPTIONS: [AnnouncementSize, string][] = [['small', '작게'], ['medium', '보통'], ['large', '크게']]
+ 
+ export function ClubContentAdminPage() {
+   const { api, slug } = useClub()
+   const [attempt, setAttempt] = useState(0)
+-  const [initial, setInitial] = useState<{ rules: string; announcement: string } | null>(null)
++  const [initial, setInitial] = useState<{ rules: string; announcement: string; size: AnnouncementSize } | null>(null)
+   const [rules, setRules] = useState('')
+   const [announcement, setAnnouncement] = useState('')
++  const [size, setSize] = useState<AnnouncementSize>('medium')
+   const [loadError, setLoadError] = useState<unknown>()
+   const [saveError, setSaveError] = useState('')
+   const [sourceNote, setSourceNote] = useState('')
+@@ -47,7 +50,8 @@ export function ClubContentAdminPage() {
+         if (!alive) return
+         setRules(text)
+         setAnnouncement(saved.announcement)
+-        setInitial({ rules: text, announcement: saved.announcement })
++        setSize(saved.announcementSize)
++        setInitial({ rules: text, announcement: saved.announcement, size: saved.announcementSize })
+         setSourceNote(note)
+       } catch (error) {
+         if (alive) setLoadError(error)
+@@ -59,13 +63,18 @@ export function ClubContentAdminPage() {
+ 
+   const rulesChanged = initial !== null && rules !== initial.rules
+   const announcementChanged = initial !== null && announcement !== initial.announcement
+-  const changed = rulesChanged || announcementChanged
++  const sizeChanged = initial !== null && size !== initial.size
++  const changed = rulesChanged || announcementChanged || sizeChanged
+   const tooLong = rules.length > RULES_LIMIT || announcement.length > ANNOUNCEMENT_LIMIT
+ 
+   const save = async () => {
+     if (!initial || !changed || tooLong || busy) return
+     setSaveError('')
+-    const body = { ...(rulesChanged ? { operatingRules: rules } : {}), ...(announcementChanged ? { announcement } : {}) }
++    const body = {
++      ...(rulesChanged ? { operatingRules: rules } : {}),
++      ...(announcementChanged ? { announcement } : {}),
++      ...(sizeChanged ? { announcementSize: size } : {}),
++    }
+     const saved = await run(async () => {
+       try {
+         return await api.updateClubContent(body)
+@@ -76,9 +85,10 @@ export function ClubContentAdminPage() {
+     }, '운영 수칙과 공지를 저장했어요')
+     if (!saved) return
+     const savedRules = saved.operatingRules ?? rules
+-    setInitial({ rules: savedRules, announcement: saved.announcement })
++    setInitial({ rules: savedRules, announcement: saved.announcement, size: saved.announcementSize })
+     setRules(savedRules)
+     setAnnouncement(saved.announcement)
++    setSize(saved.announcementSize)
+     if (rulesChanged) setSourceNote('저장한 운영 수칙이 선수단에 표시됩니다.')
+   }
+ 
+@@ -96,7 +106,15 @@ export function ClubContentAdminPage() {
+               value={announcement} disabled={busy} onChange={(e) => setAnnouncement(e.target.value)}
+               placeholder="예: 이번 주 토요일 경기는 오전 8시 시작입니다. 참석 투표를 확인해 주세요." />
+             <p className="club-content-counter">{announcement.length.toLocaleString()} / {ANNOUNCEMENT_LIMIT.toLocaleString()}자</p>
+-            {announcement.trim() ? <AnnouncementTicker text={announcement} /> : null}
++            <div className="stack" style={{ gap: 6 }}>
++              <span className="small" id="announcement-size-label">공지 크기 (글자 · 줄 높이)</span>
++              <div className="segmented" role="group" aria-labelledby="announcement-size-label" style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}>
++                {SIZE_OPTIONS.map(([value, label]) => (
++                  <button key={value} type="button" aria-pressed={size === value} disabled={busy} onClick={() => setSize(value)}>{label}</button>
++                ))}
++              </div>
++            </div>
++            {announcement.trim() ? <AnnouncementTicker text={announcement} size={size} /> : <p className="small muted">공지를 입력하면 이 크기로 미리 보여요.</p>}
+           </section>
+ 
+           <section className="card stack" style={{ gap: 10 }}>
+diff --git a/frontend/src/pages/admin/MembersAdminPage.tsx b/frontend/src/pages/admin/MembersAdminPage.tsx
+index a902448..b899ed2 100644
+--- a/frontend/src/pages/admin/MembersAdminPage.tsx
++++ b/frontend/src/pages/admin/MembersAdminPage.tsx
+@@ -1,8 +1,9 @@
+-// 멤버 관리: 추가 / 이름·등번호 수정 / 비활성화(삭제하지 않음)
++// 멤버 관리: 추가 / 이름·등번호 수정 / 비활성화 / 삭제(목록에서만 숨김, 기록은 보존) · 삭제한 선수 복원
+ 
+ import { useState } from 'react'
++import { errorMessage } from '../../api/client'
+ import type { Member } from '../../api/types'
+-import { ErrorBox, Loading, Switch, TopBar } from '../../components/ui'
++import { Empty, ErrorBox, Loading, Sheet, Switch, TopBar } from '../../components/ui'
+ import { useClub } from '../../lib/club'
+ import { useAction, useAsync } from '../../lib/hooks'
+ import '../../styles/member-numbers.css'
+@@ -18,11 +19,22 @@ export function parseMembers(text: string): { name: string; rating?: number }[]
+   }).filter((x) => x.name)
+ }
+ 
++type Tab = 'members' | 'deleted'
++
+ export function MembersAdminPage() {
+   const { api, slug } = useClub()
+   const list = useAsync(() => api.members(true), [api])
++  const deleted = useAsync(() => api.deletedMembers(), [api])
+   const { busy, run } = useAction()
+   const [names, setNames] = useState('')
++  const [tab, setTab] = useState<Tab>('members')
++  const [removal, setRemoval] = useState<Member | null>(null)
++  const [removeError, setRemoveError] = useState('')
++
++  const reloadAll = () => {
++    list.reload()
++    deleted.reload()
++  }
+ 
+   const add = async () => {
+     const items = parseMembers(names)
+@@ -37,36 +49,124 @@ export function MembersAdminPage() {
+     }
+   }
+ 
++  const askRemove = (m: Member) => {
++    setRemoveError('')
++    setRemoval(m)
++  }
++  const closeRemoval = () => {
++    if (!busy) setRemoval(null)
++  }
++  const remove = async () => {
++    if (!removal || busy) return
++    setRemoveError('')
++    const target = removal
++    const done = await run(async () => {
++      try { return await api.deleteMember(target.memberId) }
++      catch (error) { setRemoveError(errorMessage(error)); throw error }
++    }, `${target.name} 선수를 삭제했어요`)
++    if (done) {
++      setRemoval(null)
++      reloadAll()
++    }
++  }
++  const restore = async (m: Member) => {
++    if (busy) return
++    if (await run(() => api.restoreMember(m.memberId), `${m.name} 선수를 복원했어요`)) reloadAll()
++  }
++
+   return (
+     <>
+       <TopBar title="멤버 관리" back={`/c/${slug}/admin`} />
+-      <main className="page">
+-        <section className="card stack" style={{ gap: 10 }}>
+-          <label className="field">새 멤버(여러 명은 쉼표나 줄바꿈으로)
+-            <textarea className="input" style={{ height: 84, padding: 10, resize: 'vertical' }} value={names}
+-              onChange={(e) => setNames(e.target.value)} placeholder={'홍길동, 김철수\n이영희 1081'} />
+-          </label>
+-          <button type="button" className="btn primary" disabled={busy || !names.trim()} onClick={add}>추가</button>
++      <div className="tabs" role="tablist" aria-label="멤버 구분">
++        <button type="button" role="tab" aria-selected={tab === 'members'} onClick={() => setTab('members')}>
++          선수 {list.data ? list.data.length : ''}
++        </button>
++        <button type="button" role="tab" aria-selected={tab === 'deleted'} onClick={() => setTab('deleted')}>
++          삭제한 선수 {deleted.data ? deleted.data.length : ''}
++        </button>
++      </div>
++      {tab === 'members' ? (
++        <main className="page">
++          <section className="card stack" style={{ gap: 10 }}>
++            <label className="field">새 멤버(여러 명은 쉼표나 줄바꿈으로)
++              <textarea className="input" style={{ height: 84, padding: 10, resize: 'vertical' }} value={names}
++                onChange={(e) => setNames(e.target.value)} placeholder={'홍길동, 김철수\n이영희 1081'} />
++            </label>
++            <button type="button" className="btn primary" disabled={busy || !names.trim()} onClick={add}>추가</button>
++            <p className="small muted">
++              이름 뒤에 숫자를 붙이면 그 값이 시작 Rating이 돼요(예: 이영희 1081). 순위표를 그대로 붙여 넣어도 앞의 순위 숫자는 무시해요.
++              숫자가 없으면 기본 Rating에서 시작해요.
++              등번호는 추가 후 아래 목록에서 입력할 수 있어요.
++            </p>
++          </section>
++
++          {list.error ? <ErrorBox error={list.error} onRetry={list.reload} /> : !list.data ? <Loading /> : (
++            <section className="section">
++              <h2 style={{ fontSize: 15, fontWeight: 700 }}>전체 {list.data.length}명 · 활동 {list.data.filter((m) => m.active).length}명</h2>
++              <p className="small muted">
++                등번호는 0~99로 입력하세요. 비우고 저장하면 미지정으로 바뀌어요.
++                쉬는 선수는 활동을 끄고(비활성), 그만둔 선수는 [삭제]하세요. 삭제해도 지난 경기 · 기사 기록은 남아요.
++              </p>
++              {list.data.map((m) => (
++                <MemberRow key={`${m.memberId}-${m.name}-${m.jerseyNumber}`} m={m} onSaved={list.reload} onRemove={() => askRemove(m)} />
++              ))}
++            </section>
++          )}
++        </main>
++      ) : (
++        <main className="page">
+           <p className="small muted">
+-            이름 뒤에 숫자를 붙이면 그 값이 시작 Rating이 돼요(예: 이영희 1081). 순위표를 그대로 붙여 넣어도 앞의 순위 숫자는 무시해요.
+-            숫자가 없으면 기본 Rating에서 시작해요.
+-            등번호는 추가 후 아래 목록에서 입력할 수 있어요.
++            삭제한 선수는 선수단 · 참석 선택 · 기록 순위 · 이달의 MVP 후보에 나오지 않아요. 지난 경기 · 기사 · 수상 기록 속 이름은 그대로 보여요.
++            [복원]하면 삭제 전 상태(활동/비활성)로 돌아가요.
+           </p>
+-        </section>
++          {deleted.error ? <ErrorBox error={deleted.error} onRetry={deleted.reload} /> : !deleted.data ? <Loading />
++            : deleted.data.length === 0 ? <Empty>삭제한 선수가 없어요.</Empty> : (
++              <section className="section">
++                {deleted.data.map((m) => (
++                  <div key={m.memberId} className="list-row member-deleted-row">
++                    <span className="member-name-line">
++                      {m.jerseyNumber != null ? <span className="member-jersey">{m.jerseyNumber}</span> : null}
++                      <b>{m.name}</b>
++                    </span>
++                    <span className="row" style={{ gap: 8 }}>
++                      <span className="small muted">{fmtDeletedAt(m.deletedAt)} 삭제</span>
++                      <button type="button" className="btn sm" disabled={busy} onClick={() => { void restore(m) }}>복원</button>
++                    </span>
++                  </div>
++                ))}
++              </section>
++            )}
++        </main>
++      )}
+ 
+-        {list.error ? <ErrorBox error={list.error} onRetry={list.reload} /> : !list.data ? <Loading /> : (
+-          <section className="section">
+-            <h2 style={{ fontSize: 15, fontWeight: 700 }}>전체 {list.data.length}명 · 활동 {list.data.filter((m) => m.active).length}명</h2>
+-            <p className="small muted">등번호는 0~99로 입력하세요. 비우고 저장하면 미지정으로 바뀌어요.</p>
+-            {list.data.map((m) => <MemberRow key={`${m.memberId}-${m.name}-${m.jerseyNumber}`} m={m} onSaved={list.reload} />)}
+-          </section>
+-        )}
+-      </main>
++      <Sheet open={removal !== null} onClose={closeRemoval} labelledBy="member-remove-title">
++        {removal ? (
++          <div className="stack">
++            <h2 id="member-remove-title">{removal.name} 선수를 삭제할까요?</h2>
++            <p className="small muted">
++              선수단 · 참석 선택 · 기록 순위 · 이달의 MVP 후보에서 사라져요.
++              지난 경기 · 기사 · 수상 기록은 그대로 남고, ‘삭제한 선수’에서 언제든 복원할 수 있어요.
++            </p>
++            {removeError ? <p role="alert" className="small" style={{ color: 'var(--warn-ink)' }}>{removeError}</p> : null}
++            <div className="grid2">
++              <button type="button" className="btn" disabled={busy} onClick={closeRemoval}>취소</button>
++              <button type="button" className="btn danger" disabled={busy} onClick={() => { void remove() }}>{busy ? '삭제 중…' : '삭제하기'}</button>
++            </div>
++          </div>
++        ) : null}
++      </Sheet>
+     </>
+   )
+ }
+ 
+-function MemberRow({ m, onSaved }: { m: Member; onSaved: () => void }) {
++/** 삭제 시각(UTC ISO) → 내 화면 기준 'M/D' */
++function fmtDeletedAt(iso: string | null): string {
++  if (!iso) return ''
++  const d = new Date(iso)
++  return `${d.getMonth() + 1}/${d.getDate()}`
++}
++
++function MemberRow({ m, onSaved, onRemove }: { m: Member; onSaved: () => void; onRemove: () => void }) {
+   const { api } = useClub()
+   const { busy, run } = useAction()
+   const [name, setName] = useState(m.name)
+@@ -95,10 +195,11 @@ function MemberRow({ m, onSaved }: { m: Member; onSaved: () => void }) {
+       {jerseyBad ? <span className="small" style={{ color: 'var(--danger-ink)' }}>등번호는 0~99 사이의 정수로 입력하세요.</span> : null}
+       <div className="row between member-admin-actions">
+         {dirty ? <button type="button" className="btn sm primary" disabled={busy || jerseyBad || nameBad} onClick={save}>{busy ? '저장 중…' : '저장'}</button> : <span />}
+-        <span className="row small muted">
++        <span className="row small muted" style={{ gap: 8 }}>
+           {m.active ? '활동' : '비활성'}
+           <Switch checked={m.active} label={`${m.name} 활동 여부`}
+             onChange={async (v) => { if (!busy && await run(() => api.updateMember(m.memberId, { active: v }))) onSaved() }} />
++          <button type="button" className="btn sm danger" aria-label={`${m.name} 삭제`} disabled={busy} onClick={onRemove}>삭제</button>
+         </span>
+       </div>
+     </div>
+diff --git a/frontend/src/pages/admin/club-appearance.css b/frontend/src/pages/admin/club-appearance.css
+index 56f0722..8e23932 100644
+--- a/frontend/src/pages/admin/club-appearance.css
++++ b/frontend/src/pages/admin/club-appearance.css
+@@ -18,3 +18,7 @@
+ .appearance-file { max-width: 100%; font: inherit; color: var(--ink); }
+ .appearance-file::file-selector-button { min-height: 40px; margin-right: 10px; padding: 8px 12px; color: var(--ink); background: var(--soft); border: 1px solid var(--line-strong); border-radius: 8px; cursor: pointer; }
+ .appearance-error { margin: 0; font-size: 13px; color: var(--warn-ink); }
++.appearance-size-row { display: flex; align-items: center; gap: 12px; }
++.appearance-size-range { flex: 1; min-width: 0; accent-color: var(--accent); }
++.appearance-size-value { min-width: 48px; text-align: right; font-size: 15px; }
++.appearance-clubbar-preview { border-radius: 10px; overflow: hidden; }
+diff --git a/frontend/src/styles/club-content.css b/frontend/src/styles/club-content.css
+index 0e55650..66b1d4a 100644
+--- a/frontend/src/styles/club-content.css
++++ b/frontend/src/styles/club-content.css
+@@ -21,6 +21,13 @@
+ .announcement-window:focus .announcement-track,
+ .announcement-ticker.is-paused .announcement-track { animation-play-state: paused; }
+ @keyframes club-announcement-scroll { to { transform: translateX(-50%); } }
++/* 공지 크기 3단계(관리자 설정): 글자와 줄 높이를 함께. medium = 기존 크기 */
++.announcement-ticker.size-small { min-height: 24px; font-size: 10px; }
++.announcement-ticker.size-small .announcement-label { font-size: 9px; }
++.announcement-ticker.size-small .announcement-pause { width: 24px; height: 24px; }
++.announcement-ticker.size-large { min-height: 40px; padding: 4px 12px; font-size: 14px; font-weight: 600; color: var(--ink-2); }
++.announcement-ticker.size-large .announcement-label { font-size: 12px; }
++.announcement-ticker.size-large .announcement-pause { width: 34px; height: 34px; }
+ 
+ .club-content-editor { min-width: 0; }
+ .club-content-editor .card { min-width: 0; }
+diff --git a/frontend/src/styles/member-numbers.css b/frontend/src/styles/member-numbers.css
+index 0fc9832..b74e20d 100644
+--- a/frontend/src/styles/member-numbers.css
++++ b/frontend/src/styles/member-numbers.css
+@@ -16,3 +16,4 @@
+ .member-admin-fields .field { min-width: 0; }
+ .member-admin-fields .input { height: 40px; }
+ .member-admin-actions { min-height: 34px; }
++.member-deleted-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; }
+diff --git a/tests/test_club_content.py b/tests/test_club_content.py
+index bf5fb24..3a87fdd 100644
+--- a/tests/test_club_content.py
++++ b/tests/test_club_content.py
+@@ -9,7 +9,7 @@ def test_content_partial_update_clear_and_public_persistence(make_club, monkeypa
+     api = make_club("content-edit")
+     assert api.ok(api.get("/content", admin=False)) == {
+         "operatingRules": None, "operatingRulesUpdatedAt": None,
+-        "announcement": "", "announcementUpdatedAt": None,
++        "announcement": "", "announcementUpdatedAt": None, "announcementSize": "medium",
+     }
+     emitted = []
+     monkeypatch.setattr(hub, "publish", lambda channel, message: emitted.append((channel, message)))
+diff --git a/tests/test_member_delete_display_sizes.py b/tests/test_member_delete_display_sizes.py
+new file mode 100644
+index 0000000..c36c3ec
+--- /dev/null
++++ b/tests/test_member_delete_display_sizes.py
+@@ -0,0 +1,115 @@
++"""메인 팀 마크 크기(관리자 슬라이더) · 상단 공지 크기(3단계) · 선수 삭제(목록에서만 숨김, 복원)."""
++import json
++
++from sqlalchemy import select
++
++from app.core.database import SessionLocal
++from app.core.timeutil import local_today
++from app.models import Member
++
++
++def _closed_session(api, member_ids, d):
++    """일정 하나: 참석 → 2팀 확정 → 한 경기(A팀 골) 확정 → 마감."""
++    sid = api.ok(api.post("/sessions", {"sessionDate": d.isoformat()}), 201)["sessionId"]
++    api.ok(api.post(f"/sessions/{sid}/members", {"memberIds": member_ids}))
++    gen = api.ok(api.post(f"/sessions/{sid}/teams/generate", {"teamCount": 2}))
++    api.ok(api.post(f"/sessions/{sid}/teams/confirm", {"generationId": gen["generationId"]}))
++    m = api.next_match(sid)
++    mid = m["matchId"]
++    api.ok(api.post(f"/matches/{mid}/start"))
++    scorer = api.ok(api.get(f"/matches/{mid}"))["teamA"]["members"][0]["memberId"]
++    api.ok(api.post(f"/matches/{mid}/goals", {"teamId": m["teamA"]["sessionTeamId"], "scorerMemberId": scorer}))
++    api.ok(api.post(f"/matches/{mid}/end"))
++    api.ok(api.post(f"/matches/{mid}/finalize"))
++    api.ok(api.post(f"/sessions/{sid}/close"))
++    return sid
++
++
++def test_crest_size_is_saved_by_admin_and_validated(make_club):
++    api = make_club("crestsize")
++    assert api.ok(api.get("/appearance", admin=False))["crestSize"] == 44  # 저장 전 = 지금까지 크기
++    saved = api.ok(api.patch("/admin/appearance", {"crestSize": 60}))
++    assert saved["crestSize"] == 60 and saved["crest"]["mode"] == "auto"  # 크기만 바꾸면 마크 설정은 그대로
++    assert api.ok(api.get("", admin=False))["appearance"]["crestSize"] == 60  # 탭 머리(ClubBar)가 읽는 값
++    for bad in (31, 73, 50.5, "60"):
++        assert api.patch("/admin/appearance", {"crestSize": bad}).status_code == 422
++    assert api.patch("/admin/appearance", {"crestSize": None}).status_code == 400
++    assert api.patch("/admin/appearance", {"crestSize": 40}, admin=False).status_code == 401
++    same = api.ok(api.patch("/admin/appearance", {"crestSize": 60}))
++    assert same["updatedAt"] == saved["updatedAt"]  # 같은 값이면 변경 없음(알림도 없음)
++
++
++def test_announcement_size_has_three_steps(make_club):
++    api = make_club("noticesize")
++    api.ok(api.patch("/admin/content", {"announcement": "토요일 8시 시작"}))
++    before = api.ok(api.get("/content", admin=False))
++    assert before["announcementSize"] == "medium"
++    large = api.ok(api.patch("/admin/content", {"announcementSize": "large"}))
++    assert large["announcementSize"] == "large" and large["announcement"] == "토요일 8시 시작"
++    assert large["announcementUpdatedAt"] == before["announcementUpdatedAt"]  # 크기만 바꾸면 공지 수정 시각 그대로
++    assert api.ok(api.get("/content", admin=False))["announcementSize"] == "large"
++    assert api.patch("/admin/content", {"announcementSize": "huge"}).status_code == 422
++    assert api.ok(api.patch("/admin/content", {"announcementSize": None}))["announcementSize"] == "medium"
++    assert api.ok(api.patch("/admin/content", {"announcementSize": "small"}))["announcementSize"] == "small"
++
++
++def test_deleted_member_is_hidden_from_lists_but_records_stay(make_club):
++    api = make_club("mdelete")
++    ids = [api.ok(api.post("/members", {"name": f"선수{i}"}), 201)["memberId"] for i in range(6)]
++    api.ok(api.patch("/admin/config", {"values": {"MONTHLY_MVP_MIN_SESSIONS": 1}}))
++    sid = _closed_session(api, ids, local_today("Asia/Seoul"))
++
++    race = api.ok(api.get("/stats/mvp-race", admin=False))["candidates"]
++    assert race, "이긴 팀 선수는 이달의 MVP 후보"
++    x = race[0]["memberId"]
++    x_name = next(m["name"] for m in api.ok(api.get("/members")) if m["memberId"] == x)
++    before_summary = api.ok(api.get("/summary", admin=False))["activeMembers"]
++    before_detail = api.ok(api.get(f"/stats/members/{x}", admin=False))["summary"]
++
++    gone = api.ok(api.delete(f"/members/{x}"))
++    assert gone["deleted"] is True and gone["deletedAt"]
++    assert api.ok(api.delete(f"/members/{x}"))["deletedAt"] == gone["deletedAt"]  # 다시 눌러도 그대로
++
++    # 목록에서 숨김: 선수단(공개) · 관리자 목록 · 기록 순위 · MVP 후보 · 요약 수
++    assert x not in [m["memberId"] for m in api.ok(api.get("/members", admin=False))]
++    assert x not in [m["memberId"] for m in api.ok(api.get("/members", params={"includeInactive": "true"}))]
++    assert x not in [m["memberId"] for m in api.ok(api.get("/stats/members", admin=False))]
++    assert x not in [c["memberId"] for c in api.ok(api.get("/stats/mvp-race", admin=False))["candidates"]]
++    assert api.ok(api.get("/summary", admin=False))["activeMembers"] == before_summary - 1
++    # 삭제한 선수 목록은 관리자만
++    assert [m["memberId"] for m in api.ok(api.get("/members", params={"deleted": "true"}))] == [x]
++    assert api.get("/members", params={"deleted": "true"}, admin=False).status_code == 401
++
++    # 지난 기록은 그대로: 선수 상세(링크) · 지난 일정 명단 · DB 행
++    detail = api.ok(api.get(f"/stats/members/{x}", admin=False))["summary"]
++    assert detail["deleted"] is True and detail["games"] == before_detail["games"] == 1
++    assert x_name in json.dumps(api.ok(api.get(f"/sessions/{sid}", admin=False)), ensure_ascii=False)
++    with SessionLocal() as s:
++        assert s.scalar(select(Member).where(Member.member_id == x)).deleted_at is not None
++
++    # 새 참석 · 수정 · 새 수상은 막힘
++    sid2 = api.ok(api.post("/sessions", {"sessionDate": "2027-03-06"}), 201)["sessionId"]
++    r = api.post(f"/sessions/{sid2}/members", {"memberIds": [x]})
++    assert r.status_code == 404 and r.json()["error"]["code"] == "MEMBER_NOT_FOUND"
++    r = api.patch(f"/members/{x}", {"name": "바꾸면 안 됨"})
++    assert r.status_code == 409 and r.json()["error"]["code"] == "MEMBER_DELETED"
++
++    # 복원: 목록 · 순위로 돌아오고 수정 가능
++    back = api.ok(api.post(f"/members/{x}/restore"))
++    assert back["deleted"] is False and back["deletedAt"] is None
++    assert x in [m["memberId"] for m in api.ok(api.get("/stats/members", admin=False))]
++    assert api.ok(api.get("/members", params={"deleted": "true"})) == []
++    api.ok(api.patch(f"/members/{x}", {"jerseyNumber": 7}))
++
++
++def test_member_in_unfinished_session_cannot_be_deleted(make_club):
++    api = make_club("mdelopen")
++    ids = [api.ok(api.post("/members", {"name": f"참석{i}"}), 201)["memberId"] for i in range(4)]
++    sid = api.ok(api.post("/sessions", {"sessionDate": "2027-03-13"}), 201)["sessionId"]
++    api.ok(api.post(f"/sessions/{sid}/members", {"memberIds": ids}))
++    r = api.delete(f"/members/{ids[0]}")
++    assert r.status_code == 409 and r.json()["error"]["code"] == "MEMBER_IN_OPEN_SESSION" and "3/13" in r.json()["error"]["message"]
++    assert api.ok(api.delete(f"/sessions/{sid}/members/{ids[0]}"))  # 참석 취소 후에는 삭제 가능
++    assert api.ok(api.delete(f"/members/{ids[0]}"))["deleted"] is True
++    # 삭제한 선수는 관리자 지각 추가(팀 배정)에서도 찾을 수 없음
++    assert ids[0] not in [m["memberId"] for m in api.ok(api.get("/members"))]
+-- 
+2.43.0
+

@@ -1,0 +1,1294 @@
+From 4786ac0af5fb9dab955284aff97731fa2e50151e Mon Sep 17 00:00:00 2001
+From: "prefer.Jin" <104110991+preferJ@users.noreply.github.com>
+Date: Mon, 2 Nov 2026 10:43:28 +0900
+Subject: [PATCH] =?UTF-8?q?=EC=9D=BC=EB=B0=98=20=ED=9A=8C=EC=9B=90=20?=
+ =?UTF-8?q?=EA=B2=BD=EA=B8=B0=20=EC=A4=91=20=EA=B3=A8=20=C2=B7=20=EB=8F=84?=
+ =?UTF-8?q?=EC=9B=80=20=EA=B8=B0=EB=A1=9D,=20=EA=B3=A8=20=EC=88=98?=
+ =?UTF-8?q?=EC=A0=95,=20=EA=B2=BD=EA=B8=B0=20=EA=B2=B0=EA=B3=BC=20?=
+ =?UTF-8?q?=EC=9D=B4=EA=B8=B4=20=ED=8C=80=20=EA=B0=95=EC=A1=B0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 골 등록: 경기 중(LIVE · 일시정지)에는 관리자 모드가 아니어도 기록(POST /matches/{id}/goals 관리자 토큰 선택)
+  - 시작 전 409 INVALID_MATCH_STATUS, 끝난 뒤 403 ADMIN_REQUIRED_AFTER_END(관리자가 기록 검토에서 추가)
+  - 검증 규칙 · 멱등키 · 조기 종료는 관리자 기록과 동일, 기록 주체 MATCH_EVENT.ADMIN_ID = NULL
+  - 수정 · 취소 · 경기 진행 · 확정 · 출전 명단은 그대로 관리자만
+- 골 수정(관리자): PATCH /matches/{id}/events/{eventId}
+  - 기존 골 CANCELLED_YN + 고친 골을 새 GOAL로 기록(REF_EVENT_ID = 수정 전 골, 득점 시각 유지)
+  - 득점 팀이 바뀌면 같은 트랜잭션에서 점수 이동, 확정 후 409, 같은 수정 재요청은 그대로 반환
+  - 경기 화면 타임라인 [수정] → 골 시트에서 팀 · 자책 · 득점자 · 도움(끝난 경기면 득점 시각), 대체된 골은 숨기고 '수정됨'
+- 이긴 팀 강조: 점수판 · 일정 경기 목록 · 기사 '이날 경기 결과'에서 굵게 + 초록 + '승'
+- alembic 0013(설명만 변경: MATCH_EVENT, 0011 · 0012에서 어긋난 CLUB · MEMBER 설명 동기화)
+- 테스트 test_member_goal_edit.py, DECISIONS 3-16, 문서 재생성
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01Xm9YmfakrZY2viAbwm7Uxy
+---
+ README.md                                     |   6 +-
+ .../versions/0013_goal_edit_member_goal.py    |  54 ++++++
+ app/api/matches.py                            |  30 ++-
+ app/models/comments.py                        |   7 +-
+ app/schemas/requests.py                       |  11 ++
+ app/services/match_service.py                 | 146 +++++++++++---
+ docs/API.md                                   |   3 +-
+ docs/DECISIONS.md                             |  18 ++
+ docs/TABLES.md                                |   8 +-
+ docs/openapi.json                             | 150 ++++++++++++++-
+ docs/schema.sql                               |   8 +-
+ frontend/src/api/endpoints.ts                 |  13 ++
+ frontend/src/components/ui.tsx                |  10 +
+ frontend/src/lib/format.ts                    |   6 +
+ frontend/src/pages/ArticlePage.tsx            |   6 +-
+ frontend/src/pages/MatchPage.tsx              | 123 ++++++++----
+ frontend/src/pages/SessionPage.tsx            |   7 +-
+ frontend/src/styles/global.css                |   7 +
+ tests/test_member_goal_edit.py                | 180 ++++++++++++++++++
+ 19 files changed, 696 insertions(+), 97 deletions(-)
+ create mode 100644 alembic/versions/0013_goal_edit_member_goal.py
+ create mode 100644 tests/test_member_goal_edit.py
+
+diff --git a/README.md b/README.md
+index 3ba662b..a41b739 100644
+--- a/README.md
++++ b/README.md
+@@ -76,6 +76,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리
+ | `test_monthly_mvp.py` | 이달의 MVP: 상승률 계산(DB 이력과 일치) · 자격(일정 2회) · 열린 일정 있으면 대기 · 마지막 일정 마감 시 타이틀 + 기사 바로 게시 · 점수 비노출 · 한 달 한 번 · 후보 1~3위 |
+ | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
+ | `test_member_delete_display_sizes.py` | 메인 팀 마크 크기(32~72px 저장 · 범위 · null 거부), 상단 공지 크기 3단계, 선수 삭제(선수단 · 관리자 목록 · 기록 순위 · MVP 후보 · 요약 수에서 제외, 지난 기록 · 선수 상세 유지, 새 참석 · 수정 차단, 복원), 끝나지 않은 일정 참석자 삭제 차단 |
++| `test_member_goal_edit.py` | 일반 회원 골 · 도움 기록(경기 중만, 시작 전 409 · 끝난 뒤 403, 멱등키, 검증 규칙 동일), 일반 회원 수정 · 취소 · 경기 조작 401, 골 수정(취소 표시 + 새 골 · refEventId · 시각 유지, 팀 변경 시 점수 이동, 자책골 전환 시 도움 제거, 같은 수정 재요청 · 변경 없음, 끝난 뒤 시각 수정, 확정 후 409, 취소된 골 409), 확정 통계는 고친 기록 기준 |
+ 
+ ## 3. 운영 흐름 (API)
+ 
+@@ -94,7 +95,10 @@ POST /sessions/{id}/teams/assignments 🔑              지각 ADD / 이동 MOVE
+ GET  /sessions/{id}/matches/next-suggestion 🔑        팀별 오늘 경기 수 + 추천 대진(가장 오래 쉰 두 팀)
+ POST /sessions/{id}/matches/next {"teamAId","teamBId"} 🔑   다음 경기 생성 (대진은 매번 관리자가 지정)
+ POST /matches/{mid}/start | pause | resume | end 🔑
+-POST /matches/{mid}/goals {"teamId","scorerMemberId","assistMemberId","ownGoal","guestGoal","idempotencyKey"} 🔑
++POST /matches/{mid}/goals {"teamId","scorerMemberId","assistMemberId","ownGoal","guestGoal","idempotencyKey"}
++                                                      경기 중(LIVE · 일시정지)은 누구나, 끝난 뒤에는 🔑
++PATCH /matches/{mid}/events/{eid} {"teamId","scorerMemberId","assistMemberId","ownGoal","guestGoal","elapsedSec"} 🔑
++                                                      골 수정(기존 골 취소 표시 + 고친 골 새로 기록)
+ POST /matches/{mid}/events/{eid}/cancel 🔑            골 취소(삭제 X)
+ POST /matches/{mid}/finalize 🔑                       기록 확정 → Rating/통계/Pair 반영
+ POST /sessions/{id}/close 🔑                          ★ [일정마감] → 수정 잠금, 자동 타이틀, SESSION_RECAP 기사
+diff --git a/alembic/versions/0013_goal_edit_member_goal.py b/alembic/versions/0013_goal_edit_member_goal.py
+new file mode 100644
+index 0000000..ba9d45a
+--- /dev/null
++++ b/alembic/versions/0013_goal_edit_member_goal.py
+@@ -0,0 +1,54 @@
++"""골 수정(기존 골 취소 표시 + 고친 골 새로 기록) · 일반 회원 경기 중 골 기록: 설명(COMMENT)만 바꾼다.
++
++컬럼 · 데이터 변경 없음. MATCH_EVENT.ADMIN_ID는 원래 NULL 허용이라 일반 회원 기록은 NULL로 남는다.
++함께 맞춘 것: 0011 · 0012에서 모델(app/models/comments.py)과 달라진 CLUB 엠블럼 컬럼 · MEMBER 테이블 설명.
++"""
++from alembic import op
++import sqlalchemy as sa
++from sqlalchemy.dialects import mysql
++
++revision = "0013"
++down_revision = "0012"
++branch_labels = None
++depends_on = None
++
++_TABLES = (
++    # (테이블, 기존 설명, 새 설명)
++    ("MATCH_EVENT", "경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL)",
++     "경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL, 골 수정은 CANCELLED_YN + 새 GOAL)"),
++    ("MEMBER", "클럽 구성원(경기하는 사람). 삭제 대신 ACTIVE_YN=false",
++     "클럽 구성원(경기하는 사람). 쉬면 ACTIVE_YN=false, 그만두면 DELETED_AT(행은 남김)"),
++)
++_COLUMNS = (
++    # (테이블, 컬럼, 타입, NULL 허용, 기존 설명, 새 설명)
++    ("MATCH_EVENT", "REF_EVENT_ID", sa.BigInteger(), True, "취소 대상 이벤트",
++     "취소 대상 골(GOAL_CANCEL) / 수정 전 골(수정으로 새로 기록한 GOAL)"),
++    ("MATCH_EVENT", "CANCELLED_YN", sa.Boolean(), False, "취소된 골 여부",
++     "취소되거나 수정된 골 여부(통계 · 기사에서 제외)"),
++    ("MATCH_EVENT", "ADMIN_ID", sa.BigInteger(), True, "처리 관리자 ID",
++     "처리 관리자 ID(NULL=관리자 모드가 아닌 일반 회원의 경기 중 골 기록 또는 자동 처리)"),
++    ("CLUB", "CREST_CONFIG", sa.JSON(), True, "클럽 엠블럼 설정. NULL이면 기존 자동 엠블럼",
++     "엠블럼 설정(JSON): auto/design/image 모드, 도형·패턴·색상·문구·상징. NULL이면 기존 자동 엠블럼"),
++    ("CLUB", "CREST_IMAGE", mysql.MEDIUMBLOB(), True, "검증·정규화된 PNG 엠블럼 이미지",
++     "검증·정규화한 업로드 엠블럼 PNG 바이너리. 공개 API는 이미지 모드일 때만 제공"),
++    ("CLUB", "DEFAULT_THEME", sa.String(10), True, "클럽 기본 테마(dark/light). NULL이면 dark",
++     "클럽 기본 테마(dark/light). NULL이면 dark, 방문자가 저장한 선택이 우선"),
++    ("CLUB", "APPEARANCE_UPDATED_AT", mysql.DATETIME(fsp=3), True, "클럽 엠블럼·기본 테마 변경 시각(UTC)",
++     "엠블럼·기본 테마 수정 시각(UTC)"),
++)
++
++
++def _apply(upgrade: bool) -> None:
++    for table, old, new in _TABLES:
++        op.create_table_comment(table, new if upgrade else old, existing_comment=old if upgrade else new)
++    for table, column, type_, nullable, old, new in _COLUMNS:
++        op.alter_column(table, column, existing_type=type_, existing_nullable=nullable,
++                        comment=new if upgrade else old, existing_comment=old if upgrade else new)
++
++
++def upgrade() -> None:
++    _apply(True)
++
++
++def downgrade() -> None:
++    _apply(False)
+diff --git a/app/api/matches.py b/app/api/matches.py
+index 9a442ee..5ac9f13 100644
+--- a/app/api/matches.py
++++ b/app/api/matches.py
+@@ -1,13 +1,13 @@
+-"""경기 진행(LIVE). 쓰기는 관리자 모드만, 조회는 공개."""
++"""경기 진행(LIVE). 쓰기는 관리자 모드만(예외: 경기 중 골 · 도움 등록은 일반 회원도), 조회는 공개."""
+ from fastapi import APIRouter, Depends
+ from sqlalchemy.orm import Session
+ 
+-from app.api.deps import admin_dep, club_dep
++from app.api.deps import admin_dep, club_dep, optional_admin
+ from app.core.database import get_db
+ from app.core.security import AdminPrincipal
+ from app.models import Club
+ from app.models.enums import GameStatus
+-from app.schemas.requests import EventCancelRequest, GoalRequest, MatchMemberRequest, NextMatchRequest
++from app.schemas.requests import EventCancelRequest, GoalEditRequest, GoalRequest, MatchMemberRequest, NextMatchRequest
+ from app.services import match_service
+ from app.services.common import get_match
+ from app.services.match_service import match_detail, match_state
+@@ -63,17 +63,31 @@ router.add_api_route("/matches/{match_id}/unfinalize", _action(match_service.unf
+                      summary="확정 해제(일정마감 전까지)")
+ 
+ 
+-@router.post("/matches/{match_id}/goals", summary="골 등록(+점수 동시 반영, 멱등키 지원)")
++@router.post("/matches/{match_id}/goals",
++             summary="골 등록(+점수 동시 반영, 멱등키 지원). 경기 중에는 누구나, 경기가 끝난 뒤에는 관리자만")
+ def add_goal(match_id: int, body: GoalRequest, club: Club = Depends(club_dep),
+-             admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
++             admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+     e, m, created = match_service.add_goal(
+-        db, club.club_id, match_id, admin.admin_id, team_id=body.team_id, scorer_member_id=body.scorer_member_id,
+-        assist_member_id=body.assist_member_id, own_goal=body.own_goal, guest_goal=body.guest_goal,
+-        elapsed_sec=body.elapsed_sec, idempotency_key=body.idempotency_key, memo=body.memo)
++        db, club.club_id, match_id, admin.admin_id if admin else None, team_id=body.team_id,
++        scorer_member_id=body.scorer_member_id, assist_member_id=body.assist_member_id, own_goal=body.own_goal,
++        guest_goal=body.guest_goal, elapsed_sec=body.elapsed_sec, idempotency_key=body.idempotency_key,
++        memo=body.memo, by_admin=admin is not None)
+     m, _ = get_match(db, club.club_id, match_id)
+     return {"eventId": e.event_id, "duplicate": not created, "match": match_state(db, m)}
+ 
+ 
++@router.patch("/matches/{match_id}/events/{event_id}",
++              summary="골 수정(기존 골은 취소 표시, 고친 골을 새로 기록 + 점수 동시 반영)")
++def edit_goal(match_id: int, event_id: int, body: GoalEditRequest, club: Club = Depends(club_dep),
++              admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
++    e, m, changed = match_service.edit_goal(
++        db, club.club_id, match_id, event_id, admin.admin_id, team_id=body.team_id,
++        scorer_member_id=body.scorer_member_id, assist_member_id=body.assist_member_id, own_goal=body.own_goal,
++        guest_goal=body.guest_goal, elapsed_sec=body.elapsed_sec, memo=body.memo)
++    m, _ = get_match(db, club.club_id, match_id)
++    return {"eventId": e.event_id, "changed": changed, "match": match_state(db, m)}
++
++
+ @router.post("/matches/{match_id}/events/{event_id}/cancel", summary="골 취소(삭제하지 않고 취소 이벤트 기록)")
+ def cancel_goal(match_id: int, event_id: int, body: EventCancelRequest | None = None, club: Club = Depends(club_dep),
+                 admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
+diff --git a/app/models/comments.py b/app/models/comments.py
+index e3efa0f..c32b5c7 100644
+--- a/app/models/comments.py
++++ b/app/models/comments.py
+@@ -170,7 +170,7 @@ COMMENTS: dict[str, dict[str, str]] = {
+         "SESSION_TEAM_ID": "출전 팀",
+     },
+     "MATCH_EVENT": {
+-        "__table__": "경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL)",
++        "__table__": "경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL, 골 수정은 CANCELLED_YN + 새 GOAL)",
+         "EVENT_ID": "이벤트 ID",
+         "EVENT_TYPE": "START/PAUSE/RESUME/GOAL/GOAL_CANCEL/END/FINALIZE/UNFINALIZE/CANCEL/MEMBER_ADD/MEMBER_REMOVE",
+         "TEAM_ID": "득점 팀(GOAL) / 대상 팀",
+@@ -181,10 +181,11 @@ COMMENTS: dict[str, dict[str, str]] = {
+         "GUEST_GOAL_YN": "게스트 득점 여부",
+         "ELAPSED_SEC": "경기 경과 초",
+         "REMAINING_SEC": "남은 초(음수=추가 시간)",
+-        "REF_EVENT_ID": "취소 대상 이벤트",
+-        "CANCELLED_YN": "취소된 골 여부",
++        "REF_EVENT_ID": "취소 대상 골(GOAL_CANCEL) / 수정 전 골(수정으로 새로 기록한 GOAL)",
++        "CANCELLED_YN": "취소되거나 수정된 골 여부(통계 · 기사에서 제외)",
+         "IDEMPOTENCY_KEY": "중복 요청 방지 키(MATCH_ID와 UNIQUE)",
+         "MEMO": "메모",
++        "ADMIN_ID": "처리 관리자 ID(NULL=관리자 모드가 아닌 일반 회원의 경기 중 골 기록 또는 자동 처리)",
+     },
+     "PLAYER_RATING": {
+         "__table__": "현재 Hidden Rating(파생, 재계산 가능)",
+diff --git a/app/schemas/requests.py b/app/schemas/requests.py
+index a469a30..a6fa146 100644
+--- a/app/schemas/requests.py
++++ b/app/schemas/requests.py
+@@ -101,6 +101,17 @@ class GoalRequest(CamelModel):
+     memo: str | None = Field(default=None, max_length=200)
+ 
+ 
++class GoalEditRequest(CamelModel):
++    """골 수정: 고친 뒤의 전체 값(득점 팀 · 득점자 · 도움 · 자책 · 게스트). 득점 시각은 생략하면 원래 시각 유지."""
++    team_id: int = Field(description="점수를 얻는 팀(SESSION_TEAM_ID)")
++    scorer_member_id: int | None = None
++    assist_member_id: int | None = None
++    own_goal: bool = False
++    guest_goal: bool = False
++    elapsed_sec: int | None = Field(default=None, ge=0, description="생략 시 원래 득점 시각 유지")
++    memo: str | None = Field(default=None, max_length=200)
++
++
+ class EventCancelRequest(CamelModel):
+     memo: str | None = Field(default=None, max_length=200)
+ 
+diff --git a/app/services/match_service.py b/app/services/match_service.py
+index 906ffff..e57becf 100644
+--- a/app/services/match_service.py
++++ b/app/services/match_service.py
+@@ -3,7 +3,8 @@
+ 동시성
+ - 경기 상태/점수 변경은 MATCH_GAME 행을 SELECT … FOR UPDATE로 잠근 뒤 처리한다.
+ - 골 등록은 IDEMPOTENCY_KEY(UNIQUE MATCH_ID+KEY)로 더블클릭 중복을 막는다.
+-- 점수는 GOAL/GOAL_CANCEL 이벤트와 같은 트랜잭션에서만 바뀐다.
++- 점수는 GOAL/GOAL_CANCEL 이벤트(골 수정 포함)와 같은 트랜잭션에서만 바뀐다.
++- 골 수정은 기존 골을 취소 표시하고 고친 골을 새로 기록한다(REF_EVENT_ID로 연결, 이벤트 삭제 없음).
+ """
+ import math
+ from datetime import datetime, timedelta
+@@ -13,7 +14,7 @@ from sqlalchemy.exc import IntegrityError
+ from sqlalchemy.orm import Session
+ 
+ from app.core.database import SessionLocal, emit
+-from app.core.errors import BadRequest, Conflict, NotFound
++from app.core.errors import BadRequest, Conflict, Forbidden, NotFound
+ from app.core.timeutil import to_iso, utcnow
+ from app.models import (
+     ClubSession,
+@@ -376,26 +377,14 @@ def auto_end_due_matches() -> int:
+ 
+ 
+ # ------------------------------------------------------------------ 골
+-def add_goal(db: Session, club_id: int, match_id: int, admin_id: int | None, *, team_id: int,
+-             scorer_member_id: int | None = None, assist_member_id: int | None = None, own_goal: bool = False,
+-             guest_goal: bool = False, elapsed_sec: int | None = None, idempotency_key: str | None = None,
+-             memo: str | None = None) -> tuple[MatchEvent, MatchGame, bool]:
+-    """반환: (이벤트, 경기, 새로 생성 여부). 같은 멱등키 재요청이면 기존 이벤트를 그대로 돌려준다."""
+-    m, s = _lock(db, club_id, match_id)
+-    if idempotency_key:
+-        dup = db.scalar(select(MatchEvent).where(MatchEvent.match_id == match_id,
+-                                                 MatchEvent.idempotency_key == idempotency_key))
+-        if dup:
+-            db.rollback()
+-            return dup, m, False
+-    if m.finalized_at:
+-        raise Conflict("확정된 경기는 수정할 수 없습니다. 확정을 해제한 뒤 수정하세요.", "MATCH_FINALIZED")
+-    _require(m, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)
++def _check_goal(db: Session, m: MatchGame, *, team_id: int, scorer_member_id: int | None,
++                assist_member_id: int | None, own_goal: bool, guest_goal: bool) -> None:
++    """득점 팀 · 득점자/자책/게스트 · 도움 검증(골 등록과 골 수정이 같은 규칙을 쓴다)."""
+     if team_id not in (m.team_a_id, m.team_b_id):
+         raise BadRequest("득점 팀은 이 경기의 팀이어야 합니다.", "INVALID_TEAM")
+     other = m.team_b_id if team_id == m.team_a_id else m.team_a_id
+     roster = {mm.member_id: mm.session_team_id
+-              for mm in db.scalars(select(MatchMember).where(MatchMember.match_id == match_id))}
++              for mm in db.scalars(select(MatchMember).where(MatchMember.match_id == m.match_id))}
+ 
+     def guests_on(tid: int) -> int:
+         return db.scalar(select(func.count()).select_from(SessionGuest).where(
+@@ -421,14 +410,49 @@ def add_goal(db: Session, club_id: int, match_id: int, admin_id: int | None, *,
+         if assist_member_id == scorer_member_id:
+             raise BadRequest("득점자와 도움 선수가 같을 수 없습니다.", "INVALID_ASSIST")
+ 
+-    now = utcnow()
++
++def _goal_elapsed(m: MatchGame, elapsed_sec: int | None, now: datetime) -> int:
++    """득점 시각(초). 생략하면 지금 경과 시간, 지정하면 0 ~ 지금 경과 시간 안이어야 한다."""
+     current = elapsed_seconds(m, now)
+-    if elapsed_sec is not None:
+-        if elapsed_sec < 0 or elapsed_sec > math.ceil(current) + 1:
+-            raise BadRequest("득점 시각(elapsedSec)이 경기 진행 시간을 벗어났습니다.")
+-        el = int(elapsed_sec)
+-    else:
+-        el = int(current)
++    if elapsed_sec is None:
++        return int(current)
++    if elapsed_sec < 0 or elapsed_sec > math.ceil(current) + 1:
++        raise BadRequest("득점 시각(elapsedSec)이 경기 진행 시간을 벗어났습니다.")
++    return int(elapsed_sec)
++
++
++def _check_early_end(db: Session, m: MatchGame, now: datetime, admin_id: int | None) -> None:
++    if (m.early_end_goals and m.game_status in (GameStatus.RUNNING, GameStatus.PAUSED)
++            and max(m.score_a, m.score_b) >= m.early_end_goals):
++        _finish(db, m, now, EndReason.EARLY_GOAL, admin_id)
++
++
++def add_goal(db: Session, club_id: int, match_id: int, admin_id: int | None, *, team_id: int,
++             scorer_member_id: int | None = None, assist_member_id: int | None = None, own_goal: bool = False,
++             guest_goal: bool = False, elapsed_sec: int | None = None, idempotency_key: str | None = None,
++             memo: str | None = None, by_admin: bool = True) -> tuple[MatchEvent, MatchGame, bool]:
++    """반환: (이벤트, 경기, 새로 생성 여부). 같은 멱등키 재요청이면 기존 이벤트를 그대로 돌려준다.
++
++    by_admin=False(관리자 모드가 아닌 일반 회원)는 경기 중(RUNNING/PAUSED)에만 기록할 수 있다.
++    경기가 끝난 뒤의 골 추가 · 수정 · 취소와 기록 확정은 관리자가 한다(DECISIONS 3-16).
++    """
++    m, s = _lock(db, club_id, match_id)
++    if idempotency_key:
++        dup = db.scalar(select(MatchEvent).where(MatchEvent.match_id == match_id,
++                                                 MatchEvent.idempotency_key == idempotency_key))
++        if dup:
++            db.rollback()
++            return dup, m, False
++    if m.finalized_at:
++        raise Conflict("확정된 경기는 수정할 수 없습니다. 확정을 해제한 뒤 수정하세요.", "MATCH_FINALIZED")
++    if not by_admin and m.game_status == GameStatus.FINISHED:
++        raise Forbidden("경기가 끝난 뒤에는 관리자만 골을 기록할 수 있어요.", "ADMIN_REQUIRED_AFTER_END")
++    _require(m, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)
++    _check_goal(db, m, team_id=team_id, scorer_member_id=scorer_member_id, assist_member_id=assist_member_id,
++                own_goal=own_goal, guest_goal=guest_goal)
++
++    now = utcnow()
++    el = _goal_elapsed(m, elapsed_sec, now)
+ 
+     e = MatchEvent(match_id=match_id, event_type=EventType.GOAL, team_id=team_id,
+                    scorer_member_id=scorer_member_id, assist_member_id=assist_member_id,
+@@ -450,10 +474,7 @@ def add_goal(db: Session, club_id: int, match_id: int, admin_id: int | None, *,
+     else:
+         m.score_b += 1
+     m.version += 1
+-
+-    if (m.early_end_goals and m.game_status in (GameStatus.RUNNING, GameStatus.PAUSED)
+-            and max(m.score_a, m.score_b) >= m.early_end_goals):
+-        _finish(db, m, now, EndReason.EARLY_GOAL, admin_id)
++    _check_early_end(db, m, now, admin_id)
+ 
+     names = member_names(db, [scorer_member_id, assist_member_id])
+     emit(db, club_id, "MATCH_EVENT", {"matchId": m.match_id, "sessionId": m.session_id,
+@@ -488,6 +509,73 @@ def cancel_goal(db: Session, club_id: int, match_id: int, event_id: int, admin_i
+     return rev, m
+ 
+ 
++def _same_goal(e: MatchEvent, team_id: int, scorer_member_id: int | None, assist_member_id: int | None,
++               own_goal: bool, guest_goal: bool) -> bool:
++    return (e.team_id, e.scorer_member_id, e.assist_member_id, bool(e.own_goal_yn), bool(e.guest_goal_yn)) == \
++        (team_id, scorer_member_id, assist_member_id, own_goal, guest_goal)
++
++
++def edit_goal(db: Session, club_id: int, match_id: int, event_id: int, admin_id: int | None, *, team_id: int,
++              scorer_member_id: int | None = None, assist_member_id: int | None = None, own_goal: bool = False,
++              guest_goal: bool = False, elapsed_sec: int | None = None,
++              memo: str | None = None) -> tuple[MatchEvent, MatchGame, bool]:
++    """골 수정(득점 팀 · 득점자 · 도움 · 자책 · 게스트 · 득점 시각).
++
++    이벤트는 지우거나 덮어쓰지 않는다: 기존 골은 CANCELLED_YN만 켜고, 고친 내용으로 새 GOAL을 기록한다
++    (새 GOAL.REF_EVENT_ID = 수정 전 골). 통계 · 기사는 지금처럼 '취소되지 않은 GOAL'만 읽으므로 그대로 맞고,
++    수정 전 기록은 DB에 남는다. 득점 시각을 생략하면 원래 시각을 유지한다.
++    반환: (수정된 골, 경기, 실제로 바뀌었는지). 바뀐 게 없거나 같은 수정이 다시 오면(더블클릭) 기존 골을 돌려준다.
++    """
++    m, _ = _lock(db, club_id, match_id)
++    if m.finalized_at:
++        raise Conflict("확정된 경기는 수정할 수 없습니다. 확정을 해제한 뒤 수정하세요.", "MATCH_FINALIZED")
++    _require(m, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)
++    ev = db.scalar(select(MatchEvent).where(MatchEvent.event_id == event_id, MatchEvent.match_id == match_id))
++    if not ev or ev.event_type != EventType.GOAL:
++        raise NotFound("골 이벤트를 찾을 수 없습니다.", "EVENT_NOT_FOUND")
++    if own_goal:
++        assist_member_id = None
++    if ev.cancelled_yn:
++        edited = db.scalar(select(MatchEvent).where(MatchEvent.match_id == match_id,
++                                                    MatchEvent.event_type == EventType.GOAL,
++                                                    MatchEvent.ref_event_id == ev.event_id))
++        if edited and _same_goal(edited, team_id, scorer_member_id, assist_member_id, own_goal, guest_goal):
++            db.rollback()
++            return edited, m, False
++        raise Conflict("이미 취소되었거나 수정된 골입니다. 화면을 새로 고친 뒤 다시 시도하세요.", "ALREADY_CANCELLED")
++    _check_goal(db, m, team_id=team_id, scorer_member_id=scorer_member_id, assist_member_id=assist_member_id,
++                own_goal=own_goal, guest_goal=guest_goal)
++
++    now = utcnow()
++    el = ev.elapsed_sec if elapsed_sec is None else _goal_elapsed(m, elapsed_sec, now)
++    if _same_goal(ev, team_id, scorer_member_id, assist_member_id, own_goal, guest_goal) and el == ev.elapsed_sec:
++        db.rollback()
++        return ev, m, False
++
++    ev.cancelled_yn = True
++    e = _event(db, m, EventType.GOAL, admin_id, team_id=team_id, scorer_member_id=scorer_member_id,
++               assist_member_id=assist_member_id, own_goal_yn=own_goal, guest_goal_yn=guest_goal,
++               elapsed_sec=el, remaining_sec=None if el is None else m.game_duration_sec - el,
++               ref_event_id=ev.event_id, memo=memo if memo is not None else ev.memo)
++    if team_id != ev.team_id:  # 득점 팀이 바뀌면 점수도 옮긴다
++        if ev.team_id == m.team_a_id:
++            m.score_a = max(0, m.score_a - 1)
++            m.score_b += 1
++        else:
++            m.score_b = max(0, m.score_b - 1)
++            m.score_a += 1
++    m.version += 1
++    if team_id != ev.team_id:
++        _check_early_end(db, m, now, admin_id)
++
++    names = member_names(db, [scorer_member_id, assist_member_id])
++    emit(db, club_id, "MATCH_EVENT", {"matchId": m.match_id, "sessionId": m.session_id,
++                                      "event": serialize_event(e, names)})
++    _emit_state(db, club_id, m)
++    db.commit()
++    return e, m, True
++
++
+ # ------------------------------------------------------------------ 출전 명단 수정
+ def _has_goal_events(db: Session, match_id: int, member_id: int) -> bool:
+     return bool(db.scalar(select(func.count()).select_from(MatchEvent).where(
+diff --git a/docs/API.md b/docs/API.md
+index a3e7dc6..672931b 100644
+--- a/docs/API.md
++++ b/docs/API.md
+@@ -42,9 +42,10 @@
+ | 🔓 | GET | `/matches/{match_id}` | 경기 상태 + 이벤트 타임라인(공개). 새 클라이언트는 이걸로 타이머 복원 |
+ | 🔑 | POST | `/matches/{match_id}/cancel` | 경기 취소 |
+ | 🔑 | POST | `/matches/{match_id}/end` | 경기 종료(관리자) |
++| 🔑 | PATCH | `/matches/{match_id}/events/{event_id}` | 골 수정(기존 골은 취소 표시, 고친 골을 새로 기록 + 점수 동시 반영) |
+ | 🔑 | POST | `/matches/{match_id}/events/{event_id}/cancel` | 골 취소(삭제하지 않고 취소 이벤트 기록) |
+ | 🔑 | POST | `/matches/{match_id}/finalize` | 기록 확정 → Rating/Stats/Pair 반영(중복 호출 409) |
+-| 🔑 | POST | `/matches/{match_id}/goals` | 골 등록(+점수 동시 반영, 멱등키 지원) |
++| 🔓 | POST | `/matches/{match_id}/goals` | 골 등록(+점수 동시 반영, 멱등키 지원). 경기 중에는 누구나, 경기가 끝난 뒤에는 관리자만 |
+ | 🔑 | POST | `/matches/{match_id}/members` | 출전 명단 추가/팀 변경(교체 투입 등) |
+ | 🔑 | DELETE | `/matches/{match_id}/members/{member_id}` | 출전 명단 제외(결장) |
+ | 🔑 | POST | `/matches/{match_id}/pause` | 일시정지 |
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index fa18baf..86c0a64 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -436,6 +436,24 @@ DELETE MT FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_T
+ - alembic **0012**: `MEMBER.DELETED_AT`, `CLUB.CREST_SIZE`, `CLUB.ANNOUNCEMENT_SIZE`(모두 NULL 허용, 기존 행은 기본값으로 해석). 업그레이드 · 다운그레이드 확인
+ - 테스트 `tests/test_member_delete_display_sizes.py`(마크 크기 저장 · 범위, 공지 3단계, 삭제 시 목록 · 순위 · MVP 후보 · 요약에서 빠지고 지난 기록 유지, 새 참석 · 수정 차단, 복원, 끝나지 않은 일정 참석자 삭제 차단). `tests/test_club_content.py`는 응답에 `announcementSize` 추가 반영
+ 
++## 3-16. 일반 회원 골 · 도움 기록 · 골 수정 · 이긴 팀 강조 (2026-11-02)
++
++| 항목 | 결정 | 이유 |
++|---|---|---|
++| 일반 회원 골 기록 | 경기가 **시작된 뒤 진행 중(LIVE · 일시정지)** 이면 관리자 모드가 아니어도 경기 화면의 [TEAM X 골] → 득점자 · 도움 · 자책 · 게스트 기록. 시작 전은 지금처럼 409 `INVALID_MATCH_STATUS`, 경기가 끝난 뒤는 403 `ADMIN_REQUIRED_AFTER_END`(관리자가 기록 검토 화면에서 추가) | 요청(게임이 시작되면 일반 회원도). 회원 로그인이 없어 링크를 가진 누구나 기록하게 되므로 기록 창을 경기 중으로 좁힘 |
++| 일반 회원이 못 하는 것 | 골 수정 · 취소, 경기 시작 · 일시정지 · 종료 · 확정 · 취소, 출전 명단 수정(모두 401). 확정은 관리자만이라 잘못 들어간 골이 Rating · 개인 기록에 바로 반영되지 않음 | 잘못 누른 골은 관리자가 확정 전에 수정 · 취소 |
++| 검증 · 중복 | 관리자 기록과 같은 규칙(득점자는 득점 팀 출전 선수, 자책은 상대 팀 선수, 도움은 같은 팀 · 득점자와 다른 선수, 게스트 유무, 득점 시각 범위) + 멱등키로 더블클릭 중복 방지. 조기 종료 골 수에 닿으면 지금처럼 자동 종료 | 기존 규칙 그대로 |
++| 기록 주체 | 일반 회원이 기록한 골은 `MATCH_EVENT.ADMIN_ID` = NULL(관리자 기록은 관리자 ID) | 원래 NULL 허용 컬럼. 회원 로그인이 생기면 회원 ID 컬럼 추가로 확장 |
++| 골 수정 | 관리자: 타임라인의 [수정] → 같은 시트에서 득점 팀 · 자책 · 득점자 · 도움, 끝난 경기면 득점 시각(분)까지 고침. 확정 전(LIVE · 일시정지 · 종료)까지, 확정 후는 409 `MATCH_FINALIZED`(확정 해제 후 수정) | 요청(삭제가 아닌 수정) |
++| 수정 저장 방식 | 이벤트를 덮어쓰거나 지우지 않는다: 기존 골 `CANCELLED_YN` = Y + 고친 내용으로 새 `GOAL`(같은 득점 시각, `REF_EVENT_ID` = 수정 전 골). `GOAL_CANCEL`은 만들지 않음. 득점 팀이 바뀌면 같은 트랜잭션에서 점수를 옮김 | 기존 원칙(이벤트 삭제 없음 · 점수는 골 이벤트와 같은 트랜잭션) 유지. 통계 · 기사 · 확정은 원래대로 '취소되지 않은 GOAL'만 읽으므로 추가 수정 없이 맞음 |
++| 수정 화면 표시 | 타임라인에서 수정으로 대체된 골은 숨기고, 고친 골에 '수정됨'. [취소]로 지운 골은 지금처럼 '취소됨'으로 남김 | 수정이 '취소 + 새 골' 두 줄로 보이지 않게 |
++| 수정 중복 · 충돌 | 바뀐 게 없으면 그대로(`changed: false`), 같은 수정이 다시 오면 이미 고친 골을 돌려줌. 이미 취소 · 수정된 골을 다른 내용으로 고치면 409 `ALREADY_CANCELLED` | 더블클릭 · 두 관리자가 동시에 고치는 경우 |
++| API | `PATCH /matches/{mid}/events/{eid}` 🔑 `{teamId, scorerMemberId, assistMemberId, ownGoal, guestGoal, elapsedSec?}` → `{eventId, changed, match}`. `POST /matches/{mid}/goals`는 관리자 토큰 선택(없으면 경기 중만) | 기존 골 등록과 같은 본문 |
++| 이긴 팀 강조 | 경기 결과에서 이긴 팀 이름을 **굵게 + 초록(기록 탭 W와 같은 승리 색) + '승' 표시**. 경기 화면 점수판(팀 마크 테두리 · 이름 · 아래 'TEAM X 승'), 일정 화면 경기 목록, 기사 화면 '이날 경기 결과'. 무승부 · 진행 중 · 취소는 표시 없음, 확정 전('검토 중') 경기도 점수로 표시 | 요청(볼드 + 눈에 띄는 색). 색만으로 구분하지 않게 글자도 함께 |
++
++- alembic **0013**: 컬럼 · 데이터 변경 없이 설명(COMMENT)만 갱신 — `MATCH_EVENT`(테이블 · `REF_EVENT_ID` · `CANCELLED_YN` · `ADMIN_ID`). 함께 0011 · 0012에서 모델 설명과 어긋난 `CLUB` 엠블럼 컬럼 4개 · `MEMBER` 테이블 설명을 맞춤(모델과 DB 비교 차이 0). 업그레이드 · 다운그레이드 확인
++- 테스트 `tests/test_member_goal_edit.py`
++
+ ## 4. 남은 이슈 / 다음 단계
+ 
+ 1. **카카오 로그인**: 현재는 클럽 PIN 1개. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
+diff --git a/docs/TABLES.md b/docs/TABLES.md
+index 9ef5709..59c16e3 100644
+--- a/docs/TABLES.md
++++ b/docs/TABLES.md
+@@ -339,7 +339,7 @@
+ 
+ ### MATCH_EVENT
+ 
+-경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL)  
++경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL, 골 수정은 CANCELLED_YN + 새 GOAL)  
+ 구분: **Source(원본)**
+ 
+ | No | 컬럼 | 타입 | NULL | 키 | 설명 |
+@@ -355,11 +355,11 @@
+ | 9 | `GUEST_GOAL_YN` | BOOL | N |  | 게스트 득점 여부 |
+ | 10 | `ELAPSED_SEC` | INTEGER | Y |  | 경기 경과 초 |
+ | 11 | `REMAINING_SEC` | INTEGER | Y |  | 남은 초(음수=추가 시간) |
+-| 12 | `REF_EVENT_ID` | BIGINT | Y | FK→MATCH_EVENT | 취소 대상 이벤트 |
+-| 13 | `CANCELLED_YN` | BOOL | N |  | 취소된 골 여부 |
++| 12 | `REF_EVENT_ID` | BIGINT | Y | FK→MATCH_EVENT | 취소 대상 골(GOAL_CANCEL) / 수정 전 골(수정으로 새로 기록한 GOAL) |
++| 13 | `CANCELLED_YN` | BOOL | N |  | 취소되거나 수정된 골 여부(통계 · 기사에서 제외) |
+ | 14 | `IDEMPOTENCY_KEY` | VARCHAR(64) | Y |  | 중복 요청 방지 키(MATCH_ID와 UNIQUE) |
+ | 15 | `MEMO` | VARCHAR(200) | Y |  | 메모 |
+-| 16 | `ADMIN_ID` | BIGINT | Y | FK→CLUB_ADMIN | 처리 관리자 ID |
++| 16 | `ADMIN_ID` | BIGINT | Y | FK→CLUB_ADMIN | 처리 관리자 ID(NULL=관리자 모드가 아닌 일반 회원의 경기 중 골 기록 또는 자동 처리) |
+ | 17 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+ 
+ 제약/인덱스
+diff --git a/docs/openapi.json b/docs/openapi.json
+index 926d649..6c8ea9f 100644
+--- a/docs/openapi.json
++++ b/docs/openapi.json
+@@ -2609,7 +2609,7 @@
+         "tags": [
+           "matches"
+         ],
+-        "summary": "골 등록(+점수 동시 반영, 멱등키 지원)",
++        "summary": "골 등록(+점수 동시 반영, 멱등키 지원). 경기 중에는 누구나, 경기가 끝난 뒤에는 관리자만",
+         "operationId": "add_goal_api_clubs__club_slug__matches__match_id__goals_post",
+         "security": [
+           {
+@@ -2670,6 +2670,81 @@
+         }
+       }
+     },
++    "/api/clubs/{club_slug}/matches/{match_id}/events/{event_id}": {
++      "patch": {
++        "tags": [
++          "matches"
++        ],
++        "summary": "골 수정(기존 골은 취소 표시, 고친 골을 새로 기록 + 점수 동시 반영)",
++        "operationId": "edit_goal_api_clubs__club_slug__matches__match_id__events__event_id__patch",
++        "security": [
++          {
++            "HTTPBearer": []
++          }
++        ],
++        "parameters": [
++          {
++            "name": "match_id",
++            "in": "path",
++            "required": true,
++            "schema": {
++              "type": "integer",
++              "title": "Match Id"
++            }
++          },
++          {
++            "name": "event_id",
++            "in": "path",
++            "required": true,
++            "schema": {
++              "type": "integer",
++              "title": "Event Id"
++            }
++          },
++          {
++            "name": "club_slug",
++            "in": "path",
++            "required": true,
++            "schema": {
++              "type": "string",
++              "description": "클럽 주소(slug)",
++              "title": "Club Slug"
++            },
++            "description": "클럽 주소(slug)"
++          }
++        ],
++        "requestBody": {
++          "required": true,
++          "content": {
++            "application/json": {
++              "schema": {
++                "$ref": "#/components/schemas/GoalEditRequest"
++              }
++            }
++          }
++        },
++        "responses": {
++          "200": {
++            "description": "Successful Response",
++            "content": {
++              "application/json": {
++                "schema": {}
++              }
++            }
++          },
++          "422": {
++            "description": "Validation Error",
++            "content": {
++              "application/json": {
++                "schema": {
++                  "$ref": "#/components/schemas/HTTPValidationError"
++                }
++              }
++            }
++          }
++        }
++      }
++    },
+     "/api/clubs/{club_slug}/matches/{match_id}/events/{event_id}/cancel": {
+       "post": {
+         "tags": [
+@@ -4762,6 +4837,79 @@
+         "type": "object",
+         "title": "EventCancelRequest"
+       },
++      "GoalEditRequest": {
++        "properties": {
++          "teamId": {
++            "type": "integer",
++            "title": "Teamid",
++            "description": "점수를 얻는 팀(SESSION_TEAM_ID)"
++          },
++          "scorerMemberId": {
++            "anyOf": [
++              {
++                "type": "integer"
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Scorermemberid"
++          },
++          "assistMemberId": {
++            "anyOf": [
++              {
++                "type": "integer"
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Assistmemberid"
++          },
++          "ownGoal": {
++            "type": "boolean",
++            "title": "Owngoal",
++            "default": false
++          },
++          "guestGoal": {
++            "type": "boolean",
++            "title": "Guestgoal",
++            "default": false
++          },
++          "elapsedSec": {
++            "anyOf": [
++              {
++                "type": "integer",
++                "minimum": 0.0
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Elapsedsec",
++            "description": "생략 시 원래 득점 시각 유지"
++          },
++          "memo": {
++            "anyOf": [
++              {
++                "type": "string",
++                "maxLength": 200
++              },
++              {
++                "type": "null"
++              }
++            ],
++            "title": "Memo"
++          }
++        },
++        "additionalProperties": false,
++        "type": "object",
++        "required": [
++          "teamId"
++        ],
++        "title": "GoalEditRequest",
++        "description": "골 수정: 고친 뒤의 전체 값(득점 팀 · 득점자 · 도움 · 자책 · 게스트). 득점 시각은 생략하면 원래 시각 유지."
++      },
+       "GoalRequest": {
+         "properties": {
+           "teamId": {
+diff --git a/docs/schema.sql b/docs/schema.sql
+index a40f4b3..fd4f63e 100644
+--- a/docs/schema.sql
++++ b/docs/schema.sql
+@@ -449,11 +449,11 @@ CREATE TABLE `MATCH_EVENT` (
+ 	`GUEST_GOAL_YN` BOOL NOT NULL COMMENT '게스트 득점 여부',
+ 	`ELAPSED_SEC` INTEGER COMMENT '경기 경과 초',
+ 	`REMAINING_SEC` INTEGER COMMENT '남은 초(음수=추가 시간)',
+-	`REF_EVENT_ID` BIGINT COMMENT '취소 대상 이벤트',
+-	`CANCELLED_YN` BOOL NOT NULL COMMENT '취소된 골 여부',
++	`REF_EVENT_ID` BIGINT COMMENT '취소 대상 골(GOAL_CANCEL) / 수정 전 골(수정으로 새로 기록한 GOAL)',
++	`CANCELLED_YN` BOOL NOT NULL COMMENT '취소되거나 수정된 골 여부(통계 · 기사에서 제외)',
+ 	`IDEMPOTENCY_KEY` VARCHAR(64) COMMENT '중복 요청 방지 키(MATCH_ID와 UNIQUE)',
+ 	`MEMO` VARCHAR(200) COMMENT '메모',
+-	`ADMIN_ID` BIGINT COMMENT '처리 관리자 ID',
++	`ADMIN_ID` BIGINT COMMENT '처리 관리자 ID(NULL=관리자 모드가 아닌 일반 회원의 경기 중 골 기록 또는 자동 처리)',
+ 	`CREATED_AT` DATETIME(3) NOT NULL COMMENT '생성 일시(UTC)',
+ 	CONSTRAINT `PK_MATCH_EVENT` PRIMARY KEY (`EVENT_ID`),
+ 	CONSTRAINT `UQ_MATCH_EVENT_MATCH_ID_IDEMPOTENCY_KEY` UNIQUE (`MATCH_ID`, `IDEMPOTENCY_KEY`),
+@@ -464,7 +464,7 @@ CREATE TABLE `MATCH_EVENT` (
+ 	CONSTRAINT `FK_MATCH_EVENT_MEMBER_ID` FOREIGN KEY(`MEMBER_ID`) REFERENCES `MEMBER` (`MEMBER_ID`),
+ 	CONSTRAINT `FK_MATCH_EVENT_REF_EVENT_ID` FOREIGN KEY(`REF_EVENT_ID`) REFERENCES `MATCH_EVENT` (`EVENT_ID`),
+ 	CONSTRAINT `FK_MATCH_EVENT_ADMIN_ID` FOREIGN KEY(`ADMIN_ID`) REFERENCES `CLUB_ADMIN` (`ADMIN_ID`)
+-)COMMENT='경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL)' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
++)COMMENT='경기 이벤트 타임라인(삭제 없음, 골 취소는 CANCELLED_YN + GOAL_CANCEL, 골 수정은 CANCELLED_YN + 새 GOAL)' ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+ CREATE INDEX `IX_MATCH_EVENT_ASSIST_MEMBER_ID` ON `MATCH_EVENT` (`ASSIST_MEMBER_ID`);
+ CREATE INDEX `IX_MATCH_EVENT_MATCH_ID_CREATED_AT` ON `MATCH_EVENT` (`MATCH_ID`, `CREATED_AT`);
+ CREATE INDEX `IX_MATCH_EVENT_SCORER_MEMBER_ID` ON `MATCH_EVENT` (`SCORER_MEMBER_ID`);
+diff --git a/frontend/src/api/endpoints.ts b/frontend/src/api/endpoints.ts
+index 56adc8b..f1e2541 100644
+--- a/frontend/src/api/endpoints.ts
++++ b/frontend/src/api/endpoints.ts
+@@ -105,6 +105,19 @@ export const makeApi = (slug: string) => ({
+       idempotencyKey: string
+     },
+   ) => request<{ eventId: number; duplicate: boolean; match: MatchState }>(slug, 'POST', `/matches/${id}/goals`, { body }),
++  /** 골 수정(관리자): 고친 뒤의 전체 값. elapsedSec를 비우면 원래 득점 시각 유지 */
++  editGoal: (
++    id: number,
++    eventId: number,
++    body: {
++      teamId: number
++      scorerMemberId?: number | null
++      assistMemberId?: number | null
++      ownGoal?: boolean
++      guestGoal?: boolean
++      elapsedSec?: number | null
++    },
++  ) => request<{ eventId: number; changed: boolean; match: MatchState }>(slug, 'PATCH', `/matches/${id}/events/${eventId}`, { body }),
+   cancelGoal: (id: number, eventId: number) =>
+     request<{ eventId: number; match: MatchState }>(slug, 'POST', `/matches/${id}/events/${eventId}/cancel`, { body: {} }),
+   addMatchMember: (id: number, memberId: number, teamId: number) =>
+diff --git a/frontend/src/components/ui.tsx b/frontend/src/components/ui.tsx
+index 9dd1e9b..9a948e3 100644
+--- a/frontend/src/components/ui.tsx
++++ b/frontend/src/components/ui.tsx
+@@ -129,6 +129,16 @@ export function TeamBadge({ code, size = 26, onDark }: { code: string | null | u
+   )
+ }
+ 
++/** 경기 결과의 팀 이름. 이긴 팀은 굵게 + 승리 색 + '승' 표시(색만으로 구분하지 않게 글자도 같이) */
++export function ResultTeam({ code, win, side }: { code: string | null | undefined; win: boolean; side: 'A' | 'B' }) {
++  const mark = win ? <span className="win-mark">승</span> : null
++  return (
++    <span className={`result-team ${win ? 'win' : ''}`}>
++      {side === 'A' ? mark : null}TEAM {code ?? '?'}{side === 'B' ? mark : null}
++    </span>
++  )
++}
++
+ export function Tags({ tags }: { tags: string[] }) {
+   if (!tags.length) return null
+   return (
+diff --git a/frontend/src/lib/format.ts b/frontend/src/lib/format.ts
+index 32bb1da..59508d4 100644
+--- a/frontend/src/lib/format.ts
++++ b/frontend/src/lib/format.ts
+@@ -121,6 +121,12 @@ export const GAME_STATUS_LABEL: Record<GameStatus, string> = {
+ 
+ export const RESULT_LABEL: Record<string, string> = { W: '승', D: '무', L: '패' }
+ 
++/** 끝난 경기에서 이긴 쪽('A' | 'B'). 무승부 · 진행 중 · 취소면 null(확정 전 '검토 중' 경기도 점수로 판단) */
++export function winSide(m: { status: GameStatus; teamA: { score: number }; teamB: { score: number } }): 'A' | 'B' | null {
++  if (m.status !== 'FINISHED' || m.teamA.score === m.teamB.score) return null
++  return m.teamA.score > m.teamB.score ? 'A' : 'B'
++}
++
+ export function pct(rate: number | null | undefined): string {
+   return rate == null ? '-' : `${Math.round(rate * 100)}%`
+ }
+diff --git a/frontend/src/pages/ArticlePage.tsx b/frontend/src/pages/ArticlePage.tsx
+index b9b68ea..da2ddbd 100644
+--- a/frontend/src/pages/ArticlePage.tsx
++++ b/frontend/src/pages/ArticlePage.tsx
+@@ -4,9 +4,9 @@ import { useEffect } from 'react'
+ import { Link, useLocation, useParams } from 'react-router-dom'
+ import { ArticleMilestones } from '../components/ArticleMilestones'
+ import { Icon } from '../components/Icon'
+-import { ErrorBox, Loading, Tags, TopBar, type FromState } from '../components/ui'
++import { ErrorBox, Loading, ResultTeam, Tags, TopBar, type FromState } from '../components/ui'
+ import { useClub } from '../lib/club'
+-import { ARTICLE_TYPE_LABEL, fmtDateTime, initials } from '../lib/format'
++import { ARTICLE_TYPE_LABEL, fmtDateTime, initials, winSide } from '../lib/format'
+ import { useAsync } from '../lib/hooks'
+ import { markArticleRead } from '../lib/readStore'
+ import { useToast } from '../lib/toast'
+@@ -88,7 +88,7 @@ export function ArticlePage() {
+               {results.map((m) => (
+                 <div key={m.matchId} className="row between" style={{ fontSize: 14 }}>
+                   <span className="muted">{m.gameNo}경기</span>
+-                  <span>TEAM {m.teamA.teamCode} <b className="mono">{m.teamA.score} : {m.teamB.score}</b> TEAM {m.teamB.teamCode}</span>
++                  <span><ResultTeam code={m.teamA.teamCode} side="A" win={winSide(m) === 'A'} /> <b className="mono">{m.teamA.score} : {m.teamB.score}</b> <ResultTeam code={m.teamB.teamCode} side="B" win={winSide(m) === 'B'} /></span>
+                 </div>
+               ))}
+             </section>
+diff --git a/frontend/src/pages/MatchPage.tsx b/frontend/src/pages/MatchPage.tsx
+index a18d017..d8310b6 100644
+--- a/frontend/src/pages/MatchPage.tsx
++++ b/frontend/src/pages/MatchPage.tsx
+@@ -1,4 +1,4 @@
+-// S04 LIVE 관전 + (관리자) A04 경기 진행 · A05 골 기록 · A06 기록 확정/다음 경기
++// S04 LIVE 관전(경기 중 골 · 도움 기록은 누구나) + (관리자) A04 경기 진행 · A05 골 수정 · 취소 · A06 기록 확정/다음 경기
+ 
+ import { useEffect, useMemo, useState } from 'react'
+ import { Link, useParams } from 'react-router-dom'
+@@ -18,6 +18,7 @@ export function MatchPage() {
+   const detail = useAsync(() => api.match(id), [api, id])
+   const { busy, run } = useAction()
+   const [goalTeam, setGoalTeam] = useState<number | null>(null)
++  const [editing, setEditing] = useState<MatchEventView | null>(null)
+   const [nextOpen, setNextOpen] = useState(false)
+   const [rosterOpen, setRosterOpen] = useState(false)
+ 
+@@ -43,7 +44,10 @@ export function MatchPage() {
+ 
+   const live = d.status === 'RUNNING' || d.status === 'PAUSED'
+   const editable = isAdmin && !d.finalized && d.status !== 'CANCELLED'
+-  const goals = d.events.filter((e) => e.eventType === 'GOAL').sort((a, b) => (b.elapsedSec ?? 0) - (a.elapsedSec ?? 0) || b.eventId - a.eventId)
++  // 수정으로 대체된 골(새 골의 refEventId가 가리키는 골)은 타임라인에서 숨기고, 고친 골에 '수정됨'을 붙인다
++  const replaced = new Set(d.events.filter((e) => e.eventType === 'GOAL' && e.refEventId != null).map((e) => e.refEventId))
++  const goals = d.events.filter((e) => e.eventType === 'GOAL' && !replaced.has(e.eventId))
++    .sort((a, b) => (b.elapsedSec ?? 0) - (a.elapsedSec ?? 0) || b.eventId - a.eventId)
+   const teamOf = (tid: number | null) => (tid === d.teamA.sessionTeamId ? d.teamA : d.teamB)
+   const winner = d.winTeamId ? teamOf(d.winTeamId) : null
+ 
+@@ -65,9 +69,9 @@ export function MatchPage() {
+         </div>
+ 
+         <div className="score-row">
+-          <TeamCol t={d.teamA} />
++          <TeamCol t={d.teamA} win={winner === d.teamA} />
+           <div className="score" aria-label={`${d.teamA.score} 대 ${d.teamB.score}`}>{d.teamA.score}:{d.teamB.score}</div>
+-          <TeamCol t={d.teamB} />
++          <TeamCol t={d.teamB} win={winner === d.teamB} />
+         </div>
+ 
+         <div className="stack" style={{ alignItems: 'center', gap: 8 }}>
+@@ -89,7 +93,7 @@ export function MatchPage() {
+           <div className="progress" aria-hidden="true"><span style={{ width: `${clock.progress * 100}%` }} /></div>
+           <div className="small" style={{ color: 'var(--sports-muted)' }}>
+             {d.status === 'READY' ? `${Math.round(d.durationSec / 60)}분 경기 · 시작 전`
+-              : d.status === 'FINISHED' ? (winner ? `TEAM ${winner.teamCode} 승` : '무승부') + (d.endReason === 'TIME_UP' ? ' · 시간 종료' : d.endReason === 'EARLY_GOAL' ? ' · 조기 종료' : '')
++              : d.status === 'FINISHED' ? <>{winner ? <b className="win-text">TEAM {winner.teamCode} 승</b> : '무승부'}{d.endReason === 'TIME_UP' ? ' · 시간 종료' : d.endReason === 'EARLY_GOAL' ? ' · 조기 종료' : ''}</>
+                 : `남은 시간 · ${d.autoEnd ? '0이 되면 자동 종료' : '관리자가 종료'}`}
+           </div>
+         </div>
+@@ -97,7 +101,8 @@ export function MatchPage() {
+ 
+       <div className="row small muted" style={{ padding: '10px 16px', background: 'var(--card)', borderBottom: '1px solid var(--line)' }}>
+         <span style={{ width: 8, height: 8, borderRadius: 4, background: connected ? 'var(--green)' : 'var(--line-strong)' }} />
+-        {connected ? '실시간 연결됨' : '연결 중…'}{!isAdmin ? ' · 경기 조작은 관리자만 할 수 있어요' : ''}
++        {connected ? '실시간 연결됨' : '연결 중…'}
++        {isAdmin ? '' : live ? ' · 경기 중 골 · 도움은 누구나 기록할 수 있어요(수정 · 취소는 관리자)' : ' · 경기 조작은 관리자만 할 수 있어요'}
+       </div>
+ 
+       <main className="page">
+@@ -110,7 +115,7 @@ export function MatchPage() {
+           </div>
+         ) : null}
+ 
+-        {isAdmin && live ? (
++        {live ? (
+           <div className="grid2" style={{ gap: 10 }}>
+             {[d.teamA, d.teamB].map((t) => (
+               <button key={t.sessionTeamId} type="button" className="goal-btn" style={{ background: teamColor(t.teamCode) }}
+@@ -161,7 +166,8 @@ export function MatchPage() {
+           <h2 style={{ fontSize: 15, fontWeight: 700 }}>타임라인</h2>
+           {goals.length === 0 ? <p className="small muted">아직 골이 없어요.</p> : null}
+           {goals.map((e) => (
+-            <GoalRow key={e.eventId} e={e} team={teamOf(e.teamId)} other={teamOf(e.teamId) === d.teamA ? d.teamB : d.teamA} canCancel={editable && !e.cancelled && d.status !== 'READY'}
++            <GoalRow key={e.eventId} e={e} team={teamOf(e.teamId)} other={teamOf(e.teamId) === d.teamA ? d.teamB : d.teamA}
++              canChange={editable && !e.cancelled && d.status !== 'READY'} onEdit={() => setEditing(e)}
+               onCancel={async () => {
+                 if (!window.confirm('이 골을 취소할까요? (기록은 남고 점수만 빠집니다)')) return
+                 if (await run(() => api.cancelGoal(id, e.eventId), '골을 취소했어요')) detail.reload()
+@@ -189,17 +195,21 @@ export function MatchPage() {
+       {goalTeam ? (
+         <GoalSheet d={d} teamId={goalTeam} onClose={() => setGoalTeam(null)} onDone={() => { setGoalTeam(null); detail.reload() }} />
+       ) : null}
++      {editing ? (
++        <GoalSheet d={d} teamId={editing.teamId ?? d.teamA.sessionTeamId} editing={editing} onClose={() => setEditing(null)}
++          onDone={() => { setEditing(null); detail.reload() }} />
++      ) : null}
+       <NextMatchSheet sessionId={d.sessionId} open={nextOpen} onClose={() => setNextOpen(false)} />
+       {rosterOpen ? <RosterSheet d={d} onClose={() => setRosterOpen(false)} onChanged={detail.reload} /> : null}
+     </>
+   )
+ }
+ 
+-function TeamCol({ t }: { t: MatchDetailTeam }) {
++function TeamCol({ t, win }: { t: MatchDetailTeam; win: boolean }) {
+   return (
+-    <div className="score-team">
++    <div className={`score-team ${win ? 'win' : ''}`}>
+       <TeamBadge code={t.teamCode} size={46} onDark />
+-      TEAM {t.teamCode}
++      <span className="row" style={{ gap: 4 }}>TEAM {t.teamCode}{win ? <span className="win-mark">승</span> : null}</span>
+     </div>
+   )
+ }
+@@ -213,11 +223,12 @@ function Clock({ d, clock }: { d: MatchDetail; clock: ReturnType<typeof useMatch
+   )
+ }
+ 
+-function GoalRow({ e, team, other, canCancel, onCancel }: {
++function GoalRow({ e, team, other, canChange, onEdit, onCancel }: {
+   e: MatchEventView
+   team: MatchDetailTeam
+   other: MatchDetailTeam
+-  canCancel: boolean
++  canChange: boolean
++  onEdit: () => void
+   onCancel: () => void
+ }) {
+   const who = (e.guestGoal ? '게스트' : e.scorerName ?? '?') + (e.ownGoal ? ` (TEAM ${other.teamCode})` : '')
+@@ -227,32 +238,52 @@ function GoalRow({ e, team, other, canCancel, onCancel }: {
+       <span className="mini-badge" style={{ background: e.cancelled ? 'var(--line-strong)' : teamColor(team.teamCode) }}>{team.teamCode}</span>
+       <div className="stack" style={{ flex: 1, gap: 0 }}>
+         <span className="who" style={{ fontWeight: 700 }}>{e.ownGoal ? `자책골 · ${who}` : `골 · ${who}`}</span>
+-        <span className="small muted">{e.cancelled ? '취소됨' : e.assistName ? `도움 ${e.assistName}` : '도움 없음'}</span>
++        <span className="small muted">
++          {e.cancelled ? '취소됨' : e.assistName ? `도움 ${e.assistName}` : '도움 없음'}{e.refEventId != null && !e.cancelled ? ' · 수정됨' : ''}
++        </span>
+       </div>
+-      {canCancel ? (
+-        <button type="button" className="btn sm" style={{ border: 0, background: 'var(--soft)', color: 'var(--warn-ink)' }} onClick={onCancel}>취소</button>
++      {canChange ? (
++        <span className="row" style={{ gap: 6 }}>
++          <button type="button" className="btn sm" style={{ border: 0, background: 'var(--soft)' }} onClick={onEdit}>수정</button>
++          <button type="button" className="btn sm" style={{ border: 0, background: 'var(--soft)', color: 'var(--warn-ink)' }} onClick={onCancel}>취소</button>
++        </span>
+       ) : null}
+     </div>
+   )
+ }
+ 
+-/** A05 골 기록 시트 */
+-function GoalSheet({ d, teamId, onClose, onDone }: { d: MatchDetail; teamId: number; onClose: () => void; onDone: () => void }) {
++/** A05 골 기록 시트. editing이 있으면 그 골을 고친다(관리자): 득점 팀 · 자책 · 득점자 · 도움 · (끝난 경기면) 득점 시각 */
++function GoalSheet({ d, teamId, editing, onClose, onDone }: {
++  d: MatchDetail
++  teamId: number
++  editing?: MatchEventView
++  onClose: () => void
++  onDone: () => void
++}) {
+   const { api } = useClub()
+   const { busy, run } = useAction()
+   const idemKey = useMemo(() => newIdempotencyKey(), [])
+-  const team = teamId === d.teamA.sessionTeamId ? d.teamA : d.teamB
+-  const other = teamId === d.teamA.sessionTeamId ? d.teamB : d.teamA
+-  const [own, setOwn] = useState(false)
+-  const [scorer, setScorer] = useState<number | 'guest' | null>(null)
+-  const [assist, setAssist] = useState<number | null>(null)
++  const [tid, setTid] = useState(teamId)
++  const team = tid === d.teamA.sessionTeamId ? d.teamA : d.teamB
++  const other = tid === d.teamA.sessionTeamId ? d.teamB : d.teamA
++  const [own, setOwn] = useState(editing?.ownGoal ?? false)
++  const [scorer, setScorer] = useState<number | 'guest' | null>(editing ? (editing.guestGoal ? 'guest' : editing.scorerMemberId) : null)
++  const [assist, setAssist] = useState<number | null>(editing?.assistMemberId ?? null)
+   const finished = d.status === 'FINISHED'
+-  const [minute, setMinute] = useState(() => Math.round(d.durationSec / 60))
++  const startMinute = editing ? Math.floor((editing.elapsedSec ?? 0) / 60) : Math.round(d.durationSec / 60)
++  const [minute, setMinute] = useState(startMinute)
+ 
+-  useEffect(() => {
++  // 득점 팀이나 자책을 바꾸면 고를 수 있는 선수가 달라지므로 득점자 · 도움을 다시 고른다
++  const changeTeam = (v: number) => {
++    setTid(v)
+     setScorer(null)
+     setAssist(null)
+-  }, [own])
++  }
++  const changeOwn = (v: boolean) => {
++    setOwn(v)
++    setScorer(null)
++    setAssist(null)
++  }
+ 
+   const scorerTeam = own ? other : team
+   const scorerOptions = [...scorerTeam.members.map((m) => ({ id: m.memberId as number | 'guest', name: m.name })),
+@@ -261,32 +292,44 @@ function GoalSheet({ d, teamId, onClose, onDone }: { d: MatchDetail; teamId: num
+ 
+   const submit = async () => {
+     if (scorer === null) return
+-    const r = await run(() =>
+-      api.addGoal(d.matchId, {
+-        teamId,
+-        scorerMemberId: scorer === 'guest' ? null : scorer,
+-        guestGoal: scorer === 'guest',
+-        ownGoal: own,
+-        assistMemberId: own ? null : assist,
+-        elapsedSec: finished ? Math.max(0, Math.min(d.durationSec * 3, minute * 60)) : null,
+-        idempotencyKey: idemKey,
+-      }),
+-    )
++    const body = {
++      teamId: tid,
++      scorerMemberId: scorer === 'guest' ? null : scorer,
++      guestGoal: scorer === 'guest',
++      ownGoal: own,
++      assistMemberId: own ? null : assist,
++    }
++    const at = Math.max(0, Math.min(d.durationSec * 3, minute * 60))
++    const r = editing
++      // 득점 시각은 끝난 경기에서 분을 바꿨을 때만 보낸다(그대로면 원래 초 단위 시각 유지)
++      ? await run(() => api.editGoal(d.matchId, editing.eventId, { ...body, elapsedSec: finished && minute !== startMinute ? at : null }),
++        '골 기록을 고쳤어요')
++      : await run(() => api.addGoal(d.matchId, { ...body, elapsedSec: finished ? at : null, idempotencyKey: idemKey }))
+     if (r) onDone()
+   }
+ 
+   return (
+     <Sheet open onClose={onClose} labelledBy="goal-title">
+       <div className="row between">
+-        <div className="row"><TeamBadge code={team.teamCode} size={32} /><h2 id="goal-title">TEAM {team.teamCode} 골 기록</h2></div>
++        <div className="row"><TeamBadge code={team.teamCode} size={32} /><h2 id="goal-title">TEAM {team.teamCode} 골 {editing ? '수정' : '기록'}</h2></div>
+       </div>
+ 
++      {editing ? (
++        <div className="segmented" role="group" aria-label="득점 팀" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
++          {[d.teamA, d.teamB].map((t) => (
++            <button key={t.sessionTeamId} type="button" aria-pressed={tid === t.sessionTeamId} onClick={() => changeTeam(t.sessionTeamId)}>
++              TEAM {t.teamCode} 골
++            </button>
++          ))}
++        </div>
++      ) : null}
++
+       <div className="row between" style={{ padding: '10px 12px', borderRadius: 12, background: 'var(--bg)' }}>
+         <div className="stack" style={{ gap: 2 }}>
+           <b style={{ fontSize: 14 }}>자책골</b>
+           <span className="small muted">켜면 상대(TEAM {other.teamCode}) 선수 중에서 고릅니다</span>
+         </div>
+-        <Switch checked={own} onChange={setOwn} label="자책골" />
++        <Switch checked={own} onChange={changeOwn} label="자책골" />
+       </div>
+ 
+       <section className="section">
+@@ -323,7 +366,7 @@ function GoalSheet({ d, teamId, onClose, onDone }: { d: MatchDetail; teamId: num
+       ) : null}
+ 
+       <button type="button" className="btn primary lg block" disabled={busy || scorer === null} onClick={submit}>
+-        {busy ? '기록 중…' : own ? '자책골 기록' : '골 기록'}
++        {busy ? (editing ? '저장 중…' : '기록 중…') : editing ? '고친 내용 저장' : own ? '자책골 기록' : '골 기록'}
+       </button>
+     </Sheet>
+   )
+diff --git a/frontend/src/pages/SessionPage.tsx b/frontend/src/pages/SessionPage.tsx
+index 78c9819..a4930e8 100644
+--- a/frontend/src/pages/SessionPage.tsx
++++ b/frontend/src/pages/SessionPage.tsx
+@@ -5,9 +5,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
+ import type { SessionDetail, SessionMatch } from '../api/types'
+ import { Icon } from '../components/Icon'
+ import { NextMatchSheet } from '../components/NextMatchSheet'
+-import { AdminButton, ErrorBox, Loading, TopBar } from '../components/ui'
++import { AdminButton, ErrorBox, Loading, ResultTeam, TopBar } from '../components/ui'
+ import { useClub, useClubEvent } from '../lib/club'
+-import { fmtDate, fmtDateTime, teamColor } from '../lib/format'
++import { fmtDate, fmtDateTime, teamColor, winSide } from '../lib/format'
+ import { useAction, useAsync } from '../lib/hooks'
+ 
+ const STEPS: { key: string; label: string }[] = [
+@@ -116,6 +116,7 @@ function Teams({ d }: { d: SessionDetail }) {
+ 
+ function MatchRow({ m, slug }: { m: SessionMatch; slug: string }) {
+   const live = m.status === 'RUNNING' || m.status === 'PAUSED'
++  const win = winSide(m)
+   const right =
+     m.status === 'READY' ? <span className="status-badge gold">대기</span>
+       : live ? <span className="live-badge">{m.status === 'PAUSED' ? '정지' : 'LIVE'}</span>
+@@ -127,7 +128,7 @@ function MatchRow({ m, slug }: { m: SessionMatch; slug: string }) {
+       style={m.status === 'CANCELLED' ? { opacity: 0.6 } : undefined}>
+       <span className={live ? '' : 'muted'} style={{ width: 44, color: live ? 'var(--sports-muted)' : undefined }}>{m.gameNo}경기</span>
+       <span style={{ flex: 1, textAlign: 'center' }}>
+-        TEAM {m.teamA.teamCode} <b className="mono" style={{ padding: '0 6px' }}>{m.status === 'READY' ? 'vs' : `${m.teamA.score} : ${m.teamB.score}`}</b> TEAM {m.teamB.teamCode}
++        <ResultTeam code={m.teamA.teamCode} side="A" win={win === 'A'} /> <b className="mono" style={{ padding: '0 6px' }}>{m.status === 'READY' ? 'vs' : `${m.teamA.score} : ${m.teamB.score}`}</b> <ResultTeam code={m.teamB.teamCode} side="B" win={win === 'B'} />
+       </span>
+       {right}
+     </Link>
+diff --git a/frontend/src/styles/global.css b/frontend/src/styles/global.css
+index 70e1ba2..b9bc789 100644
+--- a/frontend/src/styles/global.css
++++ b/frontend/src/styles/global.css
+@@ -231,6 +231,13 @@ a.list-row:hover { border-color: var(--line-strong); color: var(--ink); }
+ .score-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
+ .score-team { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 14px; font-weight: 600; }
+ .score-team .team-badge { width: 46px; height: 46px; border-radius: 13px; font-family: var(--display); font-size: 24px; font-weight: 800; }
++.score-team.win { color: var(--green); font-weight: 800; }
++.score-team.win .team-badge { box-shadow: 0 0 0 3px var(--sports-bg), 0 0 0 5px var(--green); }
++.win-text { color: var(--green); font-weight: 800; }
++/* 경기 결과의 이긴 팀: 굵게 + 승리 색(초록, 기록 탭의 W와 같은 색) + '승' 표시 */
++.result-team { display: inline-flex; align-items: center; gap: 4px; }
++.result-team.win { color: var(--green-dark); font-weight: 800; }
++.win-mark { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 4px; border-radius: 5px; background: var(--green); color: var(--on-light); font-size: 11px; font-weight: 800; line-height: 1; }
+ .score { font-family: var(--display); font-size: 64px; font-weight: 800; line-height: 1; letter-spacing: 0.04em; min-width: 120px; text-align: center; }
+ .clock { font-family: var(--mono); font-size: 34px; font-weight: 600; letter-spacing: 0.04em; text-align: center; }
+ .progress { width: 100%; height: 6px; border-radius: 3px; background: var(--progress-track); overflow: hidden; }
+diff --git a/tests/test_member_goal_edit.py b/tests/test_member_goal_edit.py
+new file mode 100644
+index 0000000..f448ff6
+--- /dev/null
++++ b/tests/test_member_goal_edit.py
+@@ -0,0 +1,180 @@
++"""일반 회원 경기 중 골 · 도움 기록 + 골 수정(취소 표시 + 새 기록) — DECISIONS 3-16."""
++from sqlalchemy import select
++
++from app.core.database import SessionLocal
++from app.models import MatchEvent
++
++
++def _setup(api, n=6, date="2026-12-05"):
++    ids = [api.ok(api.post("/members", {"name": f"G{i}"}), 201)["memberId"] for i in range(n)]
++    sid = api.ok(api.post("/sessions", {"sessionDate": date}), 201)["sessionId"]
++    api.ok(api.post(f"/sessions/{sid}/members", {"memberIds": ids}))
++    gen = api.ok(api.post(f"/sessions/{sid}/teams/generate", {"teamCount": 2, "seed": 3}))
++    api.ok(api.post(f"/sessions/{sid}/teams/confirm", {"generationId": gen["generationId"]}))
++    m = api.next_match(sid)
++    return sid, m["matchId"]
++
++
++def _detail(api, mid):
++    return api.ok(api.get(f"/matches/{mid}", admin=False))
++
++
++def _goal(api, mid, team, scorer, assist=None, admin=True, **extra):
++    body = {"teamId": team["sessionTeamId"], "scorerMemberId": scorer, "assistMemberId": assist, **extra}
++    return api.post(f"/matches/{mid}/goals", body, admin=admin)
++
++
++def _goals(d):
++    return [e for e in d["events"] if e["eventType"] == "GOAL"]
++
++
++def test_member_can_record_goal_and_assist_only_while_match_is_live(make_club):
++    api = make_club("mgoal1")
++    _, mid = _setup(api)
++
++    # 시작 전: 관리자와 똑같이 상태 오류(출전 명단은 시작할 때 만들어진다)
++    r = _goal(api, mid, _detail(api, mid)["teamA"], None, admin=False)
++    assert r.status_code == 409 and r.json()["error"]["code"] == "INVALID_MATCH_STATUS"
++
++    api.ok(api.post(f"/matches/{mid}/start"))
++    d = _detail(api, mid)
++    a = d["teamA"]
++    scorer, helper = a["members"][0]["memberId"], a["members"][1]["memberId"]
++    res = api.ok(_goal(api, mid, a, scorer, helper, admin=False, idempotencyKey="member-1"))
++    assert res["match"]["teamA"]["score"] == 1
++    # 멱등키 재요청은 중복 기록 없이 그대로
++    again = api.ok(_goal(api, mid, a, scorer, helper, admin=False, idempotencyKey="member-1"))
++    assert again["duplicate"] is True and again["eventId"] == res["eventId"]
++
++    # 일반 회원 기록은 처리 관리자 없음(NULL)
++    with SessionLocal() as s:
++        ev = s.scalar(select(MatchEvent).where(MatchEvent.event_id == res["eventId"]))
++        assert ev.admin_id is None and ev.assist_member_id == helper
++
++    # 일시정지 중에도 가능
++    api.ok(api.post(f"/matches/{mid}/pause"))
++    api.ok(_goal(api, mid, a, helper, admin=False))
++    assert _detail(api, mid)["teamA"]["score"] == 2
++
++    # 검증 규칙은 그대로: 상대 팀 선수를 득점자로 고를 수 없다
++    b = d["teamB"]
++    r = _goal(api, mid, a, b["members"][0]["memberId"], admin=False)
++    assert r.status_code == 400 and r.json()["error"]["code"] == "INVALID_SCORER"
++
++    # 경기가 끝나면 골 추가는 관리자만
++    api.ok(api.post(f"/matches/{mid}/end"))
++    r = _goal(api, mid, a, scorer, admin=False)
++    assert r.status_code == 403 and r.json()["error"]["code"] == "ADMIN_REQUIRED_AFTER_END"
++    api.ok(_goal(api, mid, a, scorer, elapsedSec=0))
++
++
++def test_member_cannot_edit_cancel_or_control_match(make_club):
++    api = make_club("mgoal2")
++    _, mid = _setup(api, date="2026-12-06")
++    api.ok(api.post(f"/matches/{mid}/start"))
++    d = _detail(api, mid)
++    eid = api.ok(_goal(api, mid, d["teamA"], d["teamA"]["members"][0]["memberId"], admin=False))["eventId"]
++    body = {"teamId": d["teamA"]["sessionTeamId"], "scorerMemberId": d["teamA"]["members"][1]["memberId"]}
++    assert api.patch(f"/matches/{mid}/events/{eid}", body, admin=False).status_code == 401
++    assert api.post(f"/matches/{mid}/events/{eid}/cancel", admin=False).status_code == 401
++    for action in ("pause", "end", "finalize"):
++        assert api.post(f"/matches/{mid}/{action}", admin=False).status_code == 401
++
++
++def test_edit_goal_keeps_history_and_moves_score(make_club):
++    api = make_club("mgoal3")
++    _, mid = _setup(api, date="2026-12-07")
++    api.ok(api.post(f"/matches/{mid}/start"))
++    d = _detail(api, mid)
++    a, b = d["teamA"], d["teamB"]
++    a0, a1, a2 = (x["memberId"] for x in a["members"][:3])
++    b0 = b["members"][0]["memberId"]
++    eid = api.ok(_goal(api, mid, a, a0, a1))["eventId"]
++    elapsed = next(e for e in _goals(_detail(api, mid)) if e["eventId"] == eid)["elapsedSec"]
++
++    # 득점자 · 도움 수정: 같은 팀이면 점수 그대로, 원래 시각 유지
++    res = api.ok(api.patch(f"/matches/{mid}/events/{eid}",
++                           {"teamId": a["sessionTeamId"], "scorerMemberId": a1, "assistMemberId": a2}))
++    assert res["changed"] is True and res["eventId"] != eid
++    assert (res["match"]["teamA"]["score"], res["match"]["teamB"]["score"]) == (1, 0)
++    goals = {e["eventId"]: e for e in _goals(_detail(api, mid))}
++    assert goals[eid]["cancelled"] is True
++    new = goals[res["eventId"]]
++    assert new["refEventId"] == eid and new["cancelled"] is False and new["elapsedSec"] == elapsed
++    assert (new["scorerMemberId"], new["assistMemberId"]) == (a1, a2)
++    # 취소 이벤트(GOAL_CANCEL)는 만들지 않는다(타임라인에 '골 취소'가 끼지 않게)
++    assert not [e for e in _detail(api, mid)["events"] if e["eventType"] == "GOAL_CANCEL"]
++
++    # 같은 수정이 다시 오면(더블클릭) 새로 만들지 않고 이미 고친 골을 돌려준다
++    dup = api.ok(api.patch(f"/matches/{mid}/events/{eid}",
++                           {"teamId": a["sessionTeamId"], "scorerMemberId": a1, "assistMemberId": a2}))
++    assert dup["changed"] is False and dup["eventId"] == res["eventId"]
++    # 다른 내용으로 이미 고친 골을 또 고치려 하면 409
++    r = api.patch(f"/matches/{mid}/events/{eid}", {"teamId": a["sessionTeamId"], "scorerMemberId": a2})
++    assert r.status_code == 409 and r.json()["error"]["code"] == "ALREADY_CANCELLED"
++
++    # 바뀐 게 없으면 그대로
++    same = api.ok(api.patch(f"/matches/{mid}/events/{res['eventId']}",
++                            {"teamId": a["sessionTeamId"], "scorerMemberId": a1, "assistMemberId": a2}))
++    assert same["changed"] is False and same["eventId"] == res["eventId"]
++
++    # 득점 팀 변경(B팀 골로): 점수가 옮겨 간다
++    moved = api.ok(api.patch(f"/matches/{mid}/events/{res['eventId']}",
++                             {"teamId": b["sessionTeamId"], "scorerMemberId": b0}))
++    assert (moved["match"]["teamA"]["score"], moved["match"]["teamB"]["score"]) == (0, 1)
++
++    # 자책골로 바꾸면 도움은 비운다(A팀 a0의 자책 → B팀 점수)
++    own = api.ok(api.patch(f"/matches/{mid}/events/{moved['eventId']}",
++                           {"teamId": b["sessionTeamId"], "scorerMemberId": a0, "ownGoal": True,
++                            "assistMemberId": a1}))
++    ev = next(e for e in _goals(_detail(api, mid)) if e["eventId"] == own["eventId"])
++    assert ev["ownGoal"] is True and ev["assistMemberId"] is None
++    assert (own["match"]["teamA"]["score"], own["match"]["teamB"]["score"]) == (0, 1)
++
++    # 검증 규칙은 등록과 같다
++    r = api.patch(f"/matches/{mid}/events/{own['eventId']}", {"teamId": a["sessionTeamId"], "scorerMemberId": b0})
++    assert r.status_code == 400 and r.json()["error"]["code"] == "INVALID_SCORER"
++
++
++def test_edit_goal_time_after_end_then_stats_follow_edit(make_club):
++    api = make_club("mgoal4")
++    _, mid = _setup(api, date="2026-12-08")
++    api.ok(api.post(f"/matches/{mid}/start"))
++    d = _detail(api, mid)
++    a = d["teamA"]
++    a0, a1 = a["members"][0]["memberId"], a["members"][1]["memberId"]
++    eid = api.ok(_goal(api, mid, a, a0))["eventId"]
++    api.ok(api.post(f"/matches/{mid}/end"))
++
++    # 끝난 뒤에는 득점 시각도 고칠 수 있다(진행 시간 밖이면 400)
++    r = api.patch(f"/matches/{mid}/events/{eid}", {"teamId": a["sessionTeamId"], "scorerMemberId": a1,
++                                                    "elapsedSec": 99999})
++    assert r.status_code == 400
++    res = api.ok(api.patch(f"/matches/{mid}/events/{eid}", {"teamId": a["sessionTeamId"], "scorerMemberId": a1,
++                                                             "elapsedSec": 0}))
++    assert next(e for e in _goals(_detail(api, mid)) if e["eventId"] == res["eventId"])["elapsedSec"] == 0
++
++    # 확정하면 고친 기록만 개인 기록에 반영
++    api.ok(api.post(f"/matches/{mid}/finalize"))
++    stats = {x["memberId"]: x for x in api.ok(api.get("/stats/members", admin=False))}
++    assert stats[a1]["goals"] == 1 and stats[a0]["goals"] == 0
++
++    # 확정 뒤 수정 불가
++    r = api.patch(f"/matches/{mid}/events/{res['eventId']}", {"teamId": a["sessionTeamId"], "scorerMemberId": a0})
++    assert r.status_code == 409 and r.json()["error"]["code"] == "MATCH_FINALIZED"
++
++
++def test_edit_cancelled_goal_or_unknown_event(make_club):
++    api = make_club("mgoal5")
++    _, mid = _setup(api, date="2026-12-09")
++    api.ok(api.post(f"/matches/{mid}/start"))
++    d = _detail(api, mid)
++    a = d["teamA"]
++    eid = api.ok(_goal(api, mid, a, a["members"][0]["memberId"]))["eventId"]
++    api.ok(api.post(f"/matches/{mid}/events/{eid}/cancel"))
++    body = {"teamId": a["sessionTeamId"], "scorerMemberId": a["members"][1]["memberId"]}
++    r = api.patch(f"/matches/{mid}/events/{eid}", body)
++    assert r.status_code == 409 and r.json()["error"]["code"] == "ALREADY_CANCELLED"
++    start_event = next(e for e in _detail(api, mid)["events"] if e["eventType"] == "START")["eventId"]
++    assert api.patch(f"/matches/{mid}/events/{start_event}", body).status_code == 404
++    assert api.patch(f"/matches/{mid}/events/999999", body).status_code == 404
+-- 
+2.43.0
+
