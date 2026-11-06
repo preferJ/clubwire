@@ -31,7 +31,10 @@ function Generate({ d }: { d: SessionDetail }) {
 
   const generate = async () => {
     const g = await run(() => api.generateTeams(d.sessionId, count))
-    if (g) setGen(g)
+    if (g) {
+      setGen(g)
+      if (g.reshuffleChanged === false) toast.show('이번 후보에서는 전력 조건에 맞는 다른 구성을 찾지 못했어요. 다시 시도하거나 전력 허용 차이를 조정해 주세요.')
+    }
   }
   const confirm = async () => {
     if (!gen) return
@@ -90,7 +93,7 @@ function Generate({ d }: { d: SessionDetail }) {
               <button type="button" className="btn" disabled={busy} onClick={generate}><Icon name="shuffle" size={18} />다시 섞기</button>
               <button type="button" className="btn primary lg" disabled={busy} onClick={confirm}>일정확정</button>
             </div>
-            <span className="small muted center">확정하면 팀이 공개되고, 프리뷰 기사 검토 화면으로 이동해요</span>
+            <span className="small muted center">다시 섞기는 전체 참석자를 대상으로 팀을 새로 나눠요. 확정하면 팀이 공개돼요.</span>
           </>
         ) : (
           <button type="button" className="btn primary lg block" disabled={busy || headcount < count * 2} onClick={generate}>

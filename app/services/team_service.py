@@ -20,7 +20,7 @@ from app.services.config_service import load_config
 from app.services.rating_service import confidence_of, current_states
 from app.services.session_service import active_guests, attending_member_ids
 from app.services.stats_service import pair_get, pair_map
-from app.strategies.team_generation import MemberInput, balance_label, team_generator
+from app.strategies.team_generation import MemberInput, balance_label, partition_key, team_generator
 
 
 def generate_preview(db: Session, club_id: int, session_id: int, team_count: int, seed: int | None = None) -> TeamGeneration:
@@ -44,7 +44,22 @@ def generate_preview(db: Session, club_id: int, session_id: int, team_count: int
         p = pair_get(pairs, a, b)
         return (p.same_team_count, p.co_attendance_count) if p else (0, 0)
 
-    result = team_generator.generate(inputs, [g.guest_id for g in guests], team_count, lookup, cfg, seed=seed)
+    previous = None
+    previous_partition = None
+    # 명시한 seed는 재현용. 일반 재편성에서는 직전의 동일 참석자 구성을 피한다.
+    if seed is None:
+        previous = db.scalar(select(TeamGeneration).where(
+            TeamGeneration.session_id == session_id,
+            TeamGeneration.status == GenerationStatus.PREVIEW,
+        ).order_by(TeamGeneration.generation_id.desc()).limit(1))
+        if (previous and previous.team_count == team_count
+                and previous.result_json["attendeeMemberIds"] == sorted(member_ids)
+                and previous.result_json["guestIds"] == sorted(g.guest_id for g in guests)):
+            teams = previous.result_json["teams"]
+            previous_partition = partition_key([t["memberIds"] for t in teams], [t["guestIds"] for t in teams])
+
+    result = team_generator.generate(inputs, [g.guest_id for g in guests], team_count, lookup, cfg, seed=seed,
+                                     previous_partition=previous_partition)
     gen = TeamGeneration(
         session_id=session_id, status=GenerationStatus.PREVIEW, team_count=team_count,
         attendee_count=len(member_ids), guest_count=len(guests),
@@ -63,6 +78,7 @@ def generate_preview(db: Session, club_id: int, session_id: int, team_count: int
                 for t in result.teams
             ],
             **result.extra,
+            "previousGenerationId": previous.generation_id if previous_partition is not None else None,
         },
     )
     db.add(gen)
@@ -81,6 +97,7 @@ def serialize_generation(db: Session, gen: TeamGeneration) -> dict:
         "seed": gen.random_seed, "candidateCount": gen.candidate_count, "validCandidateCount": gen.valid_candidate_count,
         "toleranceFallback": gen.tolerance_fallback_yn, "spreadPercent": round(gen.spread_percent, 4),
         "pairPenalty": round(gen.pair_penalty, 4), "balanceLabel": balance_label(gen.spread_percent),
+        "reshuffleChanged": rj.get("reshuffleChanged"),
         "teams": [
             {
                 "teamCode": t["teamCode"], "headcount": t["headcount"], "avgRating": round(t["avgRating"], 2),

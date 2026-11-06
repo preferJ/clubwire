@@ -18,6 +18,14 @@ from app.core.club_config import ClubConfig
 from app.strategies.rating import TeamStrengthStrategy
 
 PairLookup = Callable[[int, int], tuple[int, int]]  # (member_a, member_b) -> (same_team_count, co_attendance_count)
+TeamPartition = tuple[tuple[tuple[str, int], ...], ...]
+
+
+def partition_key(member_groups: list[list[int]], guest_groups: list[list[int]]) -> TeamPartition:
+    """팀 이름/명단 순서를 무시하되 회원과 게스트 ID는 구분한다."""
+    return tuple(sorted(tuple(sorted(
+        [("member", mid) for mid in members] + [("guest", gid) for gid in guests]
+    )) for members, guests in zip(member_groups, guest_groups)))
 
 
 # ---------------------------------------------------------------- Pair Penalty
@@ -103,7 +111,7 @@ class _Candidate:
 class RandomCandidateTeamGenerator:
     """Randomized Candidate Generation + Scoring (MVP)."""
 
-    version = "random_candidate_v1"
+    version = "random_candidate_v2"
 
     def __init__(self, strength: TeamStrengthStrategy, pair: PairPenaltyStrategy):
         self.strength = strength
@@ -117,6 +125,7 @@ class RandomCandidateTeamGenerator:
         pair_lookup: PairLookup,
         cfg: ClubConfig,
         seed: int | None = None,
+        previous_partition: TeamPartition | None = None,
     ) -> GenerationResult:
         if team_count < 2:
             raise ValueError("team_count는 2 이상이어야 합니다.")
@@ -149,7 +158,9 @@ class RandomCandidateTeamGenerator:
             rng.shuffle(order)
             order.sort(key=lambda i: -sizes[i])  # 큰 팀부터(동률은 섞인 순서 유지)
             guest_groups: list[list[int]] = [[] for _ in range(team_count)]
-            for gi, gid in enumerate(guest_ids):
+            shuffled_guests = guest_ids[:]
+            rng.shuffle(shuffled_guests)
+            for gi, gid in enumerate(shuffled_guests):
                 guest_groups[order[gi % team_count]].append(gid)
             slots = [sizes[i] - len(guest_groups[i]) for i in range(team_count)]
             if any(s < 0 for s in slots):
@@ -181,6 +192,17 @@ class RandomCandidateTeamGenerator:
         else:
             pool = valid
 
+        # 팀 라벨 교환이나 명단 순서 변경은 재편성으로 보지 않는다.
+        # 전력 조건을 만족하는 대안이 있으면 기존 구성은 점수 비교에서 제외한다.
+        def key(candidate: _Candidate) -> TeamPartition:
+            return partition_key([[m.member_id for m in g] for g in candidate.member_groups],
+                                 candidate.guest_groups)
+
+        if previous_partition is not None:
+            alternatives = [c for c in pool if key(c) != previous_partition]
+            if alternatives:
+                pool = alternatives
+
         min_penalty = min(c.penalty for c in pool)
         near = [c for c in pool if c.penalty <= min_penalty + eps]
         best_spread = min(c.spread for c in near)
@@ -209,7 +231,8 @@ class RandomCandidateTeamGenerator:
             tolerance_fallback=fallback,
             seed=seed,
             algorithm_version=self.version,
-            extra={"pairStrategy": self.pair.version, "strengthStrategy": self.strength.version, "sizes": sizes},
+            extra={"pairStrategy": self.pair.version, "strengthStrategy": self.strength.version, "sizes": sizes,
+                   "reshuffleChanged": key(chosen) != previous_partition if previous_partition is not None else None},
         )
 
 
