@@ -19,6 +19,7 @@ from app.models import (
 )
 from app.models.enums import AttendanceStatus, GameStatus, SessionStatus
 from app.services.common import get_member, get_session, guard_after_closed, guard_not_closed, session_teams
+from app.services.opponent_service import get_opponent
 from app.strategies.team_generation import balance_label, spread_percent
 
 
@@ -46,6 +47,15 @@ def update_session(db: Session, club_id: int, session_id: int, **fields) -> Club
     for k in ("title", "location"):
         if fields.get(k) is not None:
             setattr(s, k, fields[k])
+    if fields.get("opponent_id") is not None:  # 원정팀 바꾸기(원정 경기 일정만, 원정팀 목록에서)
+        if not s.away_yn:
+            raise BadRequest("원정 경기 일정에서만 원정팀을 바꿀 수 있습니다.", "NOT_AWAY_SESSION")
+        o = get_opponent(db, club_id, fields["opponent_id"])
+        s.opponent_id, s.opponent_name = o.opponent_id, o.name
+        for t in session_teams(db, s.session_id):
+            if t.opponent_yn:
+                t.display_name = o.name
+        emit(db, club_id, "TEAMS_UPDATED", {"sessionId": s.session_id})
     emit(db, club_id, "SESSION_UPDATED", {"sessionId": s.session_id, "status": s.status})
     db.commit()
     return s
@@ -209,6 +219,7 @@ def serialize_session(db: Session, s: ClubSession, *, detail: bool = False, admi
         "sessionId": s.session_id, "sessionDate": s.session_date, "title": s.title, "location": s.location,
         "status": s.status, "teamCount": s.team_count, "deletedAt": to_iso(s.deleted_at),
         "confirmedAt": to_iso(s.confirmed_at), "closedAt": to_iso(s.closed_at),
+        "away": s.away_yn, "opponentId": s.opponent_id, "opponentName": s.opponent_name,  # 원정 경기 일정(우리 팀 vs 원정팀)
     }
     if not detail:
         data["attendeeCount"] = db.scalar(select(func.count()).select_from(SessionMember).where(
@@ -237,6 +248,7 @@ def serialize_session(db: Session, s: ClubSession, *, detail: bool = False, admi
             strengths.append(t.team_strength_snapshot)
         team = {
             "sessionTeamId": t.session_team_id, "teamCode": t.team_code, "displayName": t.display_name,
+            "opponent": t.opponent_yn,
             "members": [{"memberId": m.member_id, "name": m.name, "assignType": stm.assign_type} for stm, m in info["members"]],
             "guests": [{"guestId": g.guest_id, "name": g.guest_name} for g in info["guests"]],
             "headcount": len(info["members"]) + len(info["guests"]),
@@ -249,11 +261,16 @@ def serialize_session(db: Session, s: ClubSession, *, detail: bool = False, admi
     data["balanceLabel"] = balance_label(spread_percent(strengths)) if len(strengths) >= 2 else None
 
     matches = db.scalars(select(MatchGame).where(MatchGame.session_id == s.session_id).order_by(MatchGame.game_no))
-    code = {info["team"].session_team_id: info["team"].team_code for info in rosters.values()}
+    team_of = {info["team"].session_team_id: info["team"] for info in rosters.values()}
+
+    def score(tid: int, value: int) -> dict:
+        t = team_of.get(tid)
+        return {"sessionTeamId": tid, "teamCode": t.team_code if t else None,
+                "displayName": t.display_name if t else None, "opponent": bool(t and t.opponent_yn), "score": value}
+
     data["matches"] = [
         {"matchId": m.match_id, "gameNo": m.game_no, "status": m.game_status, "finalized": m.finalized_at is not None,
-         "teamA": {"sessionTeamId": m.team_a_id, "teamCode": code.get(m.team_a_id), "score": m.score_a},
-         "teamB": {"sessionTeamId": m.team_b_id, "teamCode": code.get(m.team_b_id), "score": m.score_b},
+         "teamA": score(m.team_a_id, m.score_a), "teamB": score(m.team_b_id, m.score_b),
          "winTeamId": m.win_team_id, "startedAt": to_iso(m.started_at), "finishedAt": to_iso(m.finished_at)}
         for m in matches
     ]
@@ -265,18 +282,22 @@ def session_summary(db: Session, club_id: int, session_id: int) -> dict:
     s = get_session(db, club_id, session_id)
     teams = session_teams(db, session_id)
     code = {t.session_team_id: t.team_code for t in teams}
+    label = {t.session_team_id: t.display_name for t in teams}
     matches = list(db.scalars(select(MatchGame).where(MatchGame.session_id == session_id,
                                                       MatchGame.game_status != GameStatus.CANCELLED)
                               .order_by(MatchGame.game_no)))
     finished = [m for m in matches if m.game_status == GameStatus.FINISHED]
     records = {t.session_team_id: {"sessionTeamId": t.session_team_id, "teamCode": t.team_code,
-                                   "wins": 0, "draws": 0, "losses": 0} for t in teams}
+                                   "displayName": t.display_name, "opponent": t.opponent_yn,
+                                   "wins": 0, "draws": 0, "losses": 0, "goalsFor": 0, "goalsAgainst": 0} for t in teams}
     for m in finished:
         for tid, mine, theirs in ((m.team_a_id, m.score_a, m.score_b), (m.team_b_id, m.score_b, m.score_a)):
             r = records.get(tid)
             if r is None:
                 continue
             r["wins" if mine > theirs else "draws" if mine == theirs else "losses"] += 1
+            r["goalsFor"] += mine
+            r["goalsAgainst"] += theirs
     goals: dict[int, int] = {}
     assists: dict[int, int] = {}
     ids = [m.match_id for m in finished]
@@ -294,7 +315,7 @@ def session_summary(db: Session, club_id: int, session_id: int) -> dict:
                 for k, v in sorted(d.items(), key=lambda x: (-x[1], names.get(x[0], "")))[:5]]
 
     return {
-        "sessionId": s.session_id, "status": s.status,
+        "sessionId": s.session_id, "status": s.status, "away": s.away_yn, "opponentName": s.opponent_name,
         "finishedCount": len(finished),
         "unfinalizedCount": sum(1 for m in finished if m.finalized_at is None),
         "readyCount": sum(1 for m in matches if m.game_status == GameStatus.READY),
@@ -303,6 +324,7 @@ def session_summary(db: Session, club_id: int, session_id: int) -> dict:
         "matches": [{"matchId": m.match_id, "gameNo": m.game_no, "status": m.game_status,
                      "finalized": m.finalized_at is not None,
                      "teamA": code.get(m.team_a_id), "teamB": code.get(m.team_b_id),
+                     "teamAName": label.get(m.team_a_id), "teamBName": label.get(m.team_b_id),
                      "scoreA": m.score_a, "scoreB": m.score_b} for m in matches],
         "teamRecords": list(records.values()),
         "topScorers": top(goals),

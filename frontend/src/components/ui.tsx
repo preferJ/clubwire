@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { errorMessage } from '../api/client'
 import { useClub } from '../lib/club'
-import { tagTone, teamColor } from '../lib/format'
+import { OPPONENT_COLOR, tagTone, teamColor } from '../lib/format'
 import { Icon } from './Icon'
 import { Crest, CREST_SIZE_DEFAULT } from './ClubCrest'
 import { ThemeToggle } from '../lib/theme'
@@ -121,20 +121,26 @@ export function BottomNav() {
   )
 }
 
-export function TeamBadge({ code, size = 26, onDark }: { code: string | null | undefined; size?: number; onDark?: boolean }) {
+/** 팀 배지. opponent = 원정팀(회색, 이름 첫 글자) */
+export function TeamBadge({ code, size = 26, onDark, opponent }: {
+  code: string | null | undefined
+  size?: number
+  onDark?: boolean
+  opponent?: boolean
+}) {
   return (
-    <span className="team-badge" style={{ width: size, height: size, background: teamColor(code, onDark), fontSize: size * 0.5 }}>
+    <span className="team-badge" style={{ width: size, height: size, background: opponent ? OPPONENT_COLOR : teamColor(code, onDark), fontSize: size * 0.5 }}>
       {code ?? '?'}
     </span>
   )
 }
 
 /** 경기 결과의 팀 이름. 이긴 팀은 굵게 + 승리 색 + '승' 표시(색만으로 구분하지 않게 글자도 같이) */
-export function ResultTeam({ code, win, side }: { code: string | null | undefined; win: boolean; side: 'A' | 'B' }) {
+export function ResultTeam({ name, win, side }: { name: string; win: boolean; side: 'A' | 'B' }) {
   const mark = win ? <span className="win-mark">승</span> : null
   return (
     <span className={`result-team ${win ? 'win' : ''}`}>
-      {side === 'A' ? mark : null}TEAM {code ?? '?'}{side === 'B' ? mark : null}
+      {side === 'A' ? mark : null}{name}{side === 'B' ? mark : null}
     </span>
   )
 }

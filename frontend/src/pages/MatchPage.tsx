@@ -7,7 +7,7 @@ import { Icon } from '../components/Icon'
 import { NextMatchSheet } from '../components/NextMatchSheet'
 import { AdminButton, ErrorBox, Loading, Sheet, Switch, TeamBadge } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
-import { fmtClock, GAME_STATUS_LABEL, newIdempotencyKey, teamColor } from '../lib/format'
+import { fmtClock, GAME_STATUS_LABEL, newIdempotencyKey, OPPONENT_COLOR, teamColor, teamLabel, teamMark } from '../lib/format'
 import { useAction, useAsync, useMatchClock } from '../lib/hooks'
 import { ThemeToggle } from '../lib/theme'
 
@@ -52,6 +52,9 @@ export function MatchPage() {
     .sort((a, b) => (b.elapsedSec ?? 0) - (a.elapsedSec ?? 0) || b.eventId - a.eventId)
   const teamOf = (tid: number | null) => (tid === d.teamA.sessionTeamId ? d.teamA : d.teamB)
   const winner = d.winTeamId ? teamOf(d.winTeamId) : null
+  // 원정 경기: TEAM A = 우리 팀, TEAM B = 원정팀(선수 없음, 골은 점수만). 출전 선수는 시작 전에도 고칠 수 있다
+  const away = d.teamA.opponent || d.teamB.opponent
+  const color = (t: MatchDetailTeam) => (t.opponent ? OPPONENT_COLOR : teamColor(t.teamCode))
 
   return (
     <>
@@ -95,7 +98,7 @@ export function MatchPage() {
           <div className="progress" aria-hidden="true"><span style={{ width: `${clock.progress * 100}%` }} /></div>
           <div className="small" style={{ color: 'var(--sports-muted)' }}>
             {d.status === 'READY' ? `${Math.round(d.durationSec / 60)}분 경기 · 시작 전`
-              : d.status === 'FINISHED' ? <>{winner ? <b className="win-text">TEAM {winner.teamCode} 승</b> : '무승부'}{d.endReason === 'TIME_UP' ? ' · 시간 종료' : d.endReason === 'EARLY_GOAL' ? ' · 조기 종료' : ''}</>
+              : d.status === 'FINISHED' ? <>{winner ? <b className="win-text">{teamLabel(winner)} 승</b> : '무승부'}{d.endReason === 'TIME_UP' ? ' · 시간 종료' : d.endReason === 'EARLY_GOAL' ? ' · 조기 종료' : ''}</>
                 : `남은 시간 · ${d.autoEnd ? '0이 되면 자동 종료' : '관리자가 종료'}`}
           </div>
         </div>
@@ -120,9 +123,9 @@ export function MatchPage() {
         {live ? (
           <div className="grid2" style={{ gap: 10 }}>
             {[d.teamA, d.teamB].map((t) => (
-              <button key={t.sessionTeamId} type="button" className="goal-btn" style={{ background: teamColor(t.teamCode) }}
+              <button key={t.sessionTeamId} type="button" className="goal-btn" style={{ background: color(t) }}
                 onClick={() => setGoalTeam(t.sessionTeamId)}>
-                <Icon name="plus" size={30} stroke={2} />TEAM {t.teamCode} 골
+                <Icon name="plus" size={30} stroke={2} />{teamLabel(t)} 골
               </button>
             ))}
           </div>
@@ -141,7 +144,7 @@ export function MatchPage() {
             <div className="grid2">
               {[d.teamA, d.teamB].map((t) => (
                 <button key={t.sessionTeamId} type="button" className="btn sm" onClick={() => setGoalTeam(t.sessionTeamId)}>
-                  TEAM {t.teamCode} 골 추가
+                  {teamLabel(t)} 골 추가
                 </button>
               ))}
             </div>
@@ -184,20 +187,23 @@ export function MatchPage() {
           ))}
         </section>
 
-        <section className="grid2">
-          {[d.teamA, d.teamB].map((t) => (
+        <section className={away ? 'stack' : 'grid2'}>
+          {[d.teamA, d.teamB].filter((t) => !t.opponent).map((t) => (
             <div key={t.sessionTeamId} className="card flat stack" style={{ gap: 6 }}>
               <span className="small" style={{ fontWeight: 700, color: teamColor(t.teamCode) }}>
-                TEAM {t.teamCode} 출전 {t.members.length + t.guestCount}
+                {teamLabel(t)} 출전 {t.members.length + t.guestCount}
               </span>
               <span style={{ fontSize: 13, lineHeight: 1.6 }}>
-                {[...t.members.map((m) => m.name), ...Array.from({ length: t.guestCount }, (_, i) => `게스트${t.guestCount > 1 ? i + 1 : ''}`)].join(' · ') || '경기 시작 시 확정'}
+                {[...t.members.map((m) => m.name), ...Array.from({ length: t.guestCount }, (_, i) => `게스트${t.guestCount > 1 ? i + 1 : ''}`)].join(' · ')
+                  || (away ? '출전 선수를 골라 주세요' : '경기 시작 시 확정')}
               </span>
             </div>
           ))}
         </section>
-        {editable && d.status !== 'READY' ? (
-          <button type="button" className="link-btn" onClick={() => setRosterOpen(true)}>출전 명단 수정(결장 · 교체 투입)</button>
+        {editable && (d.status !== 'READY' || away) ? (
+          <button type="button" className="link-btn" onClick={() => setRosterOpen(true)}>
+            {d.status === 'READY' ? '출전 선수 바꾸기' : '출전 명단 수정(결장 · 교체 투입)'}
+          </button>
         ) : null}
       </main>
 
@@ -217,8 +223,8 @@ export function MatchPage() {
 function TeamCol({ t, win }: { t: MatchDetailTeam; win: boolean }) {
   return (
     <div className={`score-team ${win ? 'win' : ''}`}>
-      <TeamBadge code={t.teamCode} size={46} onDark />
-      <span className="row" style={{ gap: 4 }}>TEAM {t.teamCode}{win ? <span className="win-mark">승</span> : null}</span>
+      <TeamBadge code={teamMark(t)} size={46} onDark opponent={t.opponent} />
+      <span className="row" style={{ gap: 4, textAlign: 'center' }}>{teamLabel(t)}{win ? <span className="win-mark">승</span> : null}</span>
     </div>
   )
 }
@@ -240,15 +246,20 @@ function GoalRow({ e, team, other, canChange, onEdit, onCancel }: {
   onEdit: () => void
   onCancel: () => void
 }) {
-  const who = (e.guestGoal ? '게스트' : e.scorerName ?? '?') + (e.ownGoal ? ` (TEAM ${other.teamCode})` : '')
+  // 원정팀 골은 득점자 없이 점수만, 원정팀 자책골은 우리 골(득점자 없음)
+  const opponentGoal = team.opponent && !e.ownGoal
+  const who = opponentGoal ? teamLabel(team)
+    : e.ownGoal && !e.scorerName ? teamLabel(other)
+      : (e.guestGoal ? '게스트' : e.scorerName ?? '?') + (e.ownGoal ? ` (${teamLabel(other)})` : '')
+  const note = opponentGoal ? '점수만 기록' : e.ownGoal && !e.scorerName ? '원정팀 자책골' : e.assistName ? `도움 ${e.assistName}` : '도움 없음'
   return (
     <div className={`timeline-item ${e.cancelled ? 'cancelled' : ''}`}>
       <time>{fmtClock(e.elapsedSec ?? 0)}</time>
-      <span className="mini-badge" style={{ background: e.cancelled ? 'var(--line-strong)' : teamColor(team.teamCode) }}>{team.teamCode}</span>
+      <span className="mini-badge" style={{ background: e.cancelled ? 'var(--line-strong)' : team.opponent ? OPPONENT_COLOR : teamColor(team.teamCode) }}>{teamMark(team)}</span>
       <div className="stack" style={{ flex: 1, gap: 0 }}>
         <span className="who" style={{ fontWeight: 700 }}>{e.ownGoal ? `자책골 · ${who}` : `골 · ${who}`}</span>
         <span className="small muted">
-          {e.cancelled ? '취소됨' : e.assistName ? `도움 ${e.assistName}` : '도움 없음'}{e.refEventId != null && !e.cancelled ? ' · 수정됨' : ''}
+          {e.cancelled ? '취소됨' : note}{e.refEventId != null && !e.cancelled ? ' · 수정됨' : ''}
         </span>
       </div>
       {canChange ? (
@@ -298,15 +309,18 @@ function GoalSheet({ d, teamId, editing, onClose, onDone }: {
   const scorerOptions = [...scorerTeam.members.map((m) => ({ id: m.memberId as number | 'guest', name: m.name })),
     ...(scorerTeam.guestCount > 0 ? [{ id: 'guest' as const, name: '게스트' }] : [])]
   const assistOptions = team.members.filter((m) => m.memberId !== scorer)
+  // 원정 경기: 원정팀 골(자책 아님)은 점수만, 원정팀 자책골은 득점자 없이 우리 골
+  const scoreOnly = (team.opponent && !own) || (own && other.opponent)
+  const needScorer = !scoreOnly
 
   const submit = async () => {
-    if (scorer === null) return
+    if (needScorer && scorer === null) return
     const body = {
       teamId: tid,
-      scorerMemberId: scorer === 'guest' ? null : scorer,
-      guestGoal: scorer === 'guest',
+      scorerMemberId: scoreOnly || scorer === 'guest' ? null : scorer,
+      guestGoal: !scoreOnly && scorer === 'guest',
       ownGoal: own,
-      assistMemberId: own ? null : assist,
+      assistMemberId: own || team.opponent ? null : assist,
     }
     const at = Math.max(0, Math.min(d.durationSec * 3, minute * 60))
     const r = editing
@@ -320,14 +334,14 @@ function GoalSheet({ d, teamId, editing, onClose, onDone }: {
   return (
     <Sheet open onClose={onClose} labelledBy="goal-title">
       <div className="row between">
-        <div className="row"><TeamBadge code={team.teamCode} size={32} /><h2 id="goal-title">TEAM {team.teamCode} 골 {editing ? '수정' : '기록'}</h2></div>
+        <div className="row"><TeamBadge code={teamMark(team)} size={32} opponent={team.opponent} /><h2 id="goal-title">{teamLabel(team)} 골 {editing ? '수정' : '기록'}</h2></div>
       </div>
 
       {editing ? (
         <div className="segmented" role="group" aria-label="득점 팀" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
           {[d.teamA, d.teamB].map((t) => (
             <button key={t.sessionTeamId} type="button" aria-pressed={tid === t.sessionTeamId} onClick={() => changeTeam(t.sessionTeamId)}>
-              TEAM {t.teamCode} 골
+              {teamLabel(t)} 골
             </button>
           ))}
         </div>
@@ -335,24 +349,34 @@ function GoalSheet({ d, teamId, editing, onClose, onDone }: {
 
       <div className="row between" style={{ padding: '10px 12px', borderRadius: 12, background: 'var(--bg)' }}>
         <div className="stack" style={{ gap: 2 }}>
-          <b style={{ fontSize: 14 }}>자책골</b>
-          <span className="small muted">켜면 상대(TEAM {other.teamCode}) 선수 중에서 고릅니다</span>
+          <b style={{ fontSize: 14 }}>{team.opponent ? '우리 선수 자책골' : '자책골'}</b>
+          <span className="small muted">
+            {team.opponent ? `켜면 ${teamLabel(other)} 출전 선수 중에서 고릅니다`
+              : other.opponent ? `켜면 ${teamLabel(other)}의 자책골로 기록합니다(득점자 없음)`
+                : `켜면 상대(${teamLabel(other)}) 선수 중에서 고릅니다`}
+          </span>
         </div>
         <Switch checked={own} onChange={changeOwn} label="자책골" />
       </div>
 
-      <section className="section">
-        <h3 className="small muted" style={{ fontWeight: 700 }}>{own ? `자책한 선수 (TEAM ${other.teamCode})` : '득점자'}</h3>
-        <div className="grid3" style={{ gap: 6 }}>
-          {scorerOptions.map((o) => (
-            <button key={String(o.id)} type="button" className="pick" aria-pressed={scorer === o.id} onClick={() => setScorer(o.id)}>
-              {o.name}
-            </button>
-          ))}
-        </div>
-      </section>
+      {scoreOnly ? (
+        <p className="notice gray" style={{ margin: 0 }}>
+          {team.opponent ? `${teamLabel(team)}의 골은 득점자 없이 점수만 기록해요.` : `${teamLabel(other)} 자책골로 ${teamLabel(team)}에 1점을 올려요.`}
+        </p>
+      ) : (
+        <section className="section">
+          <h3 className="small muted" style={{ fontWeight: 700 }}>{own ? `자책한 선수 (${teamLabel(other)})` : '득점자'}</h3>
+          <div className="grid3" style={{ gap: 6 }}>
+            {scorerOptions.map((o) => (
+              <button key={String(o.id)} type="button" className="pick" aria-pressed={scorer === o.id} onClick={() => setScorer(o.id)}>
+                {o.name}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
-      {!own ? (
+      {!own && !team.opponent ? (
         <section className="section">
           <h3 className="small muted" style={{ fontWeight: 700 }}>도움 (선택)</h3>
           <div className="grid3" style={{ gap: 6 }}>
@@ -374,8 +398,9 @@ function GoalSheet({ d, teamId, editing, onClose, onDone }: {
         </label>
       ) : null}
 
-      <button type="button" className="btn primary lg block" disabled={busy || scorer === null} onClick={submit}>
-        {busy ? (editing ? '저장 중…' : '기록 중…') : editing ? '고친 내용 저장' : own ? '자책골 기록' : '골 기록'}
+      <button type="button" className="btn primary lg block" disabled={busy || (needScorer && scorer === null)} onClick={submit}>
+        {busy ? (editing ? '저장 중…' : '기록 중…') : editing ? '고친 내용 저장' : own ? '자책골 기록'
+          : team.opponent ? `${teamLabel(team)} 골 기록` : '골 기록'}
       </button>
     </Sheet>
   )
@@ -396,11 +421,11 @@ function RosterSheet({ d, onClose, onChanged }: { d: MatchDetail; onClose: () =>
 
   return (
     <Sheet open onClose={onClose} labelledBy="roster-title">
-      <h2 id="roster-title">출전 명단 수정</h2>
+      <h2 id="roster-title">{d.status === 'READY' ? '출전 선수 바꾸기' : '출전 명단 수정'}</h2>
       <p className="small muted">골/도움 기록이 있는 선수는 뺄 수 없어요.</p>
-      {[d.teamA, d.teamB].map((t) => (
+      {[d.teamA, d.teamB].filter((t) => !t.opponent).map((t) => (
         <section key={t.sessionTeamId} className="section">
-          <h3 className="small" style={{ fontWeight: 700, color: teamColor(t.teamCode) }}>TEAM {t.teamCode}</h3>
+          <h3 className="small" style={{ fontWeight: 700, color: teamColor(t.teamCode) }}>{teamLabel(t)}</h3>
           <div className="row wrap" style={{ gap: 6 }}>
             {t.members.map((m) => (
               <button key={m.memberId} type="button" className="name-chip" disabled={busy}

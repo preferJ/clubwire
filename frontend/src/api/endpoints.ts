@@ -3,6 +3,9 @@
 import { request } from './client'
 import type {
   Article,
+  AwayOpponentDetail,
+  AwayOverview,
+  Opponent,
   ArticleDetail,
   AssignmentLog,
   AuthResponse,
@@ -64,7 +67,7 @@ export const makeApi = (slug: string) => ({
   sessionSummary: (id: number) => request<SessionSummary>(slug, 'GET', `/sessions/${id}/summary`),
   createSession: (body: { sessionDate: string; title?: string; location?: string }) =>
     request<SessionDetail>(slug, 'POST', '/sessions', { body }),
-  updateSession: (id: number, body: { sessionDate?: string; title?: string; location?: string }) =>
+  updateSession: (id: number, body: { sessionDate?: string; title?: string; location?: string; opponentId?: number }) =>
     request<SessionDetail>(slug, 'PATCH', `/sessions/${id}`, { body }),
   deleteSession: (id: number) => request<SessionListItem>(slug, 'DELETE', `/sessions/${id}`),
   cancelSession: (id: number) => request<SessionListItem>(slug, 'POST', `/sessions/${id}/cancel`),
@@ -74,8 +77,18 @@ export const makeApi = (slug: string) => ({
   addGuests: (id: number, count: number) =>
     request<{ guestId: number; name: string }[]>(slug, 'POST', `/sessions/${id}/guests`, { body: { count } }),
   removeGuest: (id: number, guestId: number) => request(slug, 'DELETE', `/sessions/${id}/guests/${guestId}`),
-  generateTeams: (id: number, teamCount: number) =>
-    request<Generation>(slug, 'POST', `/sessions/${id}/teams/generate`, { body: { teamCount } }),
+  /** teamCount 1 = 원정 경기(참석자 전원이 우리 팀, opponentId = 원정팀 목록에서 고른 팀) */
+  generateTeams: (id: number, teamCount: number, opponentId?: number) =>
+    request<Generation>(slug, 'POST', `/sessions/${id}/teams/generate`, { body: { teamCount, opponentId } }),
+  // 원정팀 목록
+  /** includeHidden = 숨긴 팀까지 + 팀별 원정 일정 수(관리자 [원정팀 관리]) */
+  opponents: (includeHidden = false) =>
+    request<Opponent[]>(slug, 'GET', '/opponents', { query: includeHidden ? { includeHidden } : undefined }),
+  /** [직접추가]: 같은 이름(공백 · 대소문자 무시)이 있으면 그 팀을 돌려준다(숨긴 팀이면 다시 보이게) */
+  createOpponent: (name: string) => request<Opponent>(slug, 'POST', '/opponents', { body: { name } }),
+  /** [원정팀 관리] 이름 수정(지난 원정 일정 표시도 새 이름) · 숨기기(active=false) · 복원 */
+  updateOpponent: (opponentId: number, body: { name?: string; active?: boolean }) =>
+    request<Opponent>(slug, 'PATCH', `/opponents/${opponentId}`, { body }),
   confirmTeams: (id: number, generationId: number) =>
     request<SessionDetail>(slug, 'POST', `/sessions/${id}/teams/confirm`, { body: { generationId } }),
   changeAssignment: (
@@ -88,8 +101,9 @@ export const makeApi = (slug: string) => ({
   // 경기
   live: () => request<LiveMatch[]>(slug, 'GET', '/live'),
   nextSuggestion: (sessionId: number) => request<NextSuggestion>(slug, 'GET', `/sessions/${sessionId}/matches/next-suggestion`),
-  createNextMatch: (sessionId: number, teamAId: number, teamBId: number) =>
-    request<MatchState>(slug, 'POST', `/sessions/${sessionId}/matches/next`, { body: { teamAId, teamBId } }),
+  /** memberIds: 원정 경기 출전 선수(우리 팀) */
+  createNextMatch: (sessionId: number, teamAId: number, teamBId: number, memberIds?: number[]) =>
+    request<MatchState>(slug, 'POST', `/sessions/${sessionId}/matches/next`, { body: { teamAId, teamBId, memberIds } }),
   match: (id: number) => request<MatchDetail>(slug, 'GET', `/matches/${id}`),
   matchAction: (id: number, action: 'start' | 'pause' | 'resume' | 'end' | 'cancel' | 'finalize' | 'unfinalize') =>
     request<MatchState>(slug, 'POST', `/matches/${id}/${action}`),
@@ -126,6 +140,8 @@ export const makeApi = (slug: string) => ({
 
   // 통계 / 타이틀
   memberStats: () => request<MemberStat[]>(slug, 'GET', '/stats/members'),
+  awayStats: () => request<AwayOverview>(slug, 'GET', '/stats/away'),
+  awayOpponent: (opponentId: number) => request<AwayOpponentDetail>(slug, 'GET', `/stats/away/opponents/${opponentId}`),
   memberDetail: (id: number, top = 5) => request<MemberDetail>(slug, 'GET', `/stats/members/${id}`, { query: { top } }),
   mvpRace: () => request<MvpRace>(slug, 'GET', '/stats/mvp-race'),
   titleTypes: () => request<TitleType[]>(slug, 'GET', '/titles/types'),

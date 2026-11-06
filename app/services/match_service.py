@@ -5,6 +5,11 @@
 - 골 등록은 IDEMPOTENCY_KEY(UNIQUE MATCH_ID+KEY)로 더블클릭 중복을 막는다.
 - 점수는 GOAL/GOAL_CANCEL 이벤트(골 수정 포함)와 같은 트랜잭션에서만 바뀐다.
 - 골 수정은 기존 골을 취소 표시하고 고친 골을 새로 기록한다(REF_EVENT_ID로 연결, 이벤트 삭제 없음).
+
+원정 경기(SESSION.AWAY_YN)
+- TEAM_A = 우리 팀, TEAM_B = 원정팀(선수 없음). 출전 선수는 경기마다 관리자가 고른다(경기 생성 시 MATCH_MEMBER).
+- 원정팀 골은 점수만(득점자 없음). 우리 선수 자책골은 원정팀 골 + 자책 선수, 상대 자책골은 우리 골 + 득점자 없음.
+- 확정해도 실력 점수 · 개인 통계 · Pair를 다시 계산하지 않는다(원정 기록은 따로 집계).
 """
 import math
 from datetime import datetime, timedelta
@@ -81,7 +86,7 @@ def match_state(db: Session, m: MatchGame, teams: dict[int, SessionTeam] | None 
     def team(tid: int, score: int) -> dict:
         t = teams.get(tid)
         return {"sessionTeamId": tid, "teamCode": t.team_code if t else None,
-                "displayName": t.display_name if t else None, "score": score}
+                "displayName": t.display_name if t else None, "opponent": bool(t and t.opponent_yn), "score": score}
 
     return {
         "matchId": m.match_id, "sessionId": m.session_id, "gameNo": m.game_no, "status": m.game_status,
@@ -154,23 +159,42 @@ def next_suggestion(db: Session, club_id: int, session_id: int) -> dict:
     sug = match_order_strategy.suggest([t.session_team_id for t in teams], played)
     status = {x.team_id: x for x in sug.teams}
     next_no = (db.scalar(select(func.max(MatchGame.game_no)).where(MatchGame.session_id == session_id)) or 0) + 1
-    return {
-        "sessionId": s.session_id, "nextGameNo": next_no,
+    data = {
+        "sessionId": s.session_id, "nextGameNo": next_no, "away": s.away_yn,
         "blockedByMatchId": active[0].match_id if active else None,
         "suggestedTeamAId": sug.team_a_id, "suggestedTeamBId": sug.team_b_id,
         "teams": [
             {"sessionTeamId": t.session_team_id, "teamCode": t.team_code, "displayName": t.display_name,
+             "opponent": t.opponent_yn,
              "gamesPlayed": status[t.session_team_id].games, "consecutive": status[t.session_team_id].consecutive,
              "lastPlayedGameNo": hist[status[t.session_team_id].last_index].game_no
              if status[t.session_team_id].last_index >= 0 else None}
             for t in teams
         ],
     }
+    if s.away_yn:  # 원정 경기: 우리 팀 vs 원정팀 고정 + 출전 선수 고르기(직전 경기 명단을 기본값으로)
+        ours = next(t for t in teams if not t.opponent_yn)
+        opp = next(t for t in teams if t.opponent_yn)
+        data["suggestedTeamAId"], data["suggestedTeamBId"] = ours.session_team_id, opp.session_team_id
+        roster = db.execute(
+            select(Member.member_id, Member.name)
+            .join(SessionTeamMember, SessionTeamMember.member_id == Member.member_id)
+            .where(SessionTeamMember.session_id == session_id, SessionTeamMember.active_yn.is_(True),
+                   SessionTeamMember.session_team_id == ours.session_team_id)
+            .order_by(Member.name)).all()
+        data["roster"] = [{"memberId": mid, "name": name} for mid, name in roster]
+        on_roster = {mid for mid, _ in roster}
+        last = hist[-1] if hist else None
+        data["lineupMemberIds"] = sorted(
+            mm.member_id for mm in db.scalars(select(MatchMember).where(MatchMember.match_id == last.match_id))
+            if mm.member_id in on_roster) if last else []
+    return data
 
 
 def create_next_match(db: Session, club_id: int, session_id: int, admin_id: int | None, *,
-                      team_a_id: int | None, team_b_id: int | None, duration_sec: int | None = None) -> MatchGame:
-    """다음 경기 생성. 대진(두 팀)은 관리자가 매번 지정한다."""
+                      team_a_id: int | None, team_b_id: int | None, duration_sec: int | None = None,
+                      member_ids: list[int] | None = None) -> MatchGame:
+    """다음 경기 생성. 대진(두 팀)은 관리자가 매번 지정한다. 원정 경기는 출전 선수(member_ids)를 함께 고른다."""
     s = get_session(db, club_id, session_id, lock=True)
     guard_not_closed(s)
     if s.status not in (SessionStatus.CONFIRMED, SessionStatus.IN_PROGRESS):
@@ -185,6 +209,19 @@ def create_next_match(db: Session, club_id: int, session_id: int, admin_id: int 
         raise BadRequest("대진 팀이 올바르지 않습니다.", "INVALID_TEAM")
     cfg = load_config(db, club_id)
     a, b = team_a_id, team_b_id
+    lineup: list[int] = []
+    if s.away_yn:
+        teams = {t.session_team_id: t for t in session_teams(db, session_id)}
+        if teams[a].opponent_yn:  # 원정 경기는 항상 TEAM_A = 우리 팀, TEAM_B = 원정팀
+            a, b = b, a
+        lineup = list(dict.fromkeys(member_ids or []))
+        if not lineup:
+            raise BadRequest("이번 경기에 나갈 선수를 1명 이상 고르세요.", "LINEUP_REQUIRED")
+        on_team = set(db.scalars(select(SessionTeamMember.member_id).where(
+            SessionTeamMember.session_id == session_id, SessionTeamMember.session_team_id == a,
+            SessionTeamMember.active_yn.is_(True))))
+        if not set(lineup) <= on_team:
+            raise BadRequest("출전 선수는 이 일정 우리 팀 명단에서 고르세요.", "INVALID_LINEUP")
 
     early = int(cfg["MATCH_EARLY_END_GOALS"])
     # 취소된 경기도 번호는 유지하므로 전체 MAX 기준으로 증가
@@ -199,6 +236,8 @@ def create_next_match(db: Session, club_id: int, session_id: int, admin_id: int 
     )
     db.add(m)
     db.flush()
+    for mid in lineup:  # 원정 경기 출전 명단(경기 시작 전에도 고칠 수 있음)
+        db.add(MatchMember(match_id=m.match_id, member_id=mid, session_team_id=a))
     _emit_state(db, club_id, m)
     db.commit()
     return m
@@ -238,6 +277,15 @@ def start_match(db: Session, club_id: int, match_id: int, admin_id: int | None) 
     if running:
         raise Conflict("이미 진행 중인 경기가 있습니다.", "ACTIVE_MATCH_EXISTS")
 
+    if s.away_yn:  # 원정 경기: 경기 만들 때 고른 출전 명단 그대로(실력 점수 Snapshot 없음)
+        if not db.scalar(select(func.count()).select_from(MatchMember).where(MatchMember.match_id == m.match_id)):
+            raise Conflict("출전 선수를 1명 이상 고른 뒤 시작하세요.", "LINEUP_REQUIRED")
+        guests = db.scalar(select(func.count()).select_from(SessionGuest).where(
+            SessionGuest.session_team_id == m.team_a_id, SessionGuest.active_yn.is_(True))) or 0
+        m.team_a_headcount = db.scalar(select(func.count()).select_from(MatchMember).where(
+            MatchMember.match_id == m.match_id)) + guests
+        return _start(db, club_id, m, s, admin_id)
+
     # 출전 명단: 경기 시작 시점의 팀 명단(이후 결장/추가는 별도 수정)
     if not db.scalar(select(func.count()).select_from(MatchMember).where(MatchMember.match_id == m.match_id)):
         for stm in db.scalars(select(SessionTeamMember).where(
@@ -260,7 +308,10 @@ def start_match(db: Session, club_id: int, match_id: int, admin_id: int | None) 
     m.team_a_strength = team_strength_strategy.calculate_team_strength(ra, m.team_a_headcount, cfg)
     m.team_b_strength = team_strength_strategy.calculate_team_strength(rb, m.team_b_headcount, cfg)
     m.expected_a = expected_score(m.team_a_strength, m.team_b_strength, float(cfg["RATING_EXPECTATION_SCALE"]))
+    return _start(db, club_id, m, s, admin_id)
 
+
+def _start(db: Session, club_id: int, m: MatchGame, s: ClubSession, admin_id: int | None) -> MatchGame:
     m.started_at = utcnow()
     m.paused_seconds = 0.0
     m.game_status = GameStatus.RUNNING
@@ -385,6 +436,21 @@ def _check_goal(db: Session, m: MatchGame, *, team_id: int, scorer_member_id: in
     other = m.team_b_id if team_id == m.team_a_id else m.team_a_id
     roster = {mm.member_id: mm.session_team_id
               for mm in db.scalars(select(MatchMember).where(MatchMember.match_id == m.match_id))}
+    opponent = set(db.scalars(select(SessionTeam.session_team_id).where(
+        SessionTeam.session_team_id.in_([m.team_a_id, m.team_b_id]), SessionTeam.opponent_yn.is_(True))))
+    if team_id in opponent:  # 원정팀 골: 점수만. 우리 선수 자책골이면 자책한 우리 선수만 지정
+        if guest_goal or assist_member_id is not None:
+            raise BadRequest("원정팀 골에는 게스트 · 도움을 기록하지 않습니다.", "INVALID_SCORER")
+        if own_goal:
+            if scorer_member_id is None or roster.get(scorer_member_id) != other:
+                raise BadRequest("자책골은 우리 팀 출전 선수를 지정해야 합니다.", "INVALID_SCORER")
+        elif scorer_member_id is not None:
+            raise BadRequest("원정팀 골은 득점자를 기록하지 않습니다(점수만).", "INVALID_SCORER")
+        return
+    if own_goal and other in opponent:  # 원정팀 선수의 자책골 → 우리 골, 득점자 없음
+        if scorer_member_id is not None or guest_goal or assist_member_id is not None:
+            raise BadRequest("원정팀 자책골은 득점자 · 도움을 기록하지 않습니다.", "INVALID_SCORER")
+        return
 
     def guests_on(tid: int) -> int:
         return db.scalar(select(func.count()).select_from(SessionGuest).where(
@@ -584,14 +650,23 @@ def _has_goal_events(db: Session, match_id: int, member_id: int) -> bool:
 
 def add_match_member(db: Session, club_id: int, match_id: int, member_id: int, team_id: int,
                      admin_id: int | None) -> None:
-    m, _ = _lock(db, club_id, match_id)
+    m, s = _lock(db, club_id, match_id)
     if m.finalized_at:
         raise Conflict("확정된 경기는 수정할 수 없습니다.", "MATCH_FINALIZED")
-    _require(m, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)
+    if s.away_yn:  # 원정 경기: 시작 전에도 출전 선수를 고칠 수 있고, 원정팀에는 선수가 없다
+        _require(m, GameStatus.READY, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)
+        if team_id != m.team_a_id:
+            raise BadRequest("원정 경기 출전 선수는 우리 팀에만 넣을 수 있습니다.", "INVALID_TEAM")
+    else:
+        _require(m, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)
     if team_id not in (m.team_a_id, m.team_b_id):
         raise BadRequest("팀이 올바르지 않습니다.", "INVALID_TEAM")
     if not db.scalar(select(Member).where(Member.member_id == member_id, Member.club_id == club_id)):
         raise NotFound("멤버를 찾을 수 없습니다.", "MEMBER_NOT_FOUND")
+    if s.away_yn and not db.scalar(select(SessionTeamMember.session_team_member_id).where(
+            SessionTeamMember.session_id == m.session_id, SessionTeamMember.member_id == member_id,
+            SessionTeamMember.session_team_id == m.team_a_id, SessionTeamMember.active_yn.is_(True))):
+        raise BadRequest("출전 선수는 이 일정 우리 팀 명단에서 고르세요.", "INVALID_LINEUP")
     mm = db.scalar(select(MatchMember).where(MatchMember.match_id == match_id, MatchMember.member_id == member_id))
     if mm and mm.session_team_id != team_id and _has_goal_events(db, match_id, member_id):
         raise Conflict("골/도움 기록이 있는 선수는 팀을 바꿀 수 없습니다. 골을 먼저 취소하세요.", "MEMBER_HAS_EVENTS")
@@ -640,10 +715,12 @@ def finalize_match(db: Session, club_id: int, match_id: int, admin_id: int | Non
         MatchGame.game_status != GameStatus.CANCELLED, MatchGame.finalized_at.is_(None)))
     if pending_before:
         raise Conflict("앞 번호 경기를 먼저 확정하세요(GAME_NO 순서).", "FINALIZE_ORDER")
-    guard_after_closed(db, club_id, (s.session_date, s.session_id))
+    if not s.away_yn:  # 원정 경기는 실력 점수 · 개인 통계와 무관
+        guard_after_closed(db, club_id, (s.session_date, s.session_id))
     _apply_finalize(db, m, admin_id)
-    rebuild_ratings(db, club_id, match_key(s, m))
-    rebuild_all_stats(db, club_id)
+    if not s.away_yn:
+        rebuild_ratings(db, club_id, match_key(s, m))
+        rebuild_all_stats(db, club_id)
     _emit_state(db, club_id, m)
     db.commit()
     return m
@@ -654,14 +731,16 @@ def unfinalize_match(db: Session, club_id: int, match_id: int, admin_id: int | N
     m, s = _lock(db, club_id, match_id)
     if not m.finalized_at:
         raise Conflict("확정되지 않은 경기입니다.", "NOT_FINALIZED")
-    guard_after_closed(db, club_id, (s.session_date, s.session_id))
+    if not s.away_yn:
+        guard_after_closed(db, club_id, (s.session_date, s.session_id))
     m.finalized_at = None
     m.win_team_id = None
     m.version += 1
     _event(db, m, EventType.UNFINALIZE, admin_id)
     db.flush()
-    rebuild_ratings(db, club_id, match_key(s, m))
-    rebuild_all_stats(db, club_id)
+    if not s.away_yn:
+        rebuild_ratings(db, club_id, match_key(s, m))
+        rebuild_all_stats(db, club_id)
     _emit_state(db, club_id, m)
     db.commit()
     return m
@@ -683,6 +762,6 @@ def finalize_remaining_for_close(db: Session, club_id: int, s: ClubSession, admi
             _apply_finalize(db, x, admin_id)
             first_key = first_key or match_key(s, x)
     db.flush()
-    if first_key:
+    if first_key and not s.away_yn:
         rebuild_ratings(db, club_id, first_key)
     return sum(1 for x in ms if x.finalized_at is not None)

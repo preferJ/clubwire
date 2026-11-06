@@ -55,6 +55,7 @@ class SessionUpdate(CamelModel):
     session_date: date | None = None
     title: str | None = Field(default=None, max_length=100)
     location: str | None = Field(default=None, max_length=200)
+    opponent_id: int | None = Field(default=None, description="원정팀 바꾸기(원정 경기 일정만, 원정팀 목록에서)")
 
 
 class AttendeesAdd(CamelModel):
@@ -67,8 +68,18 @@ class GuestsAdd(CamelModel):
 
 
 class TeamGenerateRequest(CamelModel):
-    team_count: int = Field(ge=2, le=6)
+    team_count: int = Field(ge=1, le=6, description="1 = 원정 경기(참석자 전원이 우리 팀, 상대는 원정팀)")
     seed: int | None = Field(default=None, description="재현용 난수 시드(생략 시 무작위)")
+    opponent_id: int | None = Field(default=None, description="원정팀(원정팀 목록 ID, teamCount=1일 때 필수)")
+
+
+class OpponentCreate(CamelModel):
+    name: str = Field(min_length=1, max_length=50, description="원정팀 이름([직접추가])")
+
+
+class OpponentUpdate(CamelModel):
+    name: str | None = Field(default=None, min_length=1, max_length=50, description="새 이름")
+    active: bool | None = Field(default=None, description="false = 숨기기(목록에서만 빠짐), true = 복원")
 
 
 class TeamConfirmRequest(CamelModel):
@@ -88,6 +99,7 @@ class NextMatchRequest(CamelModel):
     team_a_id: int = Field(description="맞붙을 팀 1 (SESSION_TEAM_ID)")
     team_b_id: int = Field(description="맞붙을 팀 2 (SESSION_TEAM_ID)")
     duration_sec: int | None = Field(default=None, ge=10, le=7200, description="생략 시 설정값")
+    member_ids: list[int] | None = Field(default=None, description="원정 경기: 이번 경기 출전 선수(우리 팀). 내부 경기는 무시")
 
 
 class GoalRequest(CamelModel):

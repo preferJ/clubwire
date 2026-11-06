@@ -4,6 +4,7 @@
 - OpenAI 호출이 실패하면(크레딧 · 지출 한도 초과, 연결 오류, 응답 검증 실패) article_service가 이걸로 대신 쓴다.
 - 샘플 데이터 생성기(scripts/gen_sample_data.py)도 같은 작성기를 쓴다(원래 그 파일에 있던 SampleArticleWriter를 옮김).
 - 입력은 AI와 같은 DTO(build_payload). 사실 밖 내용은 쓰지 않고, 조사(이/가 · 은/는 …)는 받침으로 고른다.
+- 원정 경기(payload.away): 우리 클럽 vs 원정팀 문장, 기록은 '원정 통산 · 원정 n연승'처럼 원정 기록으로 쓴다.
 """
 from __future__ import annotations
 
@@ -55,13 +56,14 @@ _HEAD_BONUS = {"HAT_TRICK": 14, "COMEBACK_WIN": 14, "UPSET_WIN": 12, "LATE_WINNE
                "CLOSE_MATCH_EXPECTED": -8, "MILESTONE_EXPECTED": -10, "MILESTONE_ACHIEVED": -4,
                "REVENGE_RESULT": 16, "NEMESIS_MATCH": 10, "PERSONAL_BEST_GOALS": 12, "ASSIST_COMBO": 8,
                "DUO_REUNITED": 6, "SCORING_RACE": 6, "UNBEATEN_TEAM": 6, "JINX_PAIR": 4, "CLEAN_SHEET": 4,
-               "ATTENDANCE_STREAK": -2}
+               "ATTENDANCE_STREAK": -2, "OPPONENT_RECORD": 4}
 _METRIC = {"games": ("경기 출전", "경기"), "goals": ("골", "골"), "assists": ("도움", "개")}
 
 
-def _milestone(metric: str, ms: int) -> str:
+def _milestone(metric: str, ms: int, away: bool = False) -> str:
     word, _ = _METRIC.get(metric, ("골", "골"))
-    return f"통산 {ms}{word}" if metric != "games" else f"통산 {ms}경기 출전"
+    scope = "원정 통산" if away else "통산"
+    return f"{scope} {ms}{word}" if metric != "games" else f"{scope} {ms}경기 출전"
 
 
 class TemplateArticleWriter:
@@ -75,6 +77,32 @@ class TemplateArticleWriter:
     def __init__(self, rng: random.Random | None = None):
         self._own_rng = rng
         self.rng = rng
+        self._away = False  # 원정 경기 기사(write()에서 정함)
+        self._club = ""
+        self._opp = ""
+
+    def _w(self) -> str:
+        """원정 기록 앞말('원정 ')."""
+        return "원정 " if self._away else ""
+
+    def _team(self, code: str) -> str:
+        """팀 단위 사실의 팀 이름: 내부 경기 'A팀', 원정 경기는 팀 이름 그대로."""
+        return code if self._away else code + "팀"
+
+    def _opponent_sentence(self, f: dict[str, Any], phase: str) -> tuple[str | None, str | None]:
+        opp, club = self._opp or "원정팀", self._club
+        rec = f"{f['wins']}승 {f['draws']}무 {f['losses']}패"
+        if phase == "PRE":
+            if f.get("firstMeeting"):
+                return (f"{club}, {j(opp, '과', '와')} 첫 원정 맞대결",
+                        f"{j(club, '은', '는')} 오늘 {j(opp, '과', '와')} 처음 맞붙는다.")
+            return (f"{opp} 상대 {rec}",
+                    f"{opp} 상대 원정 전적은 {f['matches']}경기 {rec}, {f['goalsFor']}득점 {f['goalsAgainst']}실점이다.")
+        today = f"{f['todayWins']}승 {f['todayDraws']}무 {f['todayLosses']}패"
+        # 오늘 결과는 첫 문단(원정 결산)에 있으니 여기서는 맞대결의 의미 · 통산만
+        line = (f"오늘이 {j(opp, '과', '와')}의 첫 맞대결이었다." if f.get("firstMeeting")
+                else f"{opp} 상대 통산 전적은 {f['matches']}경기 {rec}가 됐다.")
+        return f"{club}, {opp} 원정 {today}", line
 
     @staticmethod
     def _name(ins: dict[str, Any]) -> str:
@@ -109,6 +137,15 @@ class TemplateArticleWriter:
         try:
             if t == "ATTENDANCE_STREAK":
                 ranked = sorted(items, key=lambda i: -(i.get("facts") or {}).get("streak", 0))
+                if self._away:  # 원정 경기 연속 출전(원정 일정 기준)
+                    tagged = [(self._name(i), f"{i['facts']['streak']}회") for i in ranked if self._name(i)]
+                    top, top_s = tagged[0][0], ranked[0]["facts"]["streak"]
+                    if len(tagged) == 1:
+                        return (f"{top}, 원정 {top_s}회 연속 출전",
+                                f"{j(top, '은', '는')} 오늘로 원정 경기 {top_s}회 연속 출전이다.")
+                    body_, last = tagged_list(tagged)
+                    return (f"{top}, 원정 {top_s}회 연속 출전",
+                            f"{body_}{josa_only(last, '이', '가')} 원정 경기 연속 출전을 이어가고 있다.")
                 tagged = [(self._name(i), f"{i['facts']['streak']}주") for i in ranked if self._name(i)]
                 top, top_s = tagged[0][0], ranked[0]["facts"]["streak"]
                 if len(tagged) == 1:
@@ -119,6 +156,12 @@ class TemplateArticleWriter:
                 ms = [m.get("name") for m in f.get("members", []) if m.get("name")]
                 pair, both = f"{ms[0]}·{ms[1]}", names_ko(ms)
                 m_, w_ = f["sameTeamMatches"], f["sameTeamWins"]
+                if self._away:  # 원정은 모두 같은 팀: '함께 뛴 원정 경기' 전적으로
+                    if t == "DUO_REUNITED":
+                        return (f"{pair}, 원정에서 함께 {m_}경기 {w_}승",
+                                f"{j(both, '은', '는')} 원정 경기에서 함께 뛴 {m_}경기에서 {w_}승을 거둔 조합이다.")
+                    return (f"{pair}, 원정 징크스 깰까",
+                            f"{j(both, '은', '는')} 원정 경기에서 함께 뛴 {m_}경기에서 {w_}승에 그쳤다.")
                 if t == "DUO_REUNITED":
                     return (f"{pair}, 다시 한 팀… 함께 {m_}경기 {w_}승",
                             f"{j(both, '이', '가')} 다시 한 팀이 됐다. 같은 팀으로 뛴 {m_}경기에서 {w_}승을 거둔 조합이다.")
@@ -146,19 +189,22 @@ class TemplateArticleWriter:
             if t == "SCORING_RACE":
                 mo, ld, ch = f["month"], f["leader"]["name"], f["chaser"]["name"]
                 lg, cg, gap = f["leaderGoals"], f["chaserGoals"], f["gap"]
+                w = self._w()
                 if gap == 0:
-                    return (f"{mo}월 득점왕, {ld}·{ch} 공동 선두",
-                            f"{mo}월 득점 경쟁이 뜨겁다. {j(names_ko([ld, ch]), '이', '가')} 나란히 {lg}골로 공동 선두다.")
-                return (f"{mo}월 득점왕, {ld}·{ch} {gap}골 차",
-                        f"{mo}월 득점 경쟁이 뜨겁다. {j(ld, '이', '가')} {lg}골, {j(ch, '이', '가')} {cg}골로 {gap}골 차다.")
+                    return (f"{mo}월 {w}득점, {ld}·{ch} 공동 선두",
+                            f"{mo}월 {w}득점 경쟁이 뜨겁다. {j(names_ko([ld, ch]), '이', '가')} 나란히 {lg}골로 공동 선두다.")
+                return (f"{mo}월 {w}득점, {ld}·{ch} {gap}골 차",
+                        f"{mo}월 {w}득점 경쟁이 뜨겁다. {j(ld, '이', '가')} {lg}골, {j(ch, '이', '가')} {cg}골로 {gap}골 차다.")
             if t == "ASSIST_COMBO":
                 a_, s_, n_, c_ = f["assister"]["name"], f["scorer"]["name"], f["countToday"], f.get("careerCount", 0)
                 tail = f" 둘이 합작한 골은 통산 {c_}골이다." if c_ > n_ else ""
                 cnt = {2: "두", 3: "세", 4: "네", 5: "다섯"}.get(n_, str(n_))
                 return (f"{a_}→{s_}, 오늘만 {cnt} 번",
                         f"{a_}의 패스를 {j(s_, '이', '가')} 마무리한 골이 오늘만 {cnt} 번 나왔다.{tail}")
+            if t == "OPPONENT_RECORD":
+                return self._opponent_sentence(f, phase)
             if t in ("UNBEATEN_TEAM", "CLEAN_SHEET"):
-                team = f["teamCode"] + "팀"
+                team = self._team(f["teamCode"])
                 if t == "CLEAN_SHEET":
                     return (f"{team}, {f['cleanSheets']}경기 무실점",
                             f"{j(team, '은', '는')} 오늘 {f['games']}경기 중 {f['cleanSheets']}경기를 무실점으로 막아 냈다.")
@@ -167,54 +213,61 @@ class TemplateArticleWriter:
                 return (f"{team}, 오늘 {f['games']}경기 무패",
                         f"{j(team, '은', '는')} 오늘 {f['games']}경기에서 {f['wins']}승 {f['draws']}무로 한 번도 지지 않았다.")
             if t in ("FIRST_GOAL", "FIRST_ASSIST"):
-                what = "첫 골을 신고했다" if t == "FIRST_GOAL" else "첫 도움을 기록했다"
-                return (f"{head_who}, {'첫 골 신고' if t == 'FIRST_GOAL' else '첫 도움'}",
-                        f"{j(who, '이', '가')} {'나란히 ' if many else ''}기록 집계 후 {what}.")
+                w = self._w()
+                what = f"첫 {w}골을 신고했다" if t == "FIRST_GOAL" else f"첫 {w}도움을 기록했다"
+                since = "" if self._away else "기록 집계 후 "
+                return (f"{head_who}, {f'첫 {w}골 신고' if t == 'FIRST_GOAL' else f'첫 {w}도움'}",
+                        f"{j(who, '이', '가')} {'나란히 ' if many else ''}{since}{what}.")
             if t == "PERSONAL_BEST_GOALS":
                 g_, pb = f["goalsToday"], f["previousBest"]
-                return (f"{lead}, 하루 {g_}골 개인 최다",
-                        f"{j(lead, '은', '는')} 오늘 {g_}골을 넣어 하루 최다 기록({pb}골)을 넘어섰다.")
+                w = self._w()
+                return (f"{lead}, {w}하루 {g_}골 개인 최다",
+                        f"{j(lead, '은', '는')} 오늘 {g_}골을 넣어 {w}하루 최다 기록({pb}골)을 넘어섰다.")
             if t in ("WIN_STREAK", "SCORING_STREAK") and len({(i.get("facts") or {}).get("streak") for i in items}) > 1:
                 ranked = sorted(items, key=lambda i: -(i.get("facts") or {}).get("streak", 0))
-                unit = "연승" if t == "WIN_STREAK" else "주"
+                w = self._w()
+                unit = "연승" if t == "WIN_STREAK" else ("회" if self._away else "주")
                 tagged = [(self._name(i), f"{i['facts']['streak']}{unit}") for i in ranked if self._name(i)]
                 body_, last = tagged_list(tagged)
                 top, top_s = tagged[0][0], ranked[0]["facts"]["streak"]
                 if t == "WIN_STREAK":
-                    verb = "연승 행진을 이어가고 있다" if phase == "PRE" else "연승 행진을 이어갔다"
-                    head = f"{top}, {top_s}연승" + (" 이어갈까" if phase == "PRE" else " 질주")
+                    verb = f"{w}연승 행진을 이어가고 있다" if phase == "PRE" else f"{w}연승 행진을 이어갔다"
+                    head = f"{top}, {w}{top_s}연승" + (" 이어갈까" if phase == "PRE" else " 질주")
                 else:
-                    verb = "연속 득점 행진을 이어가고 있다" if phase == "PRE" else "연속 골 행진을 이어갔다"
-                    head = f"{top}, {top_s}주 연속 " + ("득점 중" if phase == "PRE" else "골")
+                    verb = f"{w}연속 득점 행진을 이어가고 있다" if phase == "PRE" else f"{w}연속 골 행진을 이어갔다"
+                    head = f"{top}, {w}{top_s}{unit} 연속 " + ("득점 중" if phase == "PRE" else "골")
                 return head, f"{body_}{josa_only(last, '이', '가')} {verb}."
             if t == "WIN_STREAK":
-                s = f["streak"]
+                s, w = f["streak"], self._w()
                 if phase == "PRE":
-                    return (f"{head_who}, {s}연승 이어갈까",
-                            f"{j(who, '은', '는')} 나란히 {s}연승을 달리고 있다." if many else
-                            f"{j(who, '은', '는')} {s}연승을 달리고 있다. 오늘도 승리를 이어갈지 관심이 모인다.")
-                return (f"{head_who}, {s}연승 질주",
-                        f"{j(who, '은', '는')} {'나란히 ' if many else ''}{s}연승을 이어갔다.")
+                    return (f"{head_who}, {w}{s}연승 이어갈까",
+                            f"{j(who, '은', '는')} 나란히 {w}{s}연승을 달리고 있다." if many else
+                            f"{j(who, '은', '는')} {w}{s}연승을 달리고 있다. 오늘도 승리를 이어갈지 관심이 모인다.")
+                return (f"{head_who}, {w}{s}연승 질주",
+                        f"{j(who, '은', '는')} {'나란히 ' if many else ''}{w}{s}연승을 이어갔다.")
             if t == "SCORING_STREAK":
-                s = f["streak"]
+                s, w = f["streak"], self._w()
+                unit = "회" if self._away else "주"
                 if phase == "PRE":
-                    return (f"{head_who}, {s}주 연속 득점 중",
-                            f"{j(who, '은', '는')} {'나란히 ' if many else ''}{s}주 연속으로 골 맛을 보고 있다.")
-                return (f"{head_who}, {s}주 연속 골",
-                        f"{j(who, '은', '는')} {'나란히 ' if many else ''}{s}주 연속 골 행진을 이어갔다.")
+                    return (f"{head_who}, {w}{s}{unit} 연속 득점 중",
+                            f"{j(who, '은', '는')} {'나란히 ' if many else ''}{w}{s}{unit} 연속으로 골 맛을 보고 있다.")
+                return (f"{head_who}, {w}{s}{unit} 연속 골",
+                        f"{j(who, '은', '는')} {'나란히 ' if many else ''}{w}{s}{unit} 연속 골 행진을 이어갔다.")
             if t == "MILESTONE_ACHIEVED":
-                ph = _milestone(f["metric"], f["milestone"])
+                ph = _milestone(f["metric"], f["milestone"], self._away)
                 if f["metric"] == "games" and phase == "POST" and len(names) > 4:
                     return None, f"{lead} 등 {len(names)}명이 {ph} 고지를 밟았다."
                 return f"{head_who}, {ph} 달성", f"{j(who, '이', '가')} {'나란히 ' if many else ''}{ph} 고지를 밟았다."
             if t == "MILESTONE_EXPECTED":
-                ph = _milestone(f["metric"], f["milestone"])
+                ph = _milestone(f["metric"], f["milestone"], self._away)
                 unit = _METRIC.get(f["metric"], ("", "골"))[1]
                 return (f"{head_who}, {ph}까지 {f['remaining']}{unit}",
                         f"{j(who, '은', '는')} {ph}까지 {f['remaining']}{unit}만 남겨 두었다.")
             if t == "FIRST_APPEARANCE":
                 if len(names) > 3:
                     return None, None
+                if self._away:
+                    return None, f"{j(who, '은', '는')} 오늘이 첫 원정 경기 출전이다."
                 return None, f"{j(who, '은', '는')} 오늘이 기록 집계 후 첫 출전이다."
             if t == "RETURN_PLAYER":
                 d = f["daysSinceLastAppearance"]
@@ -242,8 +295,9 @@ class TemplateArticleWriter:
                 return (f"{lead}, 종료 {sec}초 전 결승골",
                         f"{g}경기는 {lead}의 발끝에서 갈렸다. 종료 {sec}초를 남기고 터진 결승골이었다.")
             if t == "COMEBACK_WIN":
-                team, dd = f["winnerTeam"], f["maxDeficit"]
-                return f"{team}팀, {dd}골 차 뒤집었다", f"{team}팀은 {g}경기에서 {dd}골 차로 끌려가다 경기를 뒤집었다."
+                team, dd = self._team(f["winnerTeam"]), f["maxDeficit"]
+                return (f"{team}, {dd}골 차 뒤집었다",
+                        f"{j(team, '은', '는')} {g}경기에서 {dd}골 차로 끌려가다 경기를 뒤집었다.")
             if t == "UPSET_WIN":
                 team = f["winnerTeam"]
                 return f"{team}팀의 반란", f"{g}경기에서는 {j(team + '팀', '이', '가')} 열세라는 예상을 깨고 승리를 가져갔다."
@@ -281,14 +335,14 @@ class TemplateArticleWriter:
                         f"{f['memberWins']}승 {f['draws']}무 {f['rivalWins']}패를 기록했다. "
                         "이번 맞대결이 성사되면 새로운 승리에 도전한다.")
             elif t in ("SCORING_STREAK", "ATTENDANCE_STREAK"):
-                streak = f["streak"]
+                streak, w = f["streak"], self._w()
                 if t == "SCORING_STREAK":
-                    head = f"{name}, {streak}개 일정 연속 득점"
+                    head = f"{name}, {w}{streak}개 일정 연속 득점"
                     ending = "득점 중이다" if phase == "PRE" else "득점을 이어갔다"
-                    line = f"{j(name, '은', '는')} {streak}개 일정 연속 {ending}."
+                    line = f"{j(name, '은', '는')} {w}{streak}개 일정 연속 {ending}."
                 else:
-                    head = f"{name}, {streak}개 일정 연속 출전"
-                    line = f"{j(name, '은', '는')} 오늘로 {streak}개 일정 연속 출전이다."
+                    head = f"{name}, {w}{streak}개 일정 연속 출전"
+                    line = f"{j(name, '은', '는')} 오늘로 {w}{streak}개 일정 연속 출전이다."
             elif t == "RARE_PAIR":
                 members = [m["name"] for m in f["members"]]
                 if len(members) < 2:
@@ -302,7 +356,7 @@ class TemplateArticleWriter:
                         f"{f['goalsToday']}골 {f['assistsToday']}도움을 기록했다.")
             elif t in ("MILESTONE_EXPECTED", "MILESTONE_ACHIEVED"):
                 unit = {"games": "경기", "goals": "골", "assists": "도움"}[f["metric"]]
-                record = _milestone(f["metric"], f["milestone"])
+                record = _milestone(f["metric"], f["milestone"], self._away)
                 if t == "MILESTONE_EXPECTED":
                     line = f"{j(name, '은', '는')} {record} 달성까지 {f['remaining']}{unit} 남았다."
                 else:
@@ -322,7 +376,9 @@ class TemplateArticleWriter:
                         f"{f['memberWinsToday']}승 {f['drawsToday']}무 {f['rivalWinsToday']}패를 기록했다.")
             elif t == "ASSIST_COMBO":
                 line = (f"{f['assister']['name']}의 도움, {f['scorer']['name']}의 골 조합이 "
-                        f"오늘 {f['countToday']}번, 통산 {f['careerCount']}번 나왔다.")
+                        f"오늘 {f['countToday']}번, {self._w()}통산 {f['careerCount']}번 나왔다.")
+            elif t == "OPPONENT_RECORD":
+                head, line = self._opponent_sentence(f, phase)
             elif t in ("FIRST_GOAL", "FIRST_ASSIST") and f.get("debutDay"):
                 action = "골" if t == "FIRST_GOAL" else "도움"
                 line = f"{j(name, '이', '가')} 데뷔 일정에서 첫 {action}을 기록했다."
@@ -342,6 +398,9 @@ class TemplateArticleWriter:
         d = date.fromisoformat(payload["sessionDate"])
         md = f"{d.month}월 {d.day}일"
         club = payload.get("clubName") or ""
+        away = payload.get("away") or None
+        self._away, self._club = bool(away), club
+        self._opp = (away or {}).get("opponentName") or ""
         phase = "PRE" if kind == "PRE_MATCH" else "POST"
         insights = sorted(payload.get("insights", []), key=lambda i: (i["id"] not in required, -i["importance"], i["id"]))
         recent = _RECENT_HEADS.setdefault(kind or "", [])
@@ -383,7 +442,39 @@ class TemplateArticleWriter:
             lines.insert(0, heads[0][4])
 
         paras: list[str] = []
-        if kind == "PRE_MATCH":
+        if away and kind == "PRE_MATCH":
+            teams = payload.get("teams") or []
+            members = [n for t in teams for n in t["members"]]
+            guests = sum(t.get("guestCount", 0) for t in teams)
+            lead = (f"{md} {'월화수목금토일'[d.weekday()]}요일, {club} {len(members) + guests}명이 "
+                    f"{j(self._opp, '과', '와')} 원정 경기를 치른다.")
+            if guests:
+                lead += f" 게스트 {guests}명도 함께 뛴다."
+            paras.append(lead)
+            if members:
+                paras.append(f"{', '.join(members[:3])} 등이 원정길에 오르고, 출전 선수는 경기마다 정한다.")
+            title = heads[0][1] if heads else f"{md} 원정, {club} vs {self._opp}"
+            summary = lines[0] if lines else lead
+            closing = "원정 경기 결과와 오늘의 주인공은 마감 기사에서 전한다."
+        elif away:
+            s = payload.get("sessionSummary") or {}
+            matches = s.get("matches", [])
+            r = s.get("ourResult") or {}
+            rec = f"{r.get('wins', 0)}승 {r.get('draws', 0)}무 {r.get('losses', 0)}패"
+            lead = (f"{md} {j(club, '은', '는')} {j(self._opp, '과', '와')}의 원정 {len(matches)}경기에서 {rec}, "
+                    f"{r.get('goalsFor', 0)}득점 {r.get('goalsAgainst', 0)}실점을 기록했다.")
+            paras.append(lead)
+            scorers = s.get("topScorers") or []
+            if len(scorers) == 1:
+                x = scorers[0]
+                paras.append(f"원정 득점은 {j(x['name'], '이', '가')} {x['goals']}골로 이끌었다.")
+            elif scorers:
+                top = [f"{x['name']}({x['goals']}골)" for x in scorers[:3]]
+                paras.append(f"원정 득점은 {', '.join(top)} 순으로 많았다.")
+            title = heads[0][1] if heads else f"{md} 원정 결산: {club} vs {self._opp} {rec}"
+            summary = lead  # 원정 마감 기사는 상대와의 결과가 핵심
+            closing = "\n".join(f"{m['gameNo']}경기  {m['teamA']} {m['scoreA']} : {m['scoreB']} {m['teamB']}" for m in matches)
+        elif kind == "PRE_MATCH":
             teams = payload.get("teams") or []
             total = sum(len(t["members"]) + t.get("guestCount", 0) for t in teams)
             guests = sum(t.get("guestCount", 0) for t in teams)

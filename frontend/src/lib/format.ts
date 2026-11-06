@@ -121,6 +121,21 @@ export const GAME_STATUS_LABEL: Record<GameStatus, string> = {
 
 export const RESULT_LABEL: Record<string, string> = { W: '승', D: '무', L: '패' }
 
+/** 팀 이름: 내부 경기 'TEAM A', 원정 경기는 우리 클럽 이름 · 원정팀 이름(서버 displayName) */
+export function teamLabel(t: { teamCode?: string | null; displayName?: string | null } | null | undefined): string {
+  if (!t) return '?'
+  return t.displayName || `TEAM ${t.teamCode ?? '?'}`
+}
+
+/** 원정팀 배지 · 글자 색(팀 색과 겹치지 않는 회색) */
+export const OPPONENT_COLOR = '#52525b'
+
+/** 원정팀 팀 표시(배지 글자 대신 이름 첫 글자) */
+export function teamMark(t: { teamCode?: string | null; displayName?: string | null; opponent?: boolean } | null | undefined): string {
+  if (!t) return '?'
+  return t.opponent ? (t.displayName?.trim()[0] ?? 'V') : (t.teamCode ?? '?')
+}
+
 /** 끝난 경기에서 이긴 쪽('A' | 'B'). 무승부 · 진행 중 · 취소면 null(확정 전 '검토 중' 경기도 점수로 판단) */
 export function winSide(m: { status: GameStatus; teamA: { score: number }; teamB: { score: number } }): 'A' | 'B' | null {
   if (m.status !== 'FINISHED' || m.teamA.score === m.teamB.score) return null

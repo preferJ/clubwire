@@ -88,6 +88,9 @@ INSIGHT_TYPE_DEFS: tuple[InsightTypeDef, ...] = (
                    "기록 집계 후 첫 도움(클럽 첫 기록일 제외)"),
     InsightTypeDef("PERSONAL_BEST_GOALS", "PLAYER", 55, 90, False, True, "신기록", "personal_best_goals_v1",
                    "하루 득점이 본인 최다 기록을 넘음", {"min_goals": "3", "min_prior_sessions": "3"}),
+    # ---- 2026-11-06 원정 경기 (docs/DECISIONS.md 3-17) ----
+    InsightTypeDef("OPPONENT_RECORD", "MATCH", 70, 95, True, True, "원정", "opponent_record_v1",
+                   "원정 경기 상대 전적(원정 경기 일정만. 프리뷰 = 지난 맞대결, 마감 = 오늘 결과 + 통산)"),
 )
 
 

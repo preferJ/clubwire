@@ -45,8 +45,9 @@ export function SessionsPage() {
             <Link key={s.sessionId} to={`/c/${slug}/sessions/${s.sessionId}`} className="list-row" style={{ minHeight: 64 }}>
               <div className="stack" style={{ gap: 2 }}>
                 <b>{fmtDate(s.sessionDate)} · {s.title}</b>
+                {s.away ? <span className="row small" style={{ gap: 6 }}><span className="tag away">원정</span>vs {s.opponentName}</span> : null}
                 <span className="small muted">
-                  참석 {s.attendeeCount}명{s.guestCount ? ` · 게스트 ${s.guestCount}` : ''}{s.teamCount ? ` · ${s.teamCount}팀` : ''}
+                  참석 {s.attendeeCount}명{s.guestCount ? ` · 게스트 ${s.guestCount}` : ''}{s.teamCount && !s.away ? ` · ${s.teamCount}팀` : ''}
                   {s.location ? ` · ${s.location}` : ''}
                 </span>
               </div>

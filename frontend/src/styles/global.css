@@ -179,6 +179,19 @@ a.list-row:hover { border-color: var(--line-strong); color: var(--ink); }
 }
 .pick[aria-pressed='true'] { border: 2px solid var(--accent); background: var(--accent); color: #fff; font-weight: 700; }
 .pick.alt[aria-pressed='true'] { border: 2px solid var(--green); background: var(--green-soft); color: var(--green-dark); }
+/* 원정팀 목록 고르기 */
+.opponent-pick { display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 0 12px; text-align: left; }
+.opponent-pick span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 원정팀 관리 · 원정 상대별 기록 */
+.opponent-admin-row { display: flex; align-items: stretch; flex-direction: column; gap: 8px; padding: 12px; }
+.opponent-admin-row .input { height: 40px; }
+.opponent-admin-actions { min-height: 34px; flex-wrap: wrap; gap: 8px; }
+.opponent-hidden-row { padding: 12px; }
+.away-session { display: flex; flex-direction: column; gap: 8px; }
+.away-session-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; color: var(--ink); }
+.away-game { display: grid; grid-template-columns: 48px 1fr auto; align-items: center; gap: 8px; min-height: 40px; padding: 0 12px; border-radius: var(--radius-s); background: var(--soft); color: var(--ink); font-size: 14px; }
+.away-game:hover { color: var(--ink); }
+.away-game .away-score { font-family: var(--display); font-size: 17px; font-weight: 800; font-variant-numeric: tabular-nums; }
 
 .segmented { display: grid; gap: 4px; padding: 4px; border-radius: 12px; background: var(--night); }
 .segmented button { min-height: 40px; border: 0; border-radius: 9px; background: transparent; color: var(--ink-3); font-weight: 600; font-size: 14px; }
@@ -215,6 +228,10 @@ a.list-row:hover { border-color: var(--line-strong); color: var(--ink); }
 .tag.green { background: var(--green-soft); color: var(--green-dark); }
 .tag.blue { background: var(--blue-soft); color: var(--blue-ink); }
 .tag.gold { background: var(--gold-soft); color: var(--gold-ink); }
+.tag.away { background: var(--blue-soft); color: var(--blue-ink); font-weight: 700; }
+/* 원정 경기 일정 표시 */
+.away-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 12px 14px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); font-size: 15px; }
+.away-banner .small { flex-basis: 100%; }
 .live-badge { display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border-radius: 6px; background: var(--live); color: #fff; font-size: 12px; font-weight: 700; letter-spacing: 0.06em; }
 .live-badge::before { content: ''; width: 6px; height: 6px; border-radius: 3px; background: #fff; }
 .status-badge { padding: 2px 8px; border-radius: 5px; font-size: 11px; font-weight: 700; background: var(--soft); color: var(--ink-3); }

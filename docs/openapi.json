@@ -1997,6 +1997,184 @@
         }
       }
     },
+    "/api/clubs/{club_slug}/opponents": {
+      "get": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "원정팀 목록(원정 경기 상대는 이 목록에서만 고른다). includeHidden=true = 숨긴 팀 포함(관리자)",
+        "operationId": "list_opponents_api_clubs__club_slug__opponents_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          },
+          {
+            "name": "includeHidden",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Includehidden"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "원정팀 [직접추가](같은 이름이 있으면 그 팀을 200으로 돌려줌, 공백 · 대소문자 무시)",
+        "operationId": "create_opponent_api_clubs__club_slug__opponents_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpponentCreate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clubs/{club_slug}/opponents/{opponent_id}": {
+      "patch": {
+        "tags": [
+          "sessions"
+        ],
+        "summary": "[원정팀 관리] 이름 수정(지난 원정 일정 표시도 새 이름으로) · 숨기기(active=false, 지난 전적 유지) · 복원",
+        "operationId": "update_opponent_api_clubs__club_slug__opponents__opponent_id__patch",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "opponent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Opponent Id"
+            }
+          },
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpponentUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/clubs/{club_slug}/sessions/{session_id}/matches/next-suggestion": {
       "get": {
         "tags": [
@@ -2966,6 +3144,99 @@
         "summary": "개인 통계 목록(공개)",
         "operationId": "member_stats_api_clubs__club_slug__stats_members_get",
         "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clubs/{club_slug}/stats/away": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "원정 경기 기록(공개): 전체 · 상대별 전적, 최근 원정, 선수별 원정 기록. 내부 기록과 분리",
+        "operationId": "away_stats_api_clubs__club_slug__stats_away_get",
+        "parameters": [
+          {
+            "name": "club_slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "클럽 주소(slug)",
+              "title": "Club Slug"
+            },
+            "description": "클럽 주소(slug)"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/clubs/{club_slug}/stats/away/opponents/{opponent_id}": {
+      "get": {
+        "tags": [
+          "stats"
+        ],
+        "summary": "원정 상대별 상세(공개): 그 팀과의 원정 일정 · 경기 점수 + 그 팀 상대 우리 선수 골 · 도움 기록(숨긴 팀도)",
+        "operationId": "away_opponent_stats_api_clubs__club_slug__stats_away_opponents__opponent_id__get",
+        "parameters": [
+          {
+            "name": "opponent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Opponent Id"
+            }
+          },
           {
             "name": "club_slug",
             "in": "path",
@@ -5266,6 +5537,21 @@
             ],
             "title": "Durationsec",
             "description": "생략 시 설정값"
+          },
+          "memberIds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memberids",
+            "description": "원정 경기: 이번 경기 출전 선수(우리 팀). 내부 경기는 무시"
           }
         },
         "additionalProperties": false,
@@ -5275,6 +5561,56 @@
           "teamBId"
         ],
         "title": "NextMatchRequest"
+      },
+      "OpponentCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 50,
+            "minLength": 1,
+            "title": "Name",
+            "description": "원정팀 이름([직접추가])"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "OpponentCreate"
+      },
+      "OpponentUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 50,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "새 이름"
+          },
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active",
+            "description": "false = 숨기기(목록에서만 빠짐), true = 복원"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "OpponentUpdate"
       },
       "SessionCreate": {
         "properties": {
@@ -5352,6 +5688,18 @@
               }
             ],
             "title": "Location"
+          },
+          "opponentId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opponentid",
+            "description": "원정팀 바꾸기(원정 경기 일정만, 원정팀 목록에서)"
           }
         },
         "additionalProperties": false,
@@ -5462,8 +5810,9 @@
           "teamCount": {
             "type": "integer",
             "maximum": 6.0,
-            "minimum": 2.0,
-            "title": "Teamcount"
+            "minimum": 1.0,
+            "title": "Teamcount",
+            "description": "1 = 원정 경기(참석자 전원이 우리 팀, 상대는 원정팀)"
           },
           "seed": {
             "anyOf": [
@@ -5476,6 +5825,18 @@
             ],
             "title": "Seed",
             "description": "재현용 난수 시드(생략 시 무작위)"
+          },
+          "opponentId": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opponentid",
+            "description": "원정팀(원정팀 목록 ID, teamCount=1일 때 필수)"
           }
         },
         "additionalProperties": false,

@@ -10,7 +10,7 @@ import { Icon } from '../components/Icon'
 import { AnnouncementTicker } from '../components/AnnouncementTicker'
 import { ClubBar, ErrorBox, Loading, TeamBadge } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
-import { ARTICLE_TYPE_LABEL, dday, fmtClock, fmtDate, fmtRise, fmtShortDate, fmtToday, SESSION_STATUS_LABEL } from '../lib/format'
+import { ARTICLE_TYPE_LABEL, dday, fmtClock, fmtDate, fmtRise, fmtShortDate, fmtToday, SESSION_STATUS_LABEL, teamLabel, teamMark } from '../lib/format'
 import { useAsync, useMatchClock } from '../lib/hooks'
 import { readArticleIds } from '../lib/readStore'
 
@@ -165,7 +165,7 @@ function NextFixture({ s, slug, members, isAdmin }: { s: SessionListItem | null;
         </span>
         <span className="kv">
           <span><span>상태</span><span>{SESSION_STATUS_LABEL[s.status]}</span></span>
-          <span><span>팀 편성</span><span style={s.teamCount ? undefined : { color: 'var(--gold-ink)' }}>{s.teamCount ? `${s.teamCount}팀 확정` : '미확정'}</span></span>
+          <span><span>팀 편성</span><span style={s.teamCount ? undefined : { color: 'var(--gold-ink)' }}>{s.away ? `원정 · vs ${s.opponentName}` : s.teamCount ? `${s.teamCount}팀 확정` : '미확정'}</span></span>
           {s.location ? <span style={{ gridColumn: '1 / -1' }}><span>장소</span><span>{s.location}</span></span> : null}
         </span>
         <span className="stack" style={{ gap: 6 }}>
@@ -186,7 +186,8 @@ const FORM_LABEL: Record<FormMark, string> = { W: '승', D: '무', L: '패' }
 /** 팀별 하루 성적: 경기 · 승 · 무 · 패 · 득실 · 경기 순서대로의 흐름 */
 function dayTable(sum: SessionSummary) {
   const finished = sum.matches.filter((m) => m.status === 'FINISHED').sort((a, b) => a.gameNo - b.gameNo)
-  return [...sum.teamRecords].sort((a, b) => a.teamCode.localeCompare(b.teamCode)).map((t) => {
+  // 원정 경기 일정은 우리 팀 한 줄(상대 원정팀 기준 결과)만
+  return [...sum.teamRecords].filter((t) => !t.opponent).sort((a, b) => a.teamCode.localeCompare(b.teamCode)).map((t) => {
     let gf = 0
     let ga = 0
     const form: FormMark[] = []
@@ -218,7 +219,7 @@ function LastMatchday({ s, slug }: { s: SessionListItem; slug: string }) {
   const ast = sum.data ? leader(sum.data.topAssists) : null
   return (
     <section className="panel" aria-label="지난 일정 결과">
-      <PanelHead en="LAST MATCHDAY" ko={`${fmtShortDate(s.sessionDate)} 결과`}
+      <PanelHead en="LAST MATCHDAY" ko={s.away ? `${fmtShortDate(s.sessionDate)} 원정 · vs ${s.opponentName ?? ''}` : `${fmtShortDate(s.sessionDate)} 결과`}
         right={<span className="num muted" style={{ fontSize: 13, fontWeight: 700, letterSpacing: '0.08em' }}>FINAL{sum.data ? ` · ${sum.data.finishedCount}경기` : ''}</span>} />
       <Link to={`/c/${slug}/sessions/${s.sessionId}`} className="panel-body" style={{ gap: 0, paddingTop: 4 }}>
         {sum.error ? <span className="muted small">결과를 불러오지 못했어요</span> : !sum.data ? <Loading rows={1} /> : (
@@ -231,7 +232,11 @@ function LastMatchday({ s, slug }: { s: SessionListItem; slug: string }) {
               </span>
               {rows.map((r) => (
                 <span key={r.sessionTeamId} className="mday-row" role="row">
-                  <span className="mday-team" role="cell"><TeamBadge code={r.teamCode} size={20} />{r.teamCode}</span>
+                  <span className="mday-team" role="cell" aria-label={sum.data?.away ? `${sum.data.opponentName ?? ''} 상대` : r.teamCode}>
+                    {sum.data?.away
+                      ? <>vs<TeamBadge code={sum.data.opponentName?.trim()[0]} size={20} opponent /></>
+                      : <><TeamBadge code={r.teamCode} size={20} />{r.teamCode}</>}
+                  </span>
                   <span role="cell">{r.games}</span><span role="cell">{r.wins}</span><span role="cell">{r.draws}</span>
                   <span role="cell">{r.losses}</span>
                   <span role="cell" className={r.gd > 0 ? 'gd-up' : r.gd < 0 ? 'gd-down' : ''}>{r.gd > 0 ? `+${r.gd}` : r.gd}</span>
@@ -357,9 +362,9 @@ function LiveBanner({ m, slug }: { m: LiveMatch; slug: string }) {
         <span className="mono" style={{ fontWeight: 600 }}>{label}</span>
       </div>
       <div className="row between" style={{ marginTop: 10 }}>
-        <div className="row"><TeamBadge code={m.teamA.teamCode} size={28} onDark /><b>TEAM {m.teamA.teamCode}</b></div>
+        <div className="row"><TeamBadge code={teamMark(m.teamA)} size={28} onDark opponent={m.teamA.opponent} /><b>{teamLabel(m.teamA)}</b></div>
         <span className="num" style={{ fontSize: 36, fontWeight: 800 }}>{m.teamA.score} : {m.teamB.score}</span>
-        <div className="row"><b>TEAM {m.teamB.teamCode}</b><TeamBadge code={m.teamB.teamCode} size={28} onDark /></div>
+        <div className="row"><b>{teamLabel(m.teamB)}</b><TeamBadge code={teamMark(m.teamB)} size={28} onDark opponent={m.teamB.opponent} /></div>
       </div>
     </Link>
   )

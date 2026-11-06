@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 
-PROMPT_VERSION = "wire_prompt_v8"  # v8: 동호회 칼럼의 말맛, 자연스러운 비유와 문단형 문체 예시
+PROMPT_VERSION = "wire_prompt_v9"  # v9: 원정 경기 기사 지시(AWAY_PROMPT, 원정 기사에만 추가로 보냄)
 
 SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포츠 기자다. 한국어로 기사를 쓴다.
 
@@ -213,6 +213,20 @@ ARTICLE_JSON_SCHEMA: dict[str, Any] = {
 FORBIDDEN_TERMS = ("rating", "레이팅", "confidence", "컨피던스", "importance", "중요도 점수", "기대승률")
 
 
+# 원정 경기 기사에만 덧붙인다(평소 기사 요청의 토큰은 그대로)
+AWAY_PROMPT = """[원정 경기: 입력에 away가 있을 때]
+- 이 일정은 우리 클럽(clubName)이 다른 팀(away.opponentName)과 치르는 원정 경기다.
+  클럽 안에서 팀을 나눈 자체 경기가 아니다. 우리 팀은 clubName, 상대는 away.opponentName으로 부르고 TEAM A처럼 쓰지 않는다.
+- insights의 기록(통산 · 연속 출전 · 연승 · 연속 득점 · 같은 팀 전적 · 이정표 · 득점 경쟁)은
+  모두 원정 경기만 따로 집계한 기록이다(facts.away = true).
+  '원정 통산 10골', '원정 3개 일정 연속 출전'처럼 원정 기록임을 드러내고, 클럽 전체 기록처럼 쓰지 않는다.
+- 상대 팀 선수 개인 기록은 없다. 상대의 골은 점수로만 다루고 상대 선수 이름 · 장면을 만들어내지 않는다.
+- OPPONENT_RECORD는 이 상대와의 전적(우리 기준 승 · 무 · 패, 득점 · 실점)이다. firstMeeting이면 첫 맞대결이다.
+  마감 기사에서 today로 시작하는 값은 오늘 결과, 나머지는 오늘을 포함한 통산이다.
+- PRE_MATCH는 참가 선수(teams)와 상대 전적을, SESSION_RECAP은 sessionSummary(ourResult · matches)의
+  우리 기준 결과와 득점 · 도움 선수를 중심으로 쓴다.
+"""
+
 REQUIRED_FACTS_PROMPT = """[관리자가 선택한 필수 사실]
 - 입력의 requiredInsightIds는 반드시 기사에 포함할 insight의 id 목록이다. 선택 개수 제한은 없다.
 - 선택된 각 insight의 선수·조합과 핵심 기록·수치·단위를 제목·요약·본문 중 적절한 곳에 실제 문장으로 빠짐없이 쓴다.
@@ -317,6 +331,8 @@ class OpenAIArticleWriter:
         # 원본 payload는 유지해 기사 상세의 표가 이 스냅샷을 그대로 사용할 수 있게 한다.
         ai_payload = {key: value for key, value in payload.items() if key != "milestoneInsights"}
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if payload.get("away"):
+            messages.append({"role": "system", "content": AWAY_PROMPT})
         if required_insight_ids(payload):
             messages.append({"role": "system", "content": REQUIRED_FACTS_PROMPT})
         if last_error is not None:

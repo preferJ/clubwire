@@ -76,3 +76,30 @@ def test_generate_api_remembers_previous_preview_and_seed_still_reproduces(make_
     api.ok(api.post(f'/sessions/{sid}/teams/confirm', {'generationId': previous['generationId']}))
     teams = api.ok(api.get(f'/sessions/{sid}/teams'))
     assert api_key(teams) == api_key(previous)
+
+
+def test_away_preview_and_normal_reshuffle_can_be_switched(make_club):
+    api = make_club('reshuffleaway')
+    ids = [api.ok(api.post('/members', {'name': f'원정선수{i}'}), 201)['memberId'] for i in range(6)]
+    sid = api.ok(api.post('/sessions', {'sessionDate': '2026-11-16'}), 201)['sessionId']
+    api.ok(api.post(f'/sessions/{sid}/members', {'memberIds': ids}))
+    oid = api.ok(api.post('/opponents', {'name': '상대팀'}), 201)['opponentId']
+    path = f'/sessions/{sid}/teams/generate'
+    api.ok(api.post(path, {'teamCount': 2}))
+    away = api.ok(api.post(path, {'teamCount': 1, 'opponentId': oid}))
+    assert away['balanceLabel'] == '원정 경기'
+    assert away['opponentId'] == oid
+    assert away['reshuffleChanged'] is None
+    assert sorted(m['memberId'] for m in away['teams'][0]['members']) == sorted(ids)
+    normal = api.ok(api.post(path, {'teamCount': 2}))
+    assert normal['reshuffleChanged'] is None
+    again = api.ok(api.post(path, {'teamCount': 2}))
+    assert again['reshuffleChanged'] is True
+    assert api_key(normal) != api_key(again)
+    # 원정 편성 확정에서도 우리 팀 전원과 선수 없는 상대 팀을 그대로 보존한다.
+    confirmed = api.ok(api.post(f'/sessions/{sid}/teams/confirm', {'generationId': away['generationId']}))
+    assert confirmed['away'] is True
+    ours = next(t for t in confirmed['teams'] if not t['opponent'])
+    opponent = next(t for t in confirmed['teams'] if t['opponent'])
+    assert sorted(m['memberId'] for m in ours['members']) == sorted(ids)
+    assert opponent['members'] == []

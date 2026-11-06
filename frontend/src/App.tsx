@@ -5,6 +5,7 @@ import { BottomNav, Empty, TopBar } from './components/ui'
 import { ClubProvider, useClub } from './lib/club'
 import { ToastProvider } from './lib/toast'
 import { ArticlePage } from './pages/ArticlePage'
+import { AwayOpponentPage } from './pages/AwayOpponentPage'
 import { HomePage } from './pages/HomePage'
 import { MatchPage } from './pages/MatchPage'
 import { MembersPage } from './pages/MembersPage'
@@ -18,6 +19,7 @@ import { ClosePage } from './pages/admin/ClosePage'
 import { ClubContentAdminPage } from './pages/admin/ClubContentAdminPage'
 import { ClubAppearancePage } from './pages/admin/ClubAppearancePage'
 import { MembersAdminPage } from './pages/admin/MembersAdminPage'
+import { OpponentsAdminPage } from './pages/admin/OpponentsAdminPage'
 import { SessionFormPage } from './pages/admin/SessionFormPage'
 import { SettingsPage } from './pages/admin/SettingsPage'
 import { TeamsPage } from './pages/admin/TeamsPage'
@@ -103,6 +105,7 @@ export default function App() {
               <Route index element={<HomePage />} />
               <Route path="sessions" element={<SessionsPage />} />
               <Route path="records" element={<RecordsPage />} />
+              <Route path="records/away/:opponentId" element={<AwayOpponentPage />} />
               <Route path="members" element={<MembersPage />} />
               <Route path="articles/:articleId" element={<ArticlePage />} />
               <Route path="sessions/:sessionId" element={<SessionPage />} />
@@ -115,6 +118,7 @@ export default function App() {
               <Route path="admin/sessions/:sessionId/close" element={admin(<ClosePage />)} />
               <Route path="admin/articles" element={admin(<ArticlesAdminPage />)} />
               <Route path="admin/members" element={admin(<MembersAdminPage />)} />
+              <Route path="admin/opponents" element={admin(<OpponentsAdminPage />)} />
               <Route path="admin/content" element={admin(<ClubContentAdminPage />)} />
               <Route path="admin/appearance" element={admin(<ClubAppearancePage />)} />
               <Route path="admin/settings" element={admin(<SettingsPage />)} />

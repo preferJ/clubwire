@@ -181,7 +181,7 @@ def attendance_streaks(db: Session, club_id: int, anchor: ClubSession) -> dict[i
     """anchor 일정 참석자별 연속 참가 횟수(anchor 포함). 참가 = 마감된 일정의 참석 명단(ATTENDING).
     취소된 일정은 세지도 끊지도 않는다. 빠진 일정이 나오면 거기서 끊긴다."""
     sids = list(db.scalars(select(ClubSession.session_id).where(
-        ClubSession.club_id == club_id,
+        ClubSession.club_id == club_id, ClubSession.away_yn.is_(False),  # 원정 경기 참가는 따로(연속 참가 타이틀 제외)
         (ClubSession.status == SessionStatus.CLOSED) | (ClubSession.session_id == anchor.session_id),
         tuple_(ClubSession.session_date, ClubSession.session_id) <= tuple_(anchor.session_date, anchor.session_id))
         .order_by(ClubSession.session_date.desc(), ClubSession.session_id.desc())))

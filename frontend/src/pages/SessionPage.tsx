@@ -7,7 +7,7 @@ import { Icon } from '../components/Icon'
 import { NextMatchSheet } from '../components/NextMatchSheet'
 import { AdminButton, ErrorBox, Loading, ResultTeam, TopBar } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
-import { fmtDate, fmtDateTime, teamColor, winSide } from '../lib/format'
+import { fmtDate, fmtDateTime, OPPONENT_COLOR, teamColor, teamLabel, winSide } from '../lib/format'
 import { useAction, useAsync } from '../lib/hooks'
 
 const STEPS: { key: string; label: string }[] = [
@@ -59,6 +59,15 @@ export function SessionPage() {
               </ol>
             )}
 
+            {d.away ? (
+              <div className="away-banner" aria-label="원정 경기">
+                <span className="tag away">원정</span>
+                <b>vs {d.opponentName}</b>
+                {d.opponentId ? <Link to={`/c/${slug}/records/away/${d.opponentId}`} style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 600 }}>상대 전적 →</Link> : null}
+                <span className="small muted">경기마다 출전 선수를 정하고, 원정 기록은 따로 쌓여요</span>
+              </div>
+            ) : null}
+
             {d.balanceLabel ? (
               <div className="notice green" style={{ fontSize: 14, fontWeight: 600, alignItems: 'center' }}>
                 <Icon name="scale" />{d.balanceLabel}
@@ -99,15 +108,19 @@ function Teams({ d }: { d: SessionDetail }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gap: 8 }}>
       {d.teams.map((t) => (
-        <section key={t.sessionTeamId} className="team-card" aria-label={`TEAM ${t.teamCode}`}>
-          <header style={{ background: teamColor(t.teamCode) }}>
-            <strong>TEAM {t.teamCode}</strong>
-            <span className="small">{t.headcount}명</span>
+        <section key={t.sessionTeamId} className="team-card" aria-label={teamLabel(t)}>
+          <header style={{ background: t.opponent ? OPPONENT_COLOR : teamColor(t.teamCode) }}>
+            <strong>{teamLabel(t)}</strong>
+            <span className="small">{t.opponent ? '원정팀' : `${t.headcount}명`}</span>
           </header>
-          <ul>
-            {t.members.map((m) => <li key={m.memberId}>{m.name}</li>)}
-            {t.guests.map((g) => <li key={g.guestId} className="muted">{g.name}</li>)}
-          </ul>
+          {t.opponent ? (
+            <p className="small muted" style={{ padding: '10px 12px', margin: 0 }}>선수 명단 없이 점수만 기록해요.</p>
+          ) : (
+            <ul>
+              {t.members.map((m) => <li key={m.memberId}>{m.name}</li>)}
+              {t.guests.map((g) => <li key={g.guestId} className="muted">{g.name}</li>)}
+            </ul>
+          )}
         </section>
       ))}
     </div>
@@ -128,7 +141,7 @@ function MatchRow({ m, slug }: { m: SessionMatch; slug: string }) {
       style={m.status === 'CANCELLED' ? { opacity: 0.6 } : undefined}>
       <span className={live ? '' : 'muted'} style={{ width: 44, color: live ? 'var(--sports-muted)' : undefined }}>{m.gameNo}경기</span>
       <span style={{ flex: 1, textAlign: 'center' }}>
-        <ResultTeam code={m.teamA.teamCode} side="A" win={win === 'A'} /> <b className="mono" style={{ padding: '0 6px' }}>{m.status === 'READY' ? 'vs' : `${m.teamA.score} : ${m.teamB.score}`}</b> <ResultTeam code={m.teamB.teamCode} side="B" win={win === 'B'} />
+        <ResultTeam name={teamLabel(m.teamA)} side="A" win={win === 'A'} /> <b className="mono" style={{ padding: '0 6px' }}>{m.status === 'READY' ? 'vs' : `${m.teamA.score} : ${m.teamB.score}`}</b> <ResultTeam name={teamLabel(m.teamB)} side="B" win={win === 'B'} />
       </span>
       {right}
     </Link>
