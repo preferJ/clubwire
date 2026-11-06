@@ -181,6 +181,7 @@ export interface SessionDetail extends Omit<SessionListItem, 'attendeeCount' | '
 }
 
 export interface Generation {
+  reshuffleChanged?: boolean | null
   generationId: number
   sessionId: number
   status: string
