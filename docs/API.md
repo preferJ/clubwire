@@ -21,6 +21,9 @@
 | 🔑 | DELETE | `/members/{member_id}` | 선수 삭제(목록 · 참석 선택 · 기록 순위에서 숨김, DB 행과 지난 기록은 보존). 끝나지 않은 일정 참석자는 409 |
 | 🔑 | PATCH | `/members/{member_id}` | 멤버 수정/비활성화(active=false). 가입일·출생연도·등번호는 null로 지울 수 있음. 삭제한 선수는 409 |
 | 🔑 | POST | `/members/{member_id}/restore` | 삭제한 선수 복원 |
+| 🔓 | GET | `/opponents` | 원정팀 목록(원정 경기 상대는 이 목록에서만 고른다). includeHidden=true = 숨긴 팀 포함(관리자) |
+| 🔑 | POST | `/opponents` | 원정팀 [직접추가](같은 이름이 있으면 그 팀을 200으로 돌려줌, 공백 · 대소문자 무시) |
+| 🔑 | PATCH | `/opponents/{opponent_id}` | [원정팀 관리] 이름 수정(지난 원정 일정 표시도 새 이름으로) · 숨기기(active=false, 지난 전적 유지) · 복원 |
 | 🔓 | GET | `/sessions` | 일정 목록(관리자: 예정/완료/삭제 구분) |
 | 🔑 | POST | `/sessions` | 일정 생성 |
 | 🔑 | DELETE | `/sessions/{session_id}` | 일정 삭제(관리자 보관함으로 이동, 완료 기록 보존) |
@@ -55,6 +58,8 @@
 | 🔑 | POST | `/sessions/{session_id}/matches/next` | 다음 경기 생성(READY). 두 팀은 관리자가 지정 |
 | 🔑 | GET | `/sessions/{session_id}/matches/next-suggestion` | 다음 경기 대진 화면용: 팀별 경기 수 + 추천 대진 |
 | 🔑 | POST | `/admin/rebuild` | [관리자] Rating/통계/Pair 전체 재계산 |
+| 🔓 | GET | `/stats/away` | 원정 경기 기록(공개): 전체 · 상대별 전적, 최근 원정, 선수별 원정 기록. 내부 기록과 분리 |
+| 🔓 | GET | `/stats/away/opponents/{opponent_id}` | 원정 상대별 상세(공개): 그 팀과의 원정 일정 · 경기 점수 + 그 팀 상대 우리 선수 골 · 도움 기록(숨긴 팀도) |
 | 🔓 | GET | `/stats/members` | 개인 통계 목록(공개) |
 | 🔓 | GET | `/stats/members/{member_id}` | 개인 상세 통계: 최근 폼, 자주 같은 팀, 자주 만난 상대(공개) |
 | 🔓 | GET | `/stats/mvp-race` | 이달의 MVP 후보 1~3위(실력 점수 상승률 %만, 점수 자체는 비공개) + 지난달 MVP(공개) |

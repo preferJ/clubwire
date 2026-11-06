@@ -4,6 +4,7 @@ from app.models.match import MatchEvent, MatchGame, MatchMember
 from app.models.rating import PlayerRating, PlayerRatingHistory
 from app.models.session import (
     ClubSession,
+    OpponentTeam,
     SessionGuest,
     SessionMember,
     SessionTeam,
@@ -30,7 +31,7 @@ apply_comments(Base.metadata)
 __all__ = [
     "Base",
     "Club", "ClubAdmin", "Member", "SystemConfig", "SystemConfigHistory",
-    "ClubSession", "SessionMember", "SessionGuest", "SessionTeam", "SessionTeamMember",
+    "ClubSession", "OpponentTeam", "SessionMember", "SessionGuest", "SessionTeam", "SessionTeamMember",
     "TeamGeneration", "TeamAssignmentLog",
     "MatchGame", "MatchMember", "MatchEvent",
     "PlayerRating", "PlayerRatingHistory",

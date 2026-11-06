@@ -81,6 +81,14 @@ COMMENTS: dict[str, dict[str, str]] = {
         "CONFIRMED_AT": "[일정확정] 일시",
         "CLOSED_AT": "[일정마감] 일시(이후 수정 불가)",
         "CANCELLED_AT": "취소 일시",
+        "AWAY_YN": "원정 경기 일정 여부(1팀 편성 + 원정팀). 원정 기록은 개인 기록 · 실력 점수 · 타이틀 · MVP와 분리 집계",
+        "OPPONENT_ID": "원정팀(OPPONENT_TEAM). 원정 경기 일정만, 상대별 전적은 이 ID로 묶음",
+        "OPPONENT_NAME": "원정팀 이름(표시용, 원정팀 목록 이름)",
+    },
+    "OPPONENT_TEAM": {
+        "__table__": "원정팀 목록(클럽별). 원정 경기의 상대는 이 목록에서만 고른다([직접추가]로 등록)",
+        "OPPONENT_ID": "원정팀 ID",
+        "NAME": "원정팀 이름(클럽 안에서 중복 불가, 공백 · 대소문자만 다른 이름도 같은 팀으로 봄)",
     },
     "SESSION_MEMBER": {
         "__table__": "일정 참석자",
@@ -96,12 +104,13 @@ COMMENTS: dict[str, dict[str, str]] = {
     "SESSION_TEAM": {
         "__table__": "일정 안에서 만든 임시 팀(TEAM A/B/C)",
         "GENERATION_ID": "생성 근거 팀 편성 ID",
-        "TEAM_CODE": "팀 코드(A, B, C …)",
+        "TEAM_CODE": "팀 코드(A, B, C …, 원정팀은 VS)",
         "DISPLAY_NAME": "표시명",
         "DISPLAY_ORDER": "팀 표시 순서",
         "AVG_RATING_SNAPSHOT": "확정 당시 평균 Rating",
         "TEAM_STRENGTH_SNAPSHOT": "확정 당시 Team Strength",
         "HEADCOUNT_SNAPSHOT": "확정 당시 인원(게스트 포함)",
+        "OPPONENT_YN": "원정팀(상대 팀) 여부. 선수 명단 없이 점수만 기록",
     },
     "SESSION_TEAM_MEMBER": {
         "__table__": "팀 배정 멤버(+ 확정 당시 Rating/Confidence Snapshot)",

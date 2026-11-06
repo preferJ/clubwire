@@ -1,19 +1,21 @@
-// S06 기록실: 개인 기록 / 수상 내역 / 기사(지난 기사) 탭. 탭·태그는 주소(?tab=articles&tag=천적)에 둬서 기사 상세에서 돌아와도 유지
+// S06 기록실: 개인 기록 / 원정 / 수상 내역 / 기사(지난 기사) 탭. 원정 기록은 개인 기록과 따로 집계(상대 팀을 누르면 상대별 상세). 탭·태그는 주소(?tab=articles&tag=천적)에 둬서 기사 상세에서 돌아와도 유지
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import type { Article, Award, MemberStat } from '../api/types'
+import type { Article, Award, AwayOverview, MemberStat } from '../api/types'
 import { ArticleCard } from '../components/ArticleCard'
+import { AwayMemberTable } from '../components/AwayMemberTable'
+import { Icon } from '../components/Icon'
 import { ClubBar, Empty, ErrorBox, Loading } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
 import { fmtAwardPeriod, fmtAwardValue, fmtDate, fmtShortDate, pct, todayIso, weekRange } from '../lib/format'
 import { useAction, useAsync } from '../lib/hooks'
 
-type RecordsTab = 'stats' | 'awards' | 'articles'
-const RECORDS_TABS: RecordsTab[] = ['stats', 'awards', 'articles']
+type RecordsTab = 'stats' | 'away' | 'awards' | 'articles'
+const RECORDS_TABS: RecordsTab[] = ['stats', 'away', 'awards', 'articles']
 
 /** 기사 태그 칩(와이어에서 옮겨 옴) */
-const TAGS = ['전체', '마감', '프리뷰', '이달의 MVP', '복귀', '연승', '결승골', '역전', '타이틀',
+const TAGS = ['전체', '마감', '프리뷰', '원정', '이달의 MVP', '복귀', '연승', '결승골', '역전', '타이틀',
   '듀오', '천적', '콤비', '무패', '철벽', '신기록', '레이스', '개근', '징크스', '데뷔']
 const ARTICLE_PAGE = 20
 
@@ -44,12 +46,15 @@ export function RecordsPage() {
       <ClubBar title="기록실" />
       <div className="tabs" role="tablist" aria-label="기록 보기" style={{ margin: '0 16px' }}>
         <button type="button" role="tab" aria-selected={tab === 'stats'} onClick={() => setTab('stats')}>개인 기록</button>
+        <button type="button" role="tab" aria-selected={tab === 'away'} onClick={() => setTab('away')}>원정</button>
         <button type="button" role="tab" aria-selected={tab === 'awards'} onClick={() => setTab('awards')}>수상 내역</button>
         <button type="button" role="tab" aria-selected={tab === 'articles'} onClick={() => setTab('articles')}>기사</button>
       </div>
       <main className="page">
         {tab === 'stats' ? (
           <StatsTab stats={stats.data} awards={awards.data ?? []} error={stats.error} loading={stats.loading} reload={stats.reload} />
+        ) : tab === 'away' ? (
+          <AwayTab />
         ) : tab === 'awards' ? (
           <AwardsTab />
         ) : (
@@ -141,6 +146,77 @@ function StatsTab({ stats, awards, error, loading, reload }: {
           </table>
         </div>
       )}
+    </>
+  )
+}
+
+// ------------------------------------------------------------------ 원정: 내부 기록과 따로 집계한 원정 경기 기록
+function AwayTab() {
+  const { api, slug } = useClub()
+  const away = useAsync(() => api.awayStats(), [api])
+  useClubEvent((m) => {
+    if (m.type === 'SESSION_UPDATED' || m.type === 'OPPONENTS_UPDATED') away.reload()
+  })
+  if (away.error) return <ErrorBox error={away.error} onRetry={away.reload} />
+  if (!away.data) return <Loading />
+  const { summary, opponents, recent, members } = away.data as AwayOverview
+  if (summary.matches === 0) {
+    return <Empty>확정된 원정 경기가 아직 없어요. 팀 편성에서 '원정'으로 확정한 일정의 기록이 여기에 따로 쌓여요.</Empty>
+  }
+  return (
+    <>
+      <section className="card stack" style={{ gap: 6 }}>
+        <div className="row between">
+          <h2 className="row" style={{ fontSize: 15, fontWeight: 700, gap: 6 }}><span className="tag away">원정</span>전체 전적</h2>
+          <span className="small muted">개인 기록 · 실력 점수와 별도</span>
+        </div>
+        <b className="num" style={{ fontSize: 22 }}>{summary.wins}승 {summary.draws}무 {summary.losses}패</b>
+        <span className="small muted">{summary.sessions}번의 원정 · {summary.matches}경기 · {summary.goalsFor}득점 {summary.goalsAgainst}실점</span>
+      </section>
+
+      <section className="section">
+        <div className="section-head">
+          <h2 style={{ fontSize: 15, fontWeight: 700 }}>상대별 전적</h2>
+          <span className="small muted">팀을 누르면 맞대결 기록</span>
+        </div>
+        {opponents.map((o) => {
+          const body = (
+            <>
+              <span className="stack" style={{ gap: 2 }}>
+                <b>{o.opponentName}</b>
+                <span className="small muted">{o.sessions}번 · 최근 {fmtShortDate(o.lastDate)}</span>
+              </span>
+              <span className="row" style={{ gap: 8 }}>
+                <span className="stack" style={{ gap: 2, alignItems: 'flex-end' }}>
+                  <b>{o.wins}승 {o.draws}무 {o.losses}패</b>
+                  <span className="small muted mono">{o.goalsFor}:{o.goalsAgainst}</span>
+                </span>
+                {o.opponentId != null ? <Icon name="chevron" size={18} /> : null}
+              </span>
+            </>
+          )
+          return o.opponentId != null ? (
+            <Link key={o.opponentId} to={`/c/${slug}/records/away/${o.opponentId}`} className="list-row">{body}</Link>
+          ) : (
+            <div key={o.opponentName ?? ''} className="list-row">{body}</div>
+          )
+        })}
+      </section>
+
+      <section className="section">
+        <h2 style={{ fontSize: 15, fontWeight: 700 }}>선수별 원정 기록</h2>
+        <AwayMemberTable slug={slug} members={members} />
+      </section>
+
+      <section className="section">
+        <h2 style={{ fontSize: 15, fontWeight: 700 }}>최근 원정</h2>
+        {recent.map((r) => (
+          <Link key={r.sessionId} to={`/c/${slug}/sessions/${r.sessionId}`} className="list-row">
+            <span>{fmtDate(r.sessionDate)} · vs {r.opponentName}</span>
+            <span className="small"><b>{r.wins}승 {r.draws}무 {r.losses}패</b> <span className="muted mono">{r.goalsFor}:{r.goalsAgainst}</span></span>
+          </Link>
+        ))}
+      </section>
     </>
   )
 }

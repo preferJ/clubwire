@@ -77,6 +77,7 @@ def member_names(db: Session, member_ids: Iterable[int]) -> dict[int, str]:
 
 
 def session_teams(db: Session, session_id: int) -> list[SessionTeam]:
+    """일정의 팀(원정 경기면 우리 팀 + 원정팀(OPPONENT_YN))."""
     return list(
         db.scalars(
             select(SessionTeam)
@@ -86,15 +87,23 @@ def session_teams(db: Session, session_id: int) -> list[SessionTeam]:
     )
 
 
+def our_team(db: Session, session_id: int) -> SessionTeam | None:
+    """원정 경기 일정의 우리 팀(원정팀이 아닌 팀)."""
+    return db.scalar(select(SessionTeam).where(SessionTeam.session_id == session_id,
+                                               SessionTeam.opponent_yn.is_(False)).order_by(SessionTeam.display_order))
+
+
 def session_order_key(s: ClubSession) -> tuple:
     return (s.session_date, s.session_id)
 
 
 def last_closed_key(db: Session, club_id: int) -> tuple | None:
-    """가장 늦게 마감된 일정의 (날짜, ID). 이보다 앞선 시점의 기록은 더 생기면 안 된다."""
+    """가장 늦게 마감된 일정의 (날짜, ID). 이보다 앞선 시점의 기록은 더 생기면 안 된다.
+    원정 경기 일정은 실력 점수와 무관해 기준에서 뺀다."""
     row = db.execute(
         select(ClubSession.session_date, ClubSession.session_id)
-        .where(ClubSession.club_id == club_id, ClubSession.status == SessionStatus.CLOSED)
+        .where(ClubSession.club_id == club_id, ClubSession.status == SessionStatus.CLOSED,
+               ClubSession.away_yn.is_(False))
         .order_by(ClubSession.session_date.desc(), ClubSession.session_id.desc())
         .limit(1)
     ).first()

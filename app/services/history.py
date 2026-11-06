@@ -1,6 +1,8 @@
 """확정 경기 원본 데이터를 시간순으로 읽어오는 공용 로더.
 
 Stats / Pair / Insight가 모두 같은 원본(MATCH_GAME, MATCH_MEMBER, MATCH_EVENT)에서 계산되도록 한다.
+원정 경기(SESSION.AWAY_YN)는 내부 기록과 섞지 않는다: 기본은 내부 경기만, away=True면 원정 경기만, None이면 구분 없이.
+원정 경기의 TEAM_A는 항상 우리 팀, TEAM_B는 원정팀(선수 없음)이다.
 """
 from dataclasses import dataclass, field
 from datetime import date
@@ -65,6 +67,7 @@ def load_history(
     before_session: ClubSession | None = None,
     upto_session: ClubSession | None = None,
     session_ids: list[int] | None = None,
+    away: bool | None = False,
 ) -> list[MatchRecord]:
     stmt = (
         select(MatchGame, ClubSession.session_date)
@@ -88,6 +91,8 @@ def load_history(
         )
     if session_ids is not None:
         stmt = stmt.where(ClubSession.session_id.in_(session_ids))
+    if away is not None:
+        stmt = stmt.where(ClubSession.away_yn.is_(away))
     stmt = stmt.order_by(ClubSession.session_date, ClubSession.session_id, MatchGame.game_no)
 
     records: dict[int, MatchRecord] = {}
@@ -113,6 +118,22 @@ def load_history(
                        e.guest_goal_yn, e.elapsed_sec, e.remaining_sec)
         )
     return list(records.values())
+
+
+def opponent_key(name: str | None) -> str:
+    """원정팀 이름 비교용(공백 · 대소문자 무시: '한강 FC' = '한강fc')."""
+    return "".join((name or "").split()).casefold()
+
+
+def our_record(records: list[MatchRecord]) -> dict:
+    """원정 경기 기록(우리 팀 = TEAM_A 기준) → 경기 · 승 · 무 · 패 · 득점 · 실점."""
+    out = {"matches": 0, "wins": 0, "draws": 0, "losses": 0, "goalsFor": 0, "goalsAgainst": 0}
+    for r in records:
+        out["matches"] += 1
+        out["wins" if r.score_a > r.score_b else "draws" if r.score_a == r.score_b else "losses"] += 1
+        out["goalsFor"] += r.score_a
+        out["goalsAgainst"] += r.score_b
+    return out
 
 
 @dataclass

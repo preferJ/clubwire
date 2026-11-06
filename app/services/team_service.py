@@ -1,4 +1,8 @@
-"""자동 팀 편성(미리보기/확정 적용) + 확정 후 수동 변경."""
+"""자동 팀 편성(미리보기/확정 적용) + 확정 후 수동 변경.
+
+1팀 편성 = 원정 경기: 참석자 전원이 우리 팀 하나가 되고, 확정 시 원정팀(상대, 선수 없음)을 함께 만든다.
+원정팀은 원정팀 목록(OPPONENT_TEAM)에서만 고른다.
+"""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -6,6 +10,7 @@ from app.core.database import emit
 from app.core.errors import BadRequest, Conflict, NotFound
 from app.core.timeutil import utcnow
 from app.models import (
+    Club,
     ClubSession,
     SessionGuest,
     SessionMember,
@@ -16,6 +21,10 @@ from app.models import (
 )
 from app.models.enums import AssignmentAction, AssignType, AttendanceStatus, GenerationStatus, SessionStatus
 from app.services.common import get_member, get_session, guard_not_closed, member_names, session_teams
+from app.services.opponent_service import get_opponent
+
+AWAY_ALGORITHM = "away_single_team_v1"
+OPPONENT_TEAM_CODE = "VS"
 from app.services.config_service import load_config
 from app.services.rating_service import confidence_of, current_states
 from app.services.session_service import active_guests, attending_member_ids
@@ -23,15 +32,18 @@ from app.services.stats_service import pair_get, pair_map
 from app.strategies.team_generation import MemberInput, balance_label, team_generator
 
 
-def generate_preview(db: Session, club_id: int, session_id: int, team_count: int, seed: int | None = None) -> TeamGeneration:
+def generate_preview(db: Session, club_id: int, session_id: int, team_count: int, seed: int | None = None,
+                     opponent_id: int | None = None) -> TeamGeneration:
     s = get_session(db, club_id, session_id, lock=True)
     guard_not_closed(s)
     if s.status != SessionStatus.OPEN:
         raise Conflict("이미 팀이 확정된 일정입니다. 확정 후에는 수동 변경을 사용하세요.", "SESSION_CONFIRMED")
-    if team_count < 2 or team_count > 6:
-        raise BadRequest("팀 수는 2~6 사이여야 합니다.")
+    if team_count < 1 or team_count > 6:
+        raise BadRequest("팀 수는 1~6 사이여야 합니다.")
     member_ids = attending_member_ids(db, session_id)
     guests = active_guests(db, session_id)
+    if team_count == 1:
+        return _away_preview(db, club_id, s, member_ids, guests, opponent_id, seed)
     if len(member_ids) + len(guests) < team_count * 2:
         raise BadRequest("팀당 최소 2명 이상이 되도록 참석자를 등록하세요.", "NOT_ENOUGH_PLAYERS")
 
@@ -70,6 +82,41 @@ def generate_preview(db: Session, club_id: int, session_id: int, team_count: int
     return gen
 
 
+def _away_preview(db: Session, club_id: int, s: ClubSession, member_ids: list[int], guests: list[SessionGuest],
+                  opponent_id: int | None, seed: int | None) -> TeamGeneration:
+    """원정 경기(1팀): 참석자 전원 = 우리 팀. 균형 편성 없이 그대로 담고, 고른 원정팀(목록)을 함께 보관한다."""
+    if opponent_id is None:
+        raise BadRequest("원정팀 목록에서 상대를 고르세요.", "OPPONENT_REQUIRED")
+    opp = get_opponent(db, club_id, opponent_id)
+    if not member_ids:
+        raise BadRequest("원정 경기에 나갈 참석자를 1명 이상 등록하세요.", "NOT_ENOUGH_PLAYERS")
+    cfg = load_config(db, club_id)
+    states = current_states(db, club_id, member_ids, cfg)
+    inputs = [{"memberId": mid, "rating": states[mid].rating,
+               "confidence": confidence_of(states[mid], s.session_date, cfg)} for mid in member_ids]
+    avg = sum(i["rating"] for i in inputs) / len(inputs)
+    gen = TeamGeneration(
+        session_id=s.session_id, status=GenerationStatus.PREVIEW, team_count=1,
+        attendee_count=len(member_ids), guest_count=len(guests),
+        algorithm_version=AWAY_ALGORITHM, config_version=cfg.version, config_snapshot_json=cfg.snapshot(),
+        random_seed=seed or 0, candidate_count=1, valid_candidate_count=1, tolerance_fallback_yn=False,
+        spread_percent=0.0, pair_penalty=0.0,
+        result_json={
+            "attendeeMemberIds": sorted(member_ids),
+            "guestIds": sorted(g.guest_id for g in guests),
+            "inputs": inputs,
+            "teams": [{"teamCode": "A", "memberIds": sorted(member_ids), "guestIds": sorted(g.guest_id for g in guests),
+                       "avgRating": avg, "strength": None, "headcount": len(member_ids) + len(guests),
+                       "pairPenalty": 0.0}],
+            "opponentId": opp.opponent_id,
+            "opponentName": opp.name,
+        },
+    )
+    db.add(gen)
+    db.commit()
+    return gen
+
+
 def serialize_generation(db: Session, gen: TeamGeneration) -> dict:
     rj = gen.result_json
     ids = [mid for t in rj["teams"] for mid in t["memberIds"]]
@@ -80,11 +127,15 @@ def serialize_generation(db: Session, gen: TeamGeneration) -> dict:
         "teamCount": gen.team_count, "algorithmVersion": gen.algorithm_version, "configVersion": gen.config_version,
         "seed": gen.random_seed, "candidateCount": gen.candidate_count, "validCandidateCount": gen.valid_candidate_count,
         "toleranceFallback": gen.tolerance_fallback_yn, "spreadPercent": round(gen.spread_percent, 4),
-        "pairPenalty": round(gen.pair_penalty, 4), "balanceLabel": balance_label(gen.spread_percent),
+        "pairPenalty": round(gen.pair_penalty, 4),
+        "balanceLabel": "원정 경기" if gen.team_count == 1 else balance_label(gen.spread_percent),
+        "opponentId": rj.get("opponentId"),  # 1팀(원정 경기)만
+        "opponentName": rj.get("opponentName"),
         "teams": [
             {
                 "teamCode": t["teamCode"], "headcount": t["headcount"], "avgRating": round(t["avgRating"], 2),
-                "strength": round(t["strength"], 2), "pairPenalty": round(t["pairPenalty"], 4),
+                "strength": round(t["strength"], 2) if t["strength"] is not None else None,
+                "pairPenalty": round(t["pairPenalty"], 4),
                 "members": [{"memberId": mid, "name": names.get(mid)} for mid in t["memberIds"]],  # 선수별 Rating은 내보내지 않음
                 "guests": [{"guestId": gid, "name": guest_names.get(gid)} for gid in t["guestIds"]],
             }
@@ -108,11 +159,13 @@ def apply_generation(db: Session, s: ClubSession, generation_id: int) -> list[Se
         raise Conflict("편성 이후 참석자가 바뀌었습니다. 팀을 다시 생성하세요.", "ATTENDEES_CHANGED")
 
     inputs = {i["memberId"]: i for i in rj["inputs"]}
+    away = gen.team_count == 1
+    club_name = db.get(Club, s.club_id).club_name if away else None
     teams: list[SessionTeam] = []
     for order, t in enumerate(rj["teams"]):
         team = SessionTeam(
             session_id=s.session_id, generation_id=gen.generation_id, team_code=t["teamCode"],
-            display_name=f"TEAM {t['teamCode']}", display_order=order,
+            display_name=club_name if away else f"TEAM {t['teamCode']}", display_order=order,
             avg_rating_snapshot=t["avgRating"], team_strength_snapshot=t["strength"], headcount_snapshot=t["headcount"],
         )
         db.add(team)
@@ -127,6 +180,15 @@ def apply_generation(db: Session, s: ClubSession, generation_id: int) -> list[Se
         for gid in t["guestIds"]:
             g = db.get(SessionGuest, gid)
             g.session_team_id = team.session_team_id
+
+    if away:  # 원정팀: 선수 없이 이름만(골은 점수만 기록). 이름은 확정 시점의 목록 이름
+        o = get_opponent(db, s.club_id, rj["opponentId"])
+        opp = SessionTeam(session_id=s.session_id, generation_id=gen.generation_id, team_code=OPPONENT_TEAM_CODE,
+                          display_name=o.name, display_order=len(teams), opponent_yn=True)
+        db.add(opp)
+        teams.append(opp)
+        s.away_yn = True
+        s.opponent_id, s.opponent_name = o.opponent_id, o.name
 
     now = utcnow()
     gen.status = GenerationStatus.CONFIRMED
@@ -155,7 +217,7 @@ def change_assignment(db: Session, club_id: int, session_id: int, admin_id: int 
         act = AssignmentAction(action)
     except ValueError as e:
         raise BadRequest("action은 ADD/MOVE/REMOVE 중 하나입니다.") from e
-    team_ids = {t.session_team_id for t in session_teams(db, session_id)}
+    team_ids = {t.session_team_id for t in session_teams(db, session_id) if not t.opponent_yn}  # 원정팀에는 배정 없음
     if act in (AssignmentAction.ADD, AssignmentAction.MOVE) and to_team_id not in team_ids:
         raise BadRequest("이동/추가할 팀이 올바르지 않습니다.", "INVALID_TEAM")
 

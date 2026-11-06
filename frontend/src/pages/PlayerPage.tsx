@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useParams } from 'react-router-dom'
-import type { Award, MemberProfile } from '../api/types'
+import type { AwayMemberRecord, Award, MemberProfile } from '../api/types'
 import { Chemistry } from '../components/Chemistry'
 import { ErrorBox, Loading, TopBar } from '../components/ui'
 import { useClub } from '../lib/club'
@@ -84,12 +84,40 @@ export function PlayerPage() {
 
         <AwardStrip awards={awards.data ?? []} />
 
+        {d.away && d.away.games > 0 ? <AwayRecordSection a={d.away} /> : null}
+
         <section className="section">
           <h2 style={{ fontSize: 15, fontWeight: 700 }}>케미</h2>
           <Chemistry slug={slug} me={s.name} teammates={d.frequentTeammates} opponents={d.frequentOpponents} />
         </section>
       </main>
     </>
+  )
+}
+
+/** 원정 기록: 위의 개인 기록 · 케미와 따로 집계한 원정 경기 기록 */
+function AwayRecordSection({ a }: { a: AwayMemberRecord }) {
+  return (
+    <section className="section">
+      <div className="row between">
+        <h2 className="row" style={{ fontSize: 15, fontWeight: 700, gap: 6 }}><span className="tag away">원정</span>원정 기록</h2>
+        <span className="small muted">위 기록과 따로 집계</span>
+      </div>
+      <div className="grid3">
+        <Stat label="원정 경기" value={a.games} />
+        <Stat label="승 무 패" value={`${a.wins}·${a.draws}·${a.losses}`} />
+        <Stat label="골 · 도움" value={`${a.goals}·${a.assists}`} />
+      </div>
+      {a.recent.map((r) => (
+        <div key={r.matchId} className="list-row">
+          <span className="row" style={{ gap: 8 }}>
+            <b className={`form-sq ${r.result}`}>{RESULT_LABEL[r.result]}</b>
+            <span>{fmtFullDate(r.sessionDate)} · vs {r.opponentName} <span className="mono">{r.scoreFor}:{r.scoreAgainst}</span></span>
+          </span>
+          <span className="small muted">{[r.goals ? `${r.goals}골` : '', r.assists ? `${r.assists}도움` : ''].filter(Boolean).join(' ') || '-'}</span>
+        </div>
+      ))}
+    </section>
   )
 }
 

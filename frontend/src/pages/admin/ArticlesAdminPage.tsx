@@ -255,12 +255,24 @@ const REVENGE_LABEL: Record<string, string> = { REVENGE: '설욕', HELD: '천적
 
 const names = (ms: { name: string }[] | undefined) => (ms ?? []).map((m) => m.name).join(' · ')
 
-/** 관리자 검토용: Insight 사실을 한국어 한 줄로 */
+/** 관리자 검토용: Insight 사실을 한국어 한 줄로. 원정 경기 사실(facts.away)은 앞에 '[원정]' */
 function describeInsight(i: InsightPayload): string {
   const f = i.facts as Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any
+  const line = describeFacts(i, f)
+  return f.away && i.type !== 'OPPONENT_RECORD' ? `[원정] ${line}` : line
+}
+
+function describeFacts(i: InsightPayload, f: Record<string, any>): string { // eslint-disable-line @typescript-eslint/no-explicit-any
   const name = f.member?.name ?? i.subject?.name ?? ''
   const game = f.gameNo ? `${f.gameNo}경기 ` : ''
+  // 내부 경기 팀 코드(A) → 'TEAM A', 원정 경기는 팀 이름 그대로
+  const team = (code: string) => (f.away ? code : `TEAM ${code}`)
   switch (i.type) {
+    case 'OPPONENT_RECORD':
+      return f.todayMatches != null
+        ? `[원정] vs ${f.opponentName} 오늘 ${f.todayWins}승 ${f.todayDraws}무 ${f.todayLosses}패 · 통산 ${f.wins}승 ${f.draws}무 ${f.losses}패`
+        : f.firstMeeting ? `[원정] vs ${f.opponentName} 첫 맞대결`
+          : `[원정] vs ${f.opponentName} 상대 전적 ${f.wins}승 ${f.draws}무 ${f.losses}패 (${f.goalsFor}:${f.goalsAgainst})`
     case 'RETURN_PLAYER': return `${name}, ${f.daysSinceLastAppearance}일 만에 출전`
     case 'RETURN_PLAYER_RESULT': return `${name}, ${f.daysSinceLastAppearance}일 만의 복귀전 ${f.goalsToday}골 ${f.winsToday}승`
     case 'FIRST_APPEARANCE': return `${name}, 첫 출전`
@@ -271,8 +283,8 @@ function describeInsight(i: InsightPayload): string {
     case 'RARE_PAIR': return `${(f.members ?? []).map((m: { name: string }) => m.name).join(' · ')}, ${f.neverSameTeam ? '처음' : `${f.sessionsSinceLastSameTeam}일정 만에`} 같은 팀`
     case 'CLOSE_MATCH_EXPECTED': return '팀 간 전력이 매우 균형적'
     case 'LATE_WINNER': return `${game}${name}, 종료 ${f.remainingSec}초 전 결승골`
-    case 'COMEBACK_WIN': return `${game}TEAM ${f.winnerTeam}, ${f.maxDeficit}골 차 역전`
-    case 'UPSET_WIN': return `${game}TEAM ${f.winnerTeam}, 열세 예상 뒤집고 승리`
+    case 'COMEBACK_WIN': return `${game}${team(f.winnerTeam)}, ${f.maxDeficit}골 차 역전`
+    case 'UPSET_WIN': return `${game}${team(f.winnerTeam)}, 열세 예상 뒤집고 승리`
     case 'HAT_TRICK': return `${game}${name}, ${f.goals}골`
     case 'DUO_REUNITED':
     case 'JINX_PAIR':
@@ -283,8 +295,8 @@ function describeInsight(i: InsightPayload): string {
     case 'REVENGE_RESULT':
       return `${name} vs ${f.rival?.name} 오늘 ${f.memberWinsToday}승 ${f.drawsToday}무 ${f.rivalWinsToday}패 (${REVENGE_LABEL[f.outcome] ?? f.outcome})`
     case 'ASSIST_COMBO': return `${f.assister?.name} → ${f.scorer?.name}, 오늘 ${f.countToday}골 (통산 ${f.careerCount})`
-    case 'UNBEATEN_TEAM': return `TEAM ${f.teamCode}, ${f.games}경기 ${f.wins}승 ${f.draws}무${f.perfect ? ' 전승' : ''}`
-    case 'CLEAN_SHEET': return `TEAM ${f.teamCode}, ${f.games}경기 중 ${f.cleanSheets}경기 무실점`
+    case 'UNBEATEN_TEAM': return `${team(f.teamCode)}, ${f.games}경기 ${f.wins}승 ${f.draws}무${f.perfect ? ' 전승' : ''}`
+    case 'CLEAN_SHEET': return `${team(f.teamCode)}, ${f.games}경기 중 ${f.cleanSheets}경기 무실점`
     case 'FIRST_GOAL': return `${name}, 첫 골${f.debutDay ? ' (데뷔전)' : ''}`
     case 'FIRST_ASSIST': return `${name}, 첫 도움${f.debutDay ? ' (데뷔전)' : ''}`
     case 'PERSONAL_BEST_GOALS': return `${name}, 하루 ${f.goalsToday}골 (이전 최다 ${f.previousBest})`

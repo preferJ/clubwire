@@ -77,6 +77,7 @@ pytest -q          # 실제 MySQL(clubwire_test)에 붙어서 전체 시나리�
 | `test_strategies.py` | 팀 인원 분배, Pair 다양성 > 완전 균형, 허용범위, Confidence 감쇠, Elo, 추천 대진(가장 오래 쉰 두 팀), AI 응답 검증(OpenAI 호출 형태 포함) |
 | `test_member_delete_display_sizes.py` | 메인 팀 마크 크기(32~72px 저장 · 범위 · null 거부), 상단 공지 크기 3단계, 선수 삭제(선수단 · 관리자 목록 · 기록 순위 · MVP 후보 · 요약 수에서 제외, 지난 기록 · 선수 상세 유지, 새 참석 · 수정 차단, 복원), 끝나지 않은 일정 참석자 삭제 차단 |
 | `test_member_goal_edit.py` | 일반 회원 골 · 도움 기록 · 수정 · 취소(경기 시작 후 확정 전까지, 시작 전 · 취소된 경기 409 · 확정 후 409, 멱등키, 검증 규칙 동일, 처리 관리자 NULL), 경기 진행 · 확정 · 출전 명단은 일반 회원 401, 골 수정(취소 표시 + 새 골 · refEventId · 시각 유지, 팀 변경 시 점수 이동, 자책골 전환 시 도움 제거, 같은 수정 재요청 · 변경 없음, 끝난 뒤 시각 수정, 확정 후 409, 취소된 골 409), 확정 통계는 고친 기록 기준 |
+| `test_away_matches.py` | 원정 경기: 원정팀 목록에서만(이름 직접 입력 422 · 미선택 400 · 없는 팀 404), [직접추가](관리자, 같은 이름은 기존 팀) · 1팀 편성 · 확정 시 우리 팀 + 원정팀, 프리뷰 기사 원정 태그 · 상대 전적, 경기별 출전 선수(필수 · 우리 팀 명단만 · 시작 전 수정), 원정팀 골 점수만 · 자책골 규칙 · 골 수정, 실력 점수 · 개인 기록 · 타이틀 변화 없음, `/stats/away` · 선수 원정 기록, 마감 기사 원정 요약, 같은 상대 재대결 전적, 내부 일정 순서 제한과 무관, 원정팀 바꾸기(목록), [원정팀 관리] 이름 수정(지난 일정 · 경기 · 원정 기록 표시 반영, 같은 이름 409) · 숨기기(목록에서만 빠짐, 숨긴 팀 편성 404, 같은 이름 직접추가 시 다시 보임) · 복원 · 숨긴 팀 포함 목록은 관리자만, 상대별 상세(통산 · 일정별 경기 점수 · 그 팀 상대 선수 기록, 다른 클럽 404) |
 
 ## 3. 운영 흐름 (API)
 
@@ -95,6 +96,12 @@ POST /sessions/{id}/teams/assignments 🔑              지각 ADD / 이동 MOVE
 GET  /sessions/{id}/matches/next-suggestion 🔑        팀별 오늘 경기 수 + 추천 대진(가장 오래 쉰 두 팀)
 POST /sessions/{id}/matches/next {"teamAId","teamBId"} 🔑   다음 경기 생성 (대진은 매번 관리자가 지정)
 POST /matches/{mid}/start | pause | resume | end 🔑
+GET  /opponents | POST /opponents {"name":"한강FC"} 🔑  원정팀 목록 / [직접추가]
+PATCH /opponents/{oid} {"name"} | {"active":false} 🔑  [원정팀 관리] 이름 수정 · 숨기기 · 복원 (숨긴 팀까지: GET /opponents?includeHidden=true 🔑)
+POST /sessions/{id}/teams/generate {"teamCount":1,"opponentId":..} 🔑   원정 경기(우리 팀 vs 목록에서 고른 원정팀)
+POST /sessions/{id}/matches/next {"teamAId","teamBId","memberIds":[...]} 🔑     원정 경기는 출전 선수 함께
+GET  /stats/away                                      원정 기록(내부 기록과 분리, 공개)
+GET  /stats/away/opponents/{oid}                      원정 상대별 상세: 맞대결 일정 · 경기 점수 + 그 팀 상대 선수 기록(공개)
 ── 골 기록 · 수정 · 취소: 경기 시작 후 확정 전까지 누구나(관리자 토큰 선택) ──
 POST /matches/{mid}/goals {"teamId","scorerMemberId","assistMemberId","ownGoal","guestGoal","idempotencyKey"}
 PATCH /matches/{mid}/events/{eid} {"teamId","scorerMemberId","assistMemberId","ownGoal","guestGoal","elapsedSec"}

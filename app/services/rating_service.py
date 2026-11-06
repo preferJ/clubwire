@@ -81,6 +81,7 @@ def _finalized_matches(db: Session, club_id: int) -> list[tuple[MatchGame, ClubS
         .where(
             ClubSession.club_id == club_id,
             ClubSession.status != SessionStatus.CANCELLED,
+            ClubSession.away_yn.is_(False),  # 원정 경기는 실력 점수에 반영하지 않음
             MatchGame.game_status == GameStatus.FINISHED,
             MatchGame.finalized_at.is_not(None),
         )

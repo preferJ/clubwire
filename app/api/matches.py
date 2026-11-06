@@ -25,7 +25,8 @@ def next_suggestion(session_id: int, club: Club = Depends(club_dep), admin: Admi
 def create_next(session_id: int, body: NextMatchRequest, club: Club = Depends(club_dep),
                 admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
     m = match_service.create_next_match(db, club.club_id, session_id, admin.admin_id, team_a_id=body.team_a_id,
-                                        team_b_id=body.team_b_id, duration_sec=body.duration_sec)
+                                        team_b_id=body.team_b_id, duration_sec=body.duration_sec,
+                                        member_ids=body.member_ids)
     return match_state(db, m)
 
 

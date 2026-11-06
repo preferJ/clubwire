@@ -119,6 +119,10 @@ export interface SessionListItem {
   confirmedAt: string | null
   closedAt: string | null
   deletedAt: string | null
+  /** 원정 경기 일정(1팀 편성: 우리 팀 vs 원정팀) */
+  away: boolean
+  opponentId: number | null
+  opponentName: string | null
   attendeeCount: number
   guestCount: number
 }
@@ -137,6 +141,8 @@ export interface TeamView {
   sessionTeamId: number
   teamCode: string
   displayName: string
+  /** 원정팀(선수 없음, 점수만) */
+  opponent: boolean
   members: TeamMemberView[]
   guests: GuestView[]
   headcount: number
@@ -147,6 +153,8 @@ export interface TeamView {
 export interface TeamScore {
   sessionTeamId: number
   teamCode: string | null
+  displayName: string | null
+  opponent: boolean
   score: number
 }
 
@@ -186,11 +194,14 @@ export interface Generation {
   spreadPercent: number
   pairPenalty: number
   balanceLabel: string
+  /** 1팀(원정 경기) 편성의 원정팀(원정팀 목록) */
+  opponentId: number | null
+  opponentName: string | null
   teams: {
     teamCode: string
     headcount: number
     avgRating: number
-    strength: number
+    strength: number | null
     pairPenalty: number
     members: PersonRef[]  // 선수별 Rating은 서버가 내보내지 않음
     guests: GuestView[]
@@ -201,6 +212,8 @@ export interface MatchTeam {
   sessionTeamId: number
   teamCode: string | null
   displayName: string | null
+  /** 원정팀(선수 없음, 골은 점수만) */
+  opponent: boolean
   score: number
 }
 
@@ -268,6 +281,11 @@ export interface LiveMatch extends MatchState {
 export interface NextSuggestion {
   sessionId: number
   nextGameNo: number
+  /** 원정 경기: 우리 팀 vs 원정팀 고정 + 경기마다 출전 선수 고르기 */
+  away: boolean
+  roster?: PersonRef[]
+  /** 직전 경기 출전 선수(기본 선택) */
+  lineupMemberIds?: number[]
   blockedByMatchId: number | null
   suggestedTeamAId: number
   suggestedTeamBId: number
@@ -275,6 +293,7 @@ export interface NextSuggestion {
     sessionTeamId: number
     teamCode: string
     displayName: string
+    opponent: boolean
     gamesPlayed: number
     consecutive: number
     lastPlayedGameNo: number | null
@@ -284,6 +303,8 @@ export interface NextSuggestion {
 export interface SessionSummary {
   sessionId: number
   status: SessionStatus
+  away: boolean
+  opponentName: string | null
   finishedCount: number
   unfinalizedCount: number
   readyCount: number
@@ -296,10 +317,22 @@ export interface SessionSummary {
     finalized: boolean
     teamA: string | null
     teamB: string | null
+    teamAName: string | null
+    teamBName: string | null
     scoreA: number
     scoreB: number
   }[]
-  teamRecords: { sessionTeamId: number; teamCode: string; wins: number; draws: number; losses: number }[]
+  teamRecords: {
+    sessionTeamId: number
+    teamCode: string
+    displayName: string
+    opponent: boolean
+    wins: number
+    draws: number
+    losses: number
+    goalsFor: number
+    goalsAgainst: number
+  }[]
   topScorers: (PersonRef & { count: number })[]
   topAssists: (PersonRef & { count: number })[]
 }
@@ -345,6 +378,70 @@ export interface MemberDetail {
   frequentTeammates: (PersonRef & { matches: number; wins: number; draws: number; winRate: number | null })[]
   bestWinRateTeammates: (PersonRef & { matches: number; winRate: number | null })[]
   frequentOpponents: (PersonRef & { matches: number; wins: number; losses: number; draws: number })[]
+  /** 원정 기록(내부 기록과 별도) */
+  away?: AwayMemberRecord
+}
+
+/** 원정팀 목록(원정 경기 상대는 여기서만 고른다). active=false = 숨긴 팀, sessions = 원정 일정 수(관리 화면에서만) */
+export interface Opponent {
+  opponentId: number
+  name: string
+  active?: boolean
+  sessions?: number
+}
+
+/** 원정 경기 전적(우리 기준) */
+export interface AwayRecord {
+  matches: number
+  wins: number
+  draws: number
+  losses: number
+  goalsFor: number
+  goalsAgainst: number
+}
+
+export interface AwayMemberRecord {
+  games: number
+  sessions: number
+  wins: number
+  draws: number
+  losses: number
+  winRate: number | null
+  goals: number
+  assists: number
+  ownGoals: number
+  recent: {
+    matchId: number
+    sessionDate: string
+    gameNo: number
+    opponentName: string | null
+    result: 'W' | 'D' | 'L'
+    scoreFor: number
+    scoreAgainst: number
+    goals: number
+    assists: number
+  }[]
+}
+
+/** 기록 탭 '원정' → 상대 팀 하나: 그 팀과의 원정 일정 · 경기 점수 + 그 팀 상대 우리 선수 기록 */
+export interface AwayOpponentDetail {
+  opponent: { opponentId: number; name: string; active: boolean }
+  summary: AwayRecord & { sessions: number }
+  sessions: (AwayRecord & {
+    sessionId: number
+    sessionDate: string
+    title: string
+    location: string | null
+    matches: { matchId: number; gameNo: number; scoreFor: number; scoreAgainst: number; result: 'W' | 'D' | 'L' }[]
+  })[]
+  members: AwayOverview['members']
+}
+
+export interface AwayOverview {
+  summary: AwayRecord & { sessions: number }
+  opponents: (AwayRecord & { opponentId: number | null; opponentName: string | null; sessions: number; lastDate: string })[]
+  recent: (AwayRecord & { sessionId: number; sessionDate: string; opponentName: string | null })[]
+  members: (Omit<AwayMemberRecord, 'recent'> & { memberId: number; name: string; lastPlayedDate: string | null })[]
 }
 
 export interface Award {
@@ -455,3 +552,4 @@ export type WsMessage =
   | { type: 'TITLE_UPDATED'; memberTitleId: number }
   | { type: 'CLUB_CONTENT_UPDATED' }
   | { type: 'CLUB_APPEARANCE_UPDATED' }
+  | { type: 'OPPONENTS_UPDATED'; opponentId: number }

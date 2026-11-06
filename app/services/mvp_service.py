@@ -192,6 +192,7 @@ def close_month(db: Session, club: Club, month_start: date) -> list[int]:
     mvp_t = mvp_t if todo(mvp_t) else None
     sessions = list(db.scalars(select(ClubSession).where(
         ClubSession.club_id == club.club_id, ClubSession.session_date.between(start, end),
+        ClubSession.away_yn.is_(False),  # 원정 경기는 이달의 MVP · 득점왕 · 도움왕과 무관
         ClubSession.status != SessionStatus.CANCELLED).order_by(ClubSession.session_date, ClubSession.session_id)))
     # 할 일 없음 / 일정 없음 / 아직 안 끝난 일정이 있음 → 다음에 다시 확인
     if not (mvp_t or stat_ts) or not sessions or any(s.status != SessionStatus.CLOSED for s in sessions):

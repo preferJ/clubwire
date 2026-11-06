@@ -6,6 +6,9 @@ FACTS에 넣지 않는다.
 
 - PRE  : [일정확정] 시점. 해당 일정 이전의 확정 경기만 사용.
 - POST : [일정마감] 시점. 해당 일정까지의 확정 경기 사용.
+- 원정 경기 일정은 원정 경기 기록만으로 같은 규칙을 계산하고(내부 기록과 섞지 않음),
+  모든 사실에 away=true · opponentName을 붙여 기사에서 원정 기록임을 구분한다.
+  복귀(RETURN_PLAYER*) · 천적 · 타이틀은 원정 경기에서 만들지 않고, 상대 전적(OPPONENT_RECORD)을 더한다.
 """
 from collections import Counter
 from dataclasses import dataclass, field
@@ -34,6 +37,7 @@ from app.services.history import (
     last_played_date,
     load_history,
     member_totals,
+    our_record,
     scoring_session_streak,
     win_streak,
 )
@@ -53,6 +57,10 @@ class _Ctx:
     params: dict[str, dict[str, str]]
     names: dict[int, str]
     created: list[Insight] = field(default_factory=list)
+
+    @property
+    def away(self) -> bool:
+        return bool(self.session.away_yn)
 
     def enabled(self, t: str) -> bool:
         c = self.types.get(t)
@@ -82,6 +90,8 @@ class _Ctx:
         """subject=False: 팀 단위 사실(무패·철벽)처럼 대표 선수가 없는 Insight. 관련 선수는 INSIGHT_MEMBER로만 연결."""
         c = self.types[t]
         members = members or []
+        if self.away:  # 원정 기록임을 사실마다 표시(기사 · 이정표 표에서 '원정 통산'으로 구분)
+            facts = {**facts, "away": True, "opponentName": self.session.opponent_name}
         ins = Insight(
             club_id=self.club_id, session_id=self.session.session_id, match_id=match_id,
             member_id=members[0][0] if members and subject else None, insight_type=t, category=c.category,
@@ -241,6 +251,13 @@ def team_day_records(records: list[MatchRecord]) -> dict[int, dict]:
     return out
 
 
+def opponent_records(db: Session, club_id: int, session: ClubSession, records: list[MatchRecord]) -> list[MatchRecord]:
+    """같은 원정팀(원정팀 목록 ID)과 치른 원정 경기. 원정 경기 TEAM_A = 우리 팀."""
+    sids = set(db.scalars(select(ClubSession.session_id).where(
+        ClubSession.club_id == club_id, ClubSession.away_yn.is_(True), ClubSession.opponent_id == session.opponent_id)))
+    return [r for r in records if r.session_id in sids]
+
+
 def session_goal_history(records: list[MatchRecord], member_id: int) -> tuple[int, int]:
     """(출전한 일정 수, 하루 최다 골)."""
     per: dict[int, int] = {}
@@ -255,24 +272,34 @@ def generate_pre_insights(db: Session, club_id: int, session: ClubSession) -> li
     """[일정확정] 시 호출(호출 측 트랜잭션). 같은 일정의 기존 PRE Insight는 비활성화 후 재생성."""
     _deactivate(db, session.session_id, InsightPhase.PRE)
     ctx = _context(db, club_id, session, InsightPhase.PRE)
-    teams = {t.session_team_id: t for t in session_teams(db, session.session_id)}
+    away = ctx.away
+    teams = {t.session_team_id: t for t in session_teams(db, session.session_id) if not t.opponent_yn}
     roster = list(db.scalars(select(SessionTeamMember).where(SessionTeamMember.session_id == session.session_id,
                                                              SessionTeamMember.active_yn.is_(True))))
     team_of = {stm.member_id: stm.session_team_id for stm in roster}
     players = sorted(team_of)
-    history = load_history(db, club_id, before_session=session)
+    history = load_history(db, club_id, before_session=session, away=away)  # 원정이면 원정 기록만
     totals = member_totals(history)
 
     def team_code(mid: int) -> str | None:
         t = teams.get(team_of.get(mid))
-        return t.team_code if t else None
+        return (t.display_name if away else t.team_code) if t else None
+
+    # OPPONENT_RECORD (원정 경기: 이 원정팀과의 지난 맞대결)
+    t = "OPPONENT_RECORD"
+    if away and ctx.enabled(t):
+        prev = opponent_records(db, club_id, session, history)
+        rec = our_record(prev)
+        ctx.add(t, ctx.types[t].base_importance,
+                {"firstMeeting": rec["matches"] == 0, "previousSessions": len({r.session_id for r in prev}), **rec,
+                 "lastMeetingDate": prev[-1].session_date.isoformat() if prev else None})
 
     for mid in players:
         tot = totals.get(mid)
-        # RETURN_PLAYER
+        # RETURN_PLAYER (원정 경기는 띄엄띄엄 열려 복귀가 의미 없어 제외)
         t = "RETURN_PLAYER"
         last = last_played_date(history, mid)
-        if ctx.enabled(t) and last:
+        if ctx.enabled(t) and last and not away:
             days = (session.session_date - last).days
             th = ctx.p(t, "threshold_days", 30)
             if days >= th:
@@ -336,7 +363,7 @@ def generate_pre_insights(db: Session, club_id: int, session: ClubSession) -> li
                 if ratio <= ctx.p(t, "max_same_team_ratio", 0.2) and since >= ctx.p(t, "min_sessions_since_same_team", 4):
                     imp = ctx.imp_linear(t, since, ctx.p(t, "min_sessions_since_same_team", 4),
                                          ctx.p(t, "max_sessions_signal", 20))
-                    candidates.append((imp, a, b, p, teams[tid].team_code))
+                    candidates.append((imp, a, b, p, teams[tid].display_name if away else teams[tid].team_code))
         for imp, a, b, p, code in sorted(candidates, key=lambda x: -x[0])[:5]:
             ctx.add(t, imp, {"members": [ctx.person(a), ctx.person(b)], "teamCode": code,
                              "coAttendanceCount": p["co"], "sameTeamCount": p["same"],
@@ -451,8 +478,10 @@ def generate_post_insights(db: Session, club_id: int, session: ClubSession) -> l
     """[일정마감] 시 호출(호출 측 트랜잭션)."""
     _deactivate(db, session.session_id, InsightPhase.POST)
     ctx = _context(db, club_id, session, InsightPhase.POST)
+    away = ctx.away
     teams = {t.session_team_id: t for t in db.scalars(select(SessionTeam).where(SessionTeam.session_id == session.session_id))}
-    upto = load_history(db, club_id, upto_session=session)
+    ours = {tid for tid, x in teams.items() if not x.opponent_yn}
+    upto = load_history(db, club_id, upto_session=session, away=away)  # 원정이면 원정 기록만
     before = [r for r in upto if r.session_id != session.session_id
               and (r.session_date, r.session_id) < (session.session_date, session.session_id)]
     today = [r for r in upto if r.session_id == session.session_id]
@@ -460,7 +489,18 @@ def generate_post_insights(db: Session, club_id: int, session: ClubSession) -> l
         return []
 
     def code(tid: int | None) -> str | None:
-        return teams[tid].team_code if tid in teams else None
+        if tid not in teams:
+            return None
+        return teams[tid].display_name if away else teams[tid].team_code
+
+    # OPPONENT_RECORD (원정 경기: 오늘 결과 + 이 원정팀과의 통산)
+    t = "OPPONENT_RECORD"
+    if away and ctx.enabled(t):
+        vs = opponent_records(db, club_id, session, upto)
+        day, total = our_record(today), our_record(vs)
+        ctx.add(t, ctx.types[t].base_importance,
+                {"firstMeeting": total["matches"] == day["matches"], "previousSessions": len({r.session_id for r in vs}) - 1,
+                 **total, **{f"today{k[0].upper()}{k[1:]}": v for k, v in day.items()}})
 
     def score_text(r: MatchRecord) -> dict:
         return {"gameNo": r.game_no, "teamA": code(r.team_a_id), "teamB": code(r.team_b_id),
@@ -482,7 +522,7 @@ def generate_post_insights(db: Session, club_id: int, session: ClubSession) -> l
                         members=[(g.scorer_member_id, "SUBJECT")] + ([(g.assist_member_id, "ASSIST")] if g.assist_member_id else []))
         # COMEBACK_WIN
         t = "COMEBACK_WIN"
-        if ctx.enabled(t):
+        if ctx.enabled(t) and (not away or r.win_team_id in ours):  # 원정은 우리 팀 역전승만
             deficit = _max_deficit(r)
             mn = ctx.p(t, "min_deficit", 2)
             if deficit >= mn:
@@ -555,10 +595,10 @@ def generate_post_insights(db: Session, club_id: int, session: ClubSession) -> l
                 ctx.add(t, ctx.imp_step(t, streak - mn, ctx.p(t, "importance_per_extra", 8)),
                         {"member": ctx.person(mid), "streak": streak, "streakUnit": "일정",
                          "goalsToday": tot_today[mid].goals}, members=[(mid, "SUBJECT")])
-        # RETURN_PLAYER_RESULT
+        # RETURN_PLAYER_RESULT (원정 경기 제외)
         t = "RETURN_PLAYER_RESULT"
         last = last_played_date(before, mid)
-        if ctx.enabled(t) and last:
+        if ctx.enabled(t) and last and not away:
             days = (session.session_date - last).days
             th = ctx.p(t, "threshold_days", 30)
             if days >= th:
@@ -608,6 +648,8 @@ def generate_post_insights(db: Session, club_id: int, session: ClubSession) -> l
     # UNBEATEN_TEAM / CLEAN_SHEET (팀 단위: 대표 선수 없음)
     day = team_day_records(today)
     for tid, rec in sorted(day.items(), key=lambda kv: code(kv[0]) or ""):
+        if tid not in ours:  # 원정팀은 팀 단위 사실을 만들지 않음
+            continue
         team_members = [(mid, "TEAM") for mid in sorted(rec["players"])]
         t = "UNBEATEN_TEAM"
         if ctx.enabled(t) and rec["games"] >= ctx.p(t, "min_games", 3) and rec["losses"] == 0:
@@ -666,9 +708,11 @@ def generate_post_insights(db: Session, club_id: int, session: ClubSession) -> l
 
 
 def session_summary(db: Session, club_id: int, session: ClubSession) -> dict:
-    """마감 기사용 경기 결과 요약(Backend 계산 사실)."""
-    teams = {t.session_team_id: t.team_code for t in db.scalars(select(SessionTeam).where(SessionTeam.session_id == session.session_id))}
-    recs = load_history(db, club_id, session_ids=[session.session_id])
+    """마감 기사용 경기 결과 요약(Backend 계산 사실). 원정 경기는 팀 이름(우리 클럽 · 원정팀)과 우리 기준 결과를 쓴다."""
+    away = bool(session.away_yn)
+    teams = {t.session_team_id: (t.display_name if away else t.team_code)
+             for t in db.scalars(select(SessionTeam).where(SessionTeam.session_id == session.session_id))}
+    recs = load_history(db, club_id, session_ids=[session.session_id], away=None)
     names = {m.member_id: m.name for m in db.scalars(select(Member).where(Member.club_id == club_id))}
     tot = member_totals(recs)
     scorers = sorted(((mid, t.goals) for mid, t in tot.items() if t.goals > 0), key=lambda x: -x[1])
@@ -682,7 +726,7 @@ def session_summary(db: Session, club_id: int, session: ClubSession) -> dict:
                 rec["wins"] += 1
             else:
                 rec["losses"] += 1
-    return {
+    out = {
         "totalMatches": len(recs),
         "matches": [{"gameNo": r.game_no, "teamA": teams.get(r.team_a_id), "teamB": teams.get(r.team_b_id),
                      "scoreA": r.score_a, "scoreB": r.score_b,
@@ -690,6 +734,11 @@ def session_summary(db: Session, club_id: int, session: ClubSession) -> dict:
         "teamRecords": team_record,
         "topScorers": [{"name": names.get(mid), "goals": g} for mid, g in scorers[:5]],
     }
+    if away:
+        assists = sorted(((mid, t.assists) for mid, t in tot.items() if t.assists > 0), key=lambda x: -x[1])
+        out.update({"away": True, "opponentName": session.opponent_name, "ourResult": our_record(recs),
+                    "topAssists": [{"name": names.get(mid), "assists": a} for mid, a in assists[:5]]})
+    return out
 
 
 __all__ = ["generate_pre_insights", "generate_post_insights", "session_summary", "date"]

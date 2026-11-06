@@ -6,7 +6,7 @@ import { ArticleMilestones } from '../components/ArticleMilestones'
 import { Icon } from '../components/Icon'
 import { ErrorBox, Loading, ResultTeam, Tags, TopBar, type FromState } from '../components/ui'
 import { useClub } from '../lib/club'
-import { ARTICLE_TYPE_LABEL, fmtDateTime, initials, winSide } from '../lib/format'
+import { ARTICLE_TYPE_LABEL, fmtDateTime, initials, teamLabel, winSide } from '../lib/format'
 import { useAsync } from '../lib/hooks'
 import { markArticleRead } from '../lib/readStore'
 import { useToast } from '../lib/toast'
@@ -88,7 +88,7 @@ export function ArticlePage() {
               {results.map((m) => (
                 <div key={m.matchId} className="row between" style={{ fontSize: 14 }}>
                   <span className="muted">{m.gameNo}경기</span>
-                  <span><ResultTeam code={m.teamA.teamCode} side="A" win={winSide(m) === 'A'} /> <b className="mono">{m.teamA.score} : {m.teamB.score}</b> <ResultTeam code={m.teamB.teamCode} side="B" win={winSide(m) === 'B'} /></span>
+                  <span><ResultTeam name={teamLabel(m.teamA)} side="A" win={winSide(m) === 'A'} /> <b className="mono">{m.teamA.score} : {m.teamB.score}</b> <ResultTeam name={teamLabel(m.teamB)} side="B" win={winSide(m) === 'B'} /></span>
                 </div>
               ))}
             </section>

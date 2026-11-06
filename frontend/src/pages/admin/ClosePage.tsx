@@ -5,7 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Icon } from '../../components/Icon'
 import { ErrorBox, Loading, TopBar } from '../../components/ui'
 import { useClub } from '../../lib/club'
-import { fmtDate, teamColor } from '../../lib/format'
+import { fmtDate, OPPONENT_COLOR, teamColor, teamLabel } from '../../lib/format'
 import { useAction, useAsync } from '../../lib/hooks'
 
 export function ClosePage() {
@@ -23,7 +23,8 @@ export function ClosePage() {
   if (summary.error) return <ErrorBox error={summary.error} onRetry={summary.reload} />
   if (!s || !d) return <div className="page"><Loading /></div>
   // 마감 때 다시 집계하는 건 주간 자동 타이틀만(이달의 MVP는 월 마감 때)
-  const autoTitles = (titles.data ?? []).filter((t) => t.awardMethod === 'AUTO' && t.active && t.periodType === 'WEEKLY')
+  // 원정 경기 일정은 타이틀 · 개인 기록과 무관(원정 기록은 따로)
+  const autoTitles = s.away ? [] : (titles.data ?? []).filter((t) => t.awardMethod === 'AUTO' && t.active && t.periodType === 'WEEKLY')
 
   const close = async () => {
     if (!window.confirm('일정을 마감할까요? 마감 후에는 이 일정의 기록을 고칠 수 없어요.')) return
@@ -37,11 +38,11 @@ export function ClosePage() {
       <TopBar title={`일정마감 · ${fmtDate(d.sessionDate, false)}`} back={`/c/${slug}/sessions/${id}`} right={<span className="admin-pill">관리자 모드</span>} />
       <main className="page">
         <section className="card stack" style={{ gap: 10 }}>
-          <h2 style={{ fontSize: 15, fontWeight: 700 }}>오늘 기록</h2>
+          <h2 style={{ fontSize: 15, fontWeight: 700 }}>{s.away ? `오늘 원정 기록 · vs ${s.opponentName ?? ''}` : '오늘 기록'}</h2>
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(3, s.teamRecords.length || 1)}, minmax(0, 1fr))`, gap: 6 }}>
             {s.teamRecords.map((r) => (
               <div key={r.sessionTeamId} className="stack center" style={{ gap: 2, padding: '10px 0', borderRadius: 10, background: 'var(--bg)' }}>
-                <span className="small" style={{ color: teamColor(r.teamCode), fontWeight: 700 }}>TEAM {r.teamCode}</span>
+                <span className="small" style={{ color: r.opponent ? OPPONENT_COLOR : teamColor(r.teamCode), fontWeight: 700 }}>{teamLabel(r)}</span>
                 <span style={{ fontSize: 14, fontWeight: 600 }}>{r.wins}승 {r.draws}무 {r.losses}패</span>
               </div>
             ))}
@@ -62,12 +63,13 @@ export function ClosePage() {
           {s.unfinalizedCount ? <Check>확정 안 된 {s.unfinalizedCount}경기를 확정합니다</Check> : null}
           {s.readyCount ? <Check>시작 안 한 대기 경기 {s.readyCount}개는 취소합니다</Check> : null}
           {autoTitles.length ? <Check>이번 주 {autoTitles.map((t) => t.titleName.replace('이주의 ', '')).join(' · ')}을 다시 집계합니다</Check> : null}
-          <Check>마감 기사를 작성합니다{' '}(게시 방식은 설정을 따름)</Check>
+          <Check>{s.away ? '원정 마감 기사를 작성합니다' : '마감 기사를 작성합니다'}{' '}(게시 방식은 설정을 따름)</Check>
+          {s.away ? <Check>원정 기록은 기록 탭 '원정'에 따로 쌓이고, 개인 기록 · 실력 점수 · 타이틀은 바뀌지 않습니다</Check> : null}
         </section>
 
         <div className="notice warn" role="note">
           <Icon name="warn" />
-          <span>마감 후에는 이 일정의 팀 · 경기 · 골 기록을 고칠 수 없어요. 앞선 일정이 열려 있으면 마감되지 않아요.</span>
+          <span>마감 후에는 이 일정의 팀 · 경기 · 골 기록을 고칠 수 없어요.{s.away ? '' : ' 앞선 일정이 열려 있으면 마감되지 않아요(원정 경기 일정은 제외).'}</span>
         </div>
       </main>
       <div className="bar-actions">

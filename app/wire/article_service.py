@@ -35,6 +35,7 @@ log = logging.getLogger("clubwire.wire")
 
 ARTICLE_TYPE_TAG = {ArticleType.PRE_MATCH: "프리뷰", ArticleType.SESSION_RECAP: "마감", ArticleType.POST_MATCH: "경기",
                     ArticleType.MONTHLY_MVP: "이달의 MVP"}
+AWAY_TAG = "원정"  # 원정 경기 일정의 기사(프리뷰 · 마감)
 # 게시 설정(ARTICLE_PUBLISH_MODE)과 상관없이 생성 즉시 게시하는 기사
 ALWAYS_PUBLISH = {ArticleType.MONTHLY_MVP}
 # 기본형(템플릿) 기사의 MODEL_NAME. sample-template = 샘플 데이터 생성기, stub = 예전 이름
@@ -73,11 +74,15 @@ def build_payload(db: Session, club: Club, session: ClubSession, article_type: s
         # 이 필드는 화면용 스냅샷이며 OpenAI 요청에서는 제외한다.
         "milestoneInsights": [insight_payload(i) for i in ordered if i.insight_type == "MILESTONE_EXPECTED"],
     }
+    if session.away_yn:  # 원정 경기: 우리 클럽 vs 원정팀. insights의 기록은 모두 원정 경기만 따로 집계한 값
+        payload["away"] = {"opponentName": session.opponent_name, "ourTeamName": club.club_name}
     if article_type == ArticleType.PRE_MATCH:
         payload["teams"] = [
             {"teamCode": info["team"].team_code,
+             **({"teamName": info["team"].display_name} if session.away_yn else {}),
              "members": [m.name for _, m in info["members"]], "guestCount": len(info["guests"])}
             for info in team_rosters(db, session.session_id).values()
+            if not info["team"].opponent_yn  # 원정팀은 선수 명단이 없다
         ]
     if extra_context:
         payload.update(extra_context)
@@ -156,6 +161,8 @@ def _apply_tags(db: Session, a: AiArticle) -> None:
     ))
     if ARTICLE_TYPE_TAG.get(a.article_type):
         tags.add(ARTICLE_TYPE_TAG[a.article_type])
+    if isinstance(a.request_json, dict) and a.request_json.get("away"):
+        tags.add(AWAY_TAG)
     existing = set(db.scalars(select(ArticleTag.tag_name).where(ArticleTag.article_id == a.article_id)))
     for t in sorted(tags - existing):
         db.add(ArticleTag(article_id=a.article_id, tag_name=t))
@@ -307,8 +314,9 @@ def _article_milestones(a: AiArticle) -> list[dict]:
         current = facts.get("current")
         if current is not None and (type(current) is not int or current < 0 or milestone - current != remaining):
             continue
+        scope = "원정 통산" if facts.get("away") else "통산"  # 원정 경기 일정의 이정표는 원정 기록만
         rows.append({"insightId": insight_id, "memberId": member_id, "name": name,
-                     "record": f"통산 {milestone}{records[metric]}", "remaining": remaining})
+                     "record": f"{scope} {milestone}{records[metric]}", "remaining": remaining})
         seen.add(insight_id)
     return rows
 

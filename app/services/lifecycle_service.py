@@ -5,6 +5,8 @@
 [일정마감] = 남은 경기 정리/확정 → 자동 타이틀 → 통계 → POST Insight → SESSION_RECAP 기사(1건)
     마감된 일정의 팀/경기/골은 수정 불가.
     마감은 날짜 순서대로만 가능(앞 일정이 열려 있으면 거부) → 마감된 기록 이후의 Rating이 흔들리지 않는다.
+원정 경기 일정은 실력 점수 · 타이틀 · 개인 통계와 무관하다: 순서 제한 없이 마감하고, 자동 타이틀 · 통계 재계산을 하지 않는다.
+내부 일정을 마감할 때도 열려 있는 원정 경기 일정은 순서 제한에 넣지 않는다.
 """
 from sqlalchemy import select, tuple_
 from sqlalchemy.orm import Session
@@ -45,8 +47,8 @@ def close_session(db: Session, club_id: int, session_id: int, admin_id: int | No
     guard_not_closed(s)
     if s.status not in (SessionStatus.CONFIRMED, SessionStatus.IN_PROGRESS):
         raise Conflict("팀이 확정되지 않은 일정은 마감할 수 없습니다. 취소를 사용하세요.", "SESSION_NOT_CONFIRMED")
-    earlier = list(db.scalars(select(ClubSession).where(
-        ClubSession.club_id == club_id,
+    earlier = [] if s.away_yn else list(db.scalars(select(ClubSession).where(
+        ClubSession.club_id == club_id, ClubSession.away_yn.is_(False),
         tuple_(ClubSession.session_date, ClubSession.session_id) < tuple_(s.session_date, s.session_id),
         ClubSession.status.not_in([SessionStatus.CLOSED, SessionStatus.CANCELLED]))))
     if earlier:
@@ -57,9 +59,10 @@ def close_session(db: Session, club_id: int, session_id: int, admin_id: int | No
     s.status = SessionStatus.CLOSED
     s.closed_at = utcnow()
     db.flush()
-    compute_auto_titles(db, club_id, s)
-    compute_attendance_titles(db, club_id, s)  # 연속 참가 10 · 20 · 30 · 40 · 50회
-    rebuild_all_stats(db, club_id)
+    if not s.away_yn:
+        compute_auto_titles(db, club_id, s)
+        compute_attendance_titles(db, club_id, s)  # 연속 참가 10 · 20 · 30 · 40 · 50회
+        rebuild_all_stats(db, club_id)
     article_ids: list[int] = []
     if finalized_count:
         insights = generate_post_insights(db, club_id, s)

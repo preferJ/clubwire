@@ -7,6 +7,18 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.models.base import Base, CreatedAtMixin, Id, TimestampMixin, UtcDateTime
 
 
+class OpponentTeam(TimestampMixin, Base):
+    """원정팀 목록(클럽별). 원정 경기의 상대는 이 목록에서만 고른다(목록 화면의 [직접추가]로 등록)."""
+
+    __tablename__ = "OPPONENT_TEAM"
+    __table_args__ = (UniqueConstraint("CLUB_ID", "NAME"),)
+
+    opponent_id: Mapped[int] = mapped_column("OPPONENT_ID", Id, primary_key=True, autoincrement=True)
+    club_id: Mapped[int] = mapped_column("CLUB_ID", ForeignKey("CLUB.CLUB_ID"), nullable=False)
+    name: Mapped[str] = mapped_column("NAME", String(50), nullable=False)
+    active_yn: Mapped[bool] = mapped_column("ACTIVE_YN", Boolean, nullable=False, default=True)
+
+
 class ClubSession(TimestampMixin, Base):
     """한 번의 모임(경기 날짜). 파이썬 클래스명은 ORM Session과 구분하려고 ClubSession."""
 
@@ -24,6 +36,10 @@ class ClubSession(TimestampMixin, Base):
     closed_at: Mapped[datetime | None] = mapped_column("CLOSED_AT", UtcDateTime)
     deleted_at: Mapped[datetime | None] = mapped_column("DELETED_AT", UtcDateTime, comment="일정 삭제 시각(기록 보존)")
     cancelled_at: Mapped[datetime | None] = mapped_column("CANCELLED_AT", UtcDateTime)
+    # 원정 경기 일정: 1팀으로 확정하면 우리 팀 + 원정팀(상대). 원정 기록은 내부 기록 · 실력 점수 · 타이틀과 완전히 분리
+    away_yn: Mapped[bool] = mapped_column("AWAY_YN", Boolean, nullable=False, default=False)
+    opponent_id: Mapped[int | None] = mapped_column("OPPONENT_ID", ForeignKey("OPPONENT_TEAM.OPPONENT_ID"))
+    opponent_name: Mapped[str | None] = mapped_column("OPPONENT_NAME", String(50))  # 표시용(원정팀 목록 이름)
 
 
 class SessionMember(TimestampMixin, Base):
@@ -53,6 +69,7 @@ class SessionTeam(CreatedAtMixin, Base):
     avg_rating_snapshot: Mapped[float | None] = mapped_column("AVG_RATING_SNAPSHOT", Double)
     team_strength_snapshot: Mapped[float | None] = mapped_column("TEAM_STRENGTH_SNAPSHOT", Double)
     headcount_snapshot: Mapped[int | None] = mapped_column("HEADCOUNT_SNAPSHOT", Integer)
+    opponent_yn: Mapped[bool] = mapped_column("OPPONENT_YN", Boolean, nullable=False, default=False)  # 원정팀(선수 없음)
 
 
 class SessionGuest(TimestampMixin, Base):

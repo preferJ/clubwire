@@ -57,7 +57,7 @@ def get_session_detail(session_id: int, club: Club = Depends(club_dep),
 def update_session(session_id: int, body: SessionUpdate, club: Club = Depends(club_dep),
                    admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
     s = session_service.update_session(db, club.club_id, session_id, session_date=body.session_date,
-                                       title=body.title, location=body.location)
+                                       title=body.title, location=body.location, opponent_id=body.opponent_id)
     return session_service.serialize_session(db, s, detail=True, admin=True)
 
 
@@ -108,7 +108,7 @@ def remove_guest(session_id: int, guest_id: int, club: Club = Depends(club_dep),
 @router.post("/{session_id}/teams/generate", summary="자동 팀 편성 미리보기(여러 번 가능)")
 def generate_teams(session_id: int, body: TeamGenerateRequest, club: Club = Depends(club_dep),
                    admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
-    gen = team_service.generate_preview(db, club.club_id, session_id, body.team_count, body.seed)
+    gen = team_service.generate_preview(db, club.club_id, session_id, body.team_count, body.seed, body.opponent_id)
     return team_service.serialize_generation(db, gen)
 
 

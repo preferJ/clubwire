@@ -136,8 +136,11 @@
 | 9 | `CLOSED_AT` | DATETIME(3) | Y |  | [일정마감] 일시(이후 수정 불가) |
 | 10 | `DELETED_AT` | DATETIME(3) | Y |  | 일정 삭제 시각(기록 보존) |
 | 11 | `CANCELLED_AT` | DATETIME(3) | Y |  | 취소 일시 |
-| 12 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 13 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 12 | `AWAY_YN` | BOOL | N |  | 원정 경기 일정 여부(1팀 편성 + 원정팀). 원정 기록은 개인 기록 · 실력 점수 · 타이틀 · MVP와 분리 집계 |
+| 13 | `OPPONENT_ID` | BIGINT | Y | FK→OPPONENT_TEAM | 원정팀(OPPONENT_TEAM). 원정 경기 일정만, 상대별 전적은 이 ID로 묶음 |
+| 14 | `OPPONENT_NAME` | VARCHAR(50) | Y |  | 원정팀 이름(표시용, 원정팀 목록 이름) |
+| 15 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 16 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 
@@ -191,13 +194,14 @@
 | 1 | `SESSION_TEAM_ID` | BIGINT | N | PK | 세션 팀 ID |
 | 2 | `SESSION_ID` | BIGINT | N | FK→SESSION | 일정 ID |
 | 3 | `GENERATION_ID` | BIGINT | Y | FK→TEAM_GENERATION | 생성 근거 팀 편성 ID |
-| 4 | `TEAM_CODE` | VARCHAR(5) | N |  | 팀 코드(A, B, C …) |
+| 4 | `TEAM_CODE` | VARCHAR(5) | N |  | 팀 코드(A, B, C …, 원정팀은 VS) |
 | 5 | `DISPLAY_NAME` | VARCHAR(50) | N |  | 표시명 |
 | 6 | `DISPLAY_ORDER` | INTEGER | N |  | 팀 표시 순서 |
 | 7 | `AVG_RATING_SNAPSHOT` | DOUBLE | Y |  | 확정 당시 평균 Rating |
 | 8 | `TEAM_STRENGTH_SNAPSHOT` | DOUBLE | Y |  | 확정 당시 Team Strength |
 | 9 | `HEADCOUNT_SNAPSHOT` | INTEGER | Y |  | 확정 당시 인원(게스트 포함) |
-| 10 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 10 | `OPPONENT_YN` | BOOL | N |  | 원정팀(상대 팀) 여부. 선수 명단 없이 점수만 기록 |
+| 11 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 
