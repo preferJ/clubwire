@@ -1,5 +1,5 @@
 // S01 홈 · 와이어(E 시안: 매니저 게임형)
-// 클럽 바(엠블럼 · 날짜 · 다음 일정) → 요약 한 줄 → LIVE → NEXT FIXTURE → THE WIRE(기사: 헤드라인 + 목록)
+// 클럽 바 → 요약 한 줄 → 확정 팀 편성 → LIVE → THE WIRE(기사: 헤드라인 + 목록)
 // → MVP 한 줄 → LAST MATCHDAY(맨 아래). 2026-10-23: 기사가 주인공이 되게 순서 · 크기 조정
 
 import type { ReactNode } from 'react'
@@ -8,6 +8,7 @@ import type { Api } from '../api/endpoints'
 import type { Article, LiveMatch, MvpRace, SessionListItem, SessionSummary } from '../api/types'
 import { Icon } from '../components/Icon'
 import { AnnouncementTicker } from '../components/AnnouncementTicker'
+import { HomeFixture } from '../components/HomeFixture'
 import { ClubBar, ErrorBox, Loading, TeamBadge } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
 import { ARTICLE_TYPE_LABEL, dday, fmtClock, fmtDate, fmtRise, fmtShortDate, fmtToday, SESSION_STATUS_LABEL, teamLabel, teamMark } from '../lib/format'
@@ -44,6 +45,7 @@ export function HomePage() {
   })
 
   const next = picked[0]?.label === '이번 일정' ? picked[0].s : null
+  const showLineup = next && ['CONFIRMED', 'IN_PROGRESS'].includes(next.status)
   const last = picked.find((p) => p.label !== '이번 일정' && p.s.status === 'CLOSED')?.s ?? null
   const sessionsLoading = sessions.loading && !sessions.data
   // 일정 목록을 받기 전, 또는 고른 일정이 바뀌어 다시 불러오는 중이면 로딩 표시
@@ -77,11 +79,15 @@ export function HomePage() {
       ) : null}
 
       <main className="page" style={{ gap: 12, padding: '12px 12px 24px' }}>
+        {showLineup ? <HomeFixture key={`${slug}-${next.sessionId}`} sessionId={next.sessionId} /> : null}
+
         {(live.data ?? []).map((m) => (
           <LiveBanner key={m.matchId} m={m} slug={slug} />
         ))}
 
-        {sessionsLoading ? <Loading rows={1} /> : <NextFixture s={next} slug={slug} members={summary.data?.activeMembers} isAdmin={isAdmin} />}
+        {sessions.error ? <ErrorBox error={sessions.error} onRetry={sessions.reload} />
+          : sessionsLoading ? <Loading rows={1} />
+            : !showLineup ? <NextFixture s={next} slug={slug} members={summary.data?.activeMembers} isAdmin={isAdmin} /> : null}
 
         <WireFeed slug={slug} loading={articlesLoading} error={articles.error} onRetry={articles.reload}
           items={(articles.data ?? []).slice(0, WIRE_ARTICLES)} />
