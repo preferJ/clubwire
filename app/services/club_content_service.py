@@ -1,4 +1,4 @@
-"""클럽별 공개 운영수칙과 상단 공지(+ 공지 크기). 변경 알림은 커밋 이후에만 전송한다."""
+"""클럽별 공개 운영수칙과 상단 공지(+ 공지 크기 · 스타일). 변경 알림은 커밋 이후에만 전송한다."""
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -9,6 +9,9 @@ from app.models import Club
 
 ANNOUNCEMENT_SIZES = ("small", "medium", "large")
 ANNOUNCEMENT_SIZE_DEFAULT = "medium"
+# 상단 공지 스타일: 기본 / 강조(연한 클럽 색 바탕 + 굵은 글씨) / 클럽 색(진한 바탕 + 흰 글씨) / 긴급(노란 바탕 + 깜박이는 표시 + 빠른 흐름)
+ANNOUNCEMENT_STYLES = ("default", "highlight", "accent", "alert")
+ANNOUNCEMENT_STYLE_DEFAULT = "default"
 
 
 def serialize_content(club: Club) -> dict:
@@ -19,6 +22,8 @@ def serialize_content(club: Club) -> dict:
         "announcementUpdatedAt": to_iso(club.announcement_updated_at),
         "announcementSize": club.announcement_size if club.announcement_size in ANNOUNCEMENT_SIZES
         else ANNOUNCEMENT_SIZE_DEFAULT,
+        "announcementStyle": club.announcement_style if club.announcement_style in ANNOUNCEMENT_STYLES
+        else ANNOUNCEMENT_STYLE_DEFAULT,
     }
 
 
@@ -50,6 +55,13 @@ def update_content(db: Session, club_id: int, changes: dict) -> Club:
         stored = None if size == ANNOUNCEMENT_SIZE_DEFAULT else size
         if club.announcement_size != stored:
             club.announcement_size = stored
+            changed = True
+    if "announcement_style" in changes:
+        # 기본값(default)은 NULL로 둔다. 스타일만 바꾸면 공지 문구 수정 시각은 그대로
+        style = changes["announcement_style"] or ANNOUNCEMENT_STYLE_DEFAULT
+        stored = None if style == ANNOUNCEMENT_STYLE_DEFAULT else style
+        if club.announcement_style != stored:
+            club.announcement_style = stored
             changed = True
 
     if changed:

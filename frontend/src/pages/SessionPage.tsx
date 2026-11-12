@@ -5,7 +5,8 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { SessionDetail, SessionMatch } from '../api/types'
 import { Icon } from '../components/Icon'
 import { NextMatchSheet } from '../components/NextMatchSheet'
-import { AdminButton, ErrorBox, Loading, ResultTeam, TopBar } from '../components/ui'
+import { SessionNotice } from '../components/SessionNotice'
+import { AdminButton, ErrorBox, Loading, ResultTeam, Sheet, TopBar } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
 import { fmtDate, fmtDateTime, OPPONENT_COLOR, teamColor, teamLabel, winSide } from '../lib/format'
 import { useAction, useAsync } from '../lib/hooks'
@@ -68,6 +69,9 @@ export function SessionPage() {
               </div>
             ) : null}
 
+            {/* 일정별 공지: 팀 밸런스 안내 위. 관리자는 마감 전까지 쓰기 · 수정 · 지우기 */}
+            <NoticeBlock d={d} editable={isAdmin && !d.deletedAt && ['OPEN', 'CONFIRMED', 'IN_PROGRESS'].includes(d.status)} onSaved={s.reload} />
+
             {d.balanceLabel ? (
               <div className="notice green" style={{ fontSize: 14, fontWeight: 600, alignItems: 'center' }}>
                 <Icon name="scale" />{d.balanceLabel}
@@ -86,6 +90,65 @@ export function SessionPage() {
           {isAdmin ? <AdminActions d={d} /> : null}
         </>
       )}
+    </>
+  )
+}
+
+const NOTICE_LIMIT = 500
+
+/** 일정별 공지 표시 + (관리자) 쓰기 · 수정 · 지우기 시트 */
+function NoticeBlock({ d, editable, onSaved }: { d: SessionDetail; editable: boolean; onSaved: () => void }) {
+  const { api } = useClub()
+  const { busy, run } = useAction()
+  const [open, setOpen] = useState(false)
+  const [text, setText] = useState('')
+  const start = () => {
+    setText(d.notice ?? '')
+    setOpen(true)
+  }
+  const close = () => {
+    if (!busy) setOpen(false)
+  }
+  const save = async (value: string) => {
+    if (busy) return
+    const done = await run(() => api.updateSession(d.sessionId, { notice: value }),
+      value.trim() ? '일정 공지를 저장했어요' : '일정 공지를 지웠어요')
+    if (done) {
+      setOpen(false)
+      onSaved()
+    }
+  }
+  if (!d.notice && !editable) return null
+  return (
+    <>
+      {d.notice ? (
+        <div className="session-notice-row">
+          <SessionNotice text={d.notice} />
+          {editable ? <button type="button" className="btn sm" onClick={start}>공지 수정</button> : null}
+        </div>
+      ) : (
+        <button type="button" className="btn block" style={{ borderStyle: 'dashed', color: 'var(--muted)', fontWeight: 500 }} onClick={start}>
+          + 일정 공지 쓰기
+        </button>
+      )}
+      <Sheet open={open} onClose={close} labelledBy="session-notice-title">
+        <div className="stack">
+          <h2 id="session-notice-title">일정 공지</h2>
+          <p className="small muted">
+            이 일정에만 보이는 공지예요(상단에 흐르는 상시 공지와 별개). 일정 화면과 메인 화면에서 팀 밸런스 안내 위에 표시돼요.
+          </p>
+          <textarea className="session-notice-input" aria-label="일정 공지 내용" maxLength={NOTICE_LIMIT} value={text} disabled={busy}
+            onChange={(e) => setText(e.target.value)} placeholder="예: 9시 50분까지 집합, 흰색 상의 지참" />
+          <p className="small muted" style={{ margin: 0, textAlign: 'right' }}>{text.length} / {NOTICE_LIMIT}자</p>
+          <div className="grid2">
+            {d.notice
+              ? <button type="button" className="btn danger" disabled={busy} onClick={() => { void save('') }}>공지 지우기</button>
+              : <button type="button" className="btn" disabled={busy} onClick={close}>취소</button>}
+            <button type="button" className="btn primary" disabled={busy || !text.trim() || text.trim() === (d.notice ?? '')}
+              onClick={() => { void save(text) }}>{busy ? '저장 중…' : '저장'}</button>
+          </div>
+        </div>
+      </Sheet>
     </>
   )
 }

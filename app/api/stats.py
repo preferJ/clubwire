@@ -40,7 +40,8 @@ def member_detail(member_id: int, top: int = Query(5, ge=1, le=20, description="
     return data
 
 
-@router.get("/stats/mvp-race", summary="이달의 MVP 후보 1~3위(실력 점수 상승률 %만, 점수 자체는 비공개) + 지난달 MVP(공개)")
+@router.get("/stats/mvp-race",
+            summary="이달의 MVP 후보 1~3위(basis=points: 월간 포인트 · 승점 · 배율, 점수 자체는 비공개) + 지난달 MVP(공개)")
 def mvp_race(club: Club = Depends(club_dep), db: Session = Depends(get_db)):
     return mvp_service.mvp_race(db, club)
 

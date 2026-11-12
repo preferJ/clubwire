@@ -29,8 +29,9 @@
 | 15 | `APPEARANCE_UPDATED_AT` | DATETIME(3) | Y |  | 엠블럼·기본 테마 수정 시각(UTC) |
 | 16 | `CREST_SIZE` | SMALLINT | Y |  | 탭 머리(메인 화면) 팀 마크 크기(px, 32~72). NULL이면 44 |
 | 17 | `ANNOUNCEMENT_SIZE` | VARCHAR(10) | Y |  | 상단 공지 크기(small/medium/large, 글자·높이). NULL이면 medium |
-| 18 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 19 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 18 | `ANNOUNCEMENT_STYLE` | VARCHAR(10) | Y |  | 상단 공지 스타일(default/highlight/accent/alert, 색·배경·글자 강조·흐름 효과). NULL이면 default |
+| 19 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 20 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 
@@ -139,8 +140,9 @@
 | 12 | `AWAY_YN` | BOOL | N |  | 원정 경기 일정 여부(1팀 편성 + 원정팀). 원정 기록은 개인 기록 · 실력 점수 · 타이틀 · MVP와 분리 집계 |
 | 13 | `OPPONENT_ID` | BIGINT | Y | FK→OPPONENT_TEAM | 원정팀(OPPONENT_TEAM). 원정 경기 일정만, 상대별 전적은 이 ID로 묶음 |
 | 14 | `OPPONENT_NAME` | VARCHAR(50) | Y |  | 원정팀 이름(표시용, 원정팀 목록 이름) |
-| 15 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
-| 16 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
+| 15 | `NOTICE` | VARCHAR(500) | Y |  | 일정별 공지(최대 500자, 줄바꿈 허용). 일정 화면·메인 팀 편성 카드에서 팀 밸런스 안내 위에 표시. NULL=없음 |
+| 16 | `UPDATED_AT` | DATETIME(3) | N |  | 수정 일시(UTC) |
+| 17 | `CREATED_AT` | DATETIME(3) | N |  | 생성 일시(UTC) |
 
 제약/인덱스
 

@@ -38,6 +38,8 @@ class Club(TimestampMixin, Base):
     crest_size: Mapped[int | None] = mapped_column("CREST_SIZE", SmallInteger)
     # 상단 공지 글자 · 높이(small/medium/large). NULL이면 medium
     announcement_size: Mapped[str | None] = mapped_column("ANNOUNCEMENT_SIZE", String(10))
+    # 상단 공지 스타일(default/highlight/accent/alert: 색 · 배경 · 글자 강조 · 흐름 효과). NULL이면 default
+    announcement_style: Mapped[str | None] = mapped_column("ANNOUNCEMENT_STYLE", String(10))
 
 
 class ClubAdmin(TimestampMixin, Base):

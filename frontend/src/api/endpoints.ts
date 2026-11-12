@@ -41,7 +41,7 @@ export const makeApi = (slug: string) => ({
     request<ClubAppearance>(slug, 'PATCH', '/admin/appearance', { body }),
   clubSummary: () => request<ClubSummary>(slug, 'GET', '/summary'),
   clubContent: () => request<ClubContent>(slug, 'GET', '/content'),
-  updateClubContent: (body: Partial<Pick<ClubContent, 'operatingRules' | 'announcement' | 'announcementSize'>>) =>
+  updateClubContent: (body: Partial<Pick<ClubContent, 'operatingRules' | 'announcement' | 'announcementSize' | 'announcementStyle'>>) =>
     request<ClubContent>(slug, 'PATCH', '/admin/content', { body }),
   adminAuth: (password: string) => request<AuthResponse>(slug, 'POST', '/admin/auth', { body: { password } }),
   changePin: (newPassword: string) => request<{ ok: boolean }>(slug, 'POST', '/admin/pin', { body: { newPassword } }),
@@ -65,9 +65,11 @@ export const makeApi = (slug: string) => ({
     request<SessionListItem[]>(slug, 'GET', '/sessions', { query: { limit, category } }),
   session: (id: number) => request<SessionDetail>(slug, 'GET', `/sessions/${id}`),
   sessionSummary: (id: number) => request<SessionSummary>(slug, 'GET', `/sessions/${id}/summary`),
-  createSession: (body: { sessionDate: string; title?: string; location?: string }) =>
+  /** notice = 일정별 공지(선택) */
+  createSession: (body: { sessionDate: string; title?: string; location?: string; notice?: string }) =>
     request<SessionDetail>(slug, 'POST', '/sessions', { body }),
-  updateSession: (id: number, body: { sessionDate?: string; title?: string; location?: string; opponentId?: number }) =>
+  /** notice: 보내면 바꿈(빈 문자열 = 지움), 안 보내면 그대로 */
+  updateSession: (id: number, body: { sessionDate?: string; title?: string; location?: string; opponentId?: number; notice?: string }) =>
     request<SessionDetail>(slug, 'PATCH', `/sessions/${id}`, { body }),
   deleteSession: (id: number) => request<SessionListItem>(slug, 'DELETE', `/sessions/${id}`),
   cancelSession: (id: number) => request<SessionListItem>(slug, 'POST', `/sessions/${id}/cancel`),

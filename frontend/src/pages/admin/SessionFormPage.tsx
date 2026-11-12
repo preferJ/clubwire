@@ -20,6 +20,7 @@ export function SessionFormPage() {
   const [date, setDate] = useState(nextSaturday())
   const [title, setTitle] = useState('')
   const [location, setLocation] = useState('')
+  const [notice, setNotice] = useState('')
   const [picked, setPicked] = useState<Set<number>>(new Set())
   const [guests, setGuests] = useState(0)
   const [q, setQ] = useState('')
@@ -30,6 +31,7 @@ export function SessionFormPage() {
     setDate(s.sessionDate)
     setTitle(s.title)
     setLocation(s.location ?? '')
+    setNotice(s.notice ?? '')
     setPicked(new Set(s.attendees.map((a) => a.memberId)))
     setGuests(s.guests.length)
   }, [existing.data])
@@ -46,10 +48,12 @@ export function SessionFormPage() {
     const ok = await run(async () => {
       let id = editId
       if (!id) {
-        const s = await api.createSession({ sessionDate: date, title: title.trim() || undefined, location: location.trim() || undefined })
+        const s = await api.createSession({ sessionDate: date, title: title.trim() || undefined, location: location.trim() || undefined,
+          notice: notice.trim() || undefined })
         id = s.sessionId
       } else {
-        await api.updateSession(id, { sessionDate: date, title: title.trim() || undefined, location: location.trim() || undefined })
+        await api.updateSession(id, { sessionDate: date, title: title.trim() || undefined, location: location.trim() || undefined,
+          notice })  // 비우고 저장하면 공지를 지운다
       }
       const before = new Set(existing.data?.attendees.map((a) => a.memberId) ?? [])
       const add = [...picked].filter((x) => !before.has(x))
@@ -77,6 +81,13 @@ export function SessionFormPage() {
           <label className="field">장소<input className="input" value={location} onChange={(e) => setLocation(e.target.value)} placeholder="장소" /></label>
         </div>
         <label className="field">제목<input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="비우면 '날짜 정기 경기'" /></label>
+        <label className="field">일정 공지 (선택)
+          <textarea className="session-notice-input" style={{ minHeight: 72 }} rows={2} maxLength={500} value={notice}
+            onChange={(e) => setNotice(e.target.value)} placeholder="예: 9시 50분까지 집합, 흰색 상의 지참" />
+        </label>
+        <p className="small muted" style={{ marginTop: -8 }}>
+          이 일정에만 보이는 공지예요. 일정 화면과 메인 화면에서 팀 밸런스 안내 위에 표시돼요. 나중에 일정 화면에서도 고칠 수 있어요.
+        </p>
 
         <section className="section">
           <div className="row between">

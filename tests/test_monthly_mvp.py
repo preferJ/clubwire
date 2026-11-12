@@ -1,7 +1,9 @@
-"""이달의 MVP: 그 달 실력 점수 상승률 1위 → 월 마감 때 타이틀 + 기사(바로 게시). 점수 자체는 어디에도 노출하지 않는다."""
+"""이달의 MVP(2026-10까지의 이전 방식): 그 달 실력 점수 상승률 1위 → 월 마감 때 타이틀 + 기사(바로 게시).
+점수 자체는 어디에도 노출하지 않는다. 2026-11부터의 월간 포인트제는 test_monthly_mvp_points.py."""
 import json
 from datetime import date
 
+import pytest
 from sqlalchemy import select
 
 from app.core.database import SessionLocal
@@ -9,6 +11,12 @@ from app.core.timeutil import local_today, month_range, prev_month_start
 from app.models import AiArticle, MemberTitle, TitleType
 from app.services import mvp_service
 from app.services.common import get_club_by_slug
+
+
+@pytest.fixture(autouse=True)
+def rise_rule(monkeypatch):
+    """이 파일은 시계와 상관없이 이전 방식(상승률)으로 고정한다."""
+    monkeypatch.setattr(mvp_service, "POINTS_FROM", date(2999, 1, 1))
 
 
 def _play_session(api, sid, member_ids, games=2):
@@ -120,6 +128,7 @@ def test_mvp_race_candidates_only_percent(make_club):
         club = get_club_by_slug(s, "race")
         race = mvp_service.mvp_race(s, club, today=month.replace(day=20))
     assert race["month"] == month.strftime("%Y-%m") and race["minSessions"] == 2 and race["lastMonth"] is None
+    assert race["basis"] == "rise"
     expected = _expected(api, ids, {m: (2 if m in ids[:5] else 1) for m in ids})
     top = sorted(expected.values(), reverse=True)[:3]
     assert [c["risePercent"] for c in race["candidates"]] == top
@@ -129,7 +138,7 @@ def test_mvp_race_candidates_only_percent(make_club):
 
     # 공개 API(이번 달 기준): 형태 확인
     live = api.ok(api.get("/stats/mvp-race", admin=False))
-    assert set(live) == {"month", "minSessions", "candidates", "lastMonth"}
+    assert set(live) == {"month", "minSessions", "basis", "candidates", "lastMonth"} and live["basis"] == "rise"
     assert "rating" not in json.dumps(live).lower()
 
     # 설정으로 자격 변경(1회 이상) → 1회 출전 선수도 후보

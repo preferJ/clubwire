@@ -1,17 +1,19 @@
 // S01 홈 · 와이어(E 시안: 매니저 게임형)
 // 클럽 바 → 요약 한 줄 → 확정 팀 편성 → LIVE → THE WIRE(기사: 헤드라인 + 목록)
 // → MVP 한 줄 → LAST MATCHDAY(맨 아래). 2026-10-23: 기사가 주인공이 되게 순서 · 크기 조정
+// 2026-11-12: 확정 팀 편성 카드 B 시안(초록 '팀 편성 완료' 띠 + 팀 색 카드) + 일정별 공지, MVP 포인트제 · 후보 자동 갱신
 
 import type { ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import type { Api } from '../api/endpoints'
-import type { Article, LiveMatch, MvpRace, SessionListItem, SessionSummary } from '../api/types'
+import type { Article, LiveMatch, MvpCandidate, MvpRace, SessionListItem, SessionSummary } from '../api/types'
 import { Icon } from '../components/Icon'
 import { AnnouncementTicker } from '../components/AnnouncementTicker'
 import { HomeFixture } from '../components/HomeFixture'
+import { SessionNotice } from '../components/SessionNotice'
 import { ClubBar, ErrorBox, Loading, TeamBadge } from '../components/ui'
 import { useClub, useClubEvent } from '../lib/club'
-import { ARTICLE_TYPE_LABEL, dday, fmtClock, fmtDate, fmtRise, fmtShortDate, fmtToday, SESSION_STATUS_LABEL, teamLabel, teamMark } from '../lib/format'
+import { ARTICLE_TYPE_LABEL, dday, fmtAwardValue, fmtClock, fmtDate, fmtPoints, fmtRise, fmtShortDate, fmtToday, SESSION_STATUS_LABEL, teamLabel, teamMark } from '../lib/format'
 import { useAsync, useMatchClock } from '../lib/hooks'
 import { readArticleIds } from '../lib/readStore'
 
@@ -30,7 +32,19 @@ export function HomePage() {
   const articles = useAsync(() => loadWireArticles(api, pickedIds), [api, pickedIds.join(',')])
 
   useClubEvent((m) => {
-    if (m.type === 'MATCH_UPDATED') live.reload()
+    if (m.type === 'MATCH_UPDATED') {
+      live.reload()
+      // 경기 확정 · 확정 해제(끝난 경기의 상태 변경) = 실력 점수 · 승점 변동 → 열려 있는 화면의 MVP 후보도 바로 갱신
+      if (m.match.status === 'FINISHED' || m.match.status === 'CANCELLED') race.reload()
+    }
+    if (m.type === 'RECONNECTED') {  // 화면을 켜 둔 채 연결이 끊겼다 다시 붙음 → 그동안 놓친 변경을 한 번에
+      live.reload()
+      sessions.reload()
+      summary.reload()
+      race.reload()
+      articles.reload()
+      content.reload()
+    }
     if (m.type === 'SESSION_UPDATED' || m.type === 'TEAMS_UPDATED') {
       sessions.reload()
       summary.reload()
@@ -66,7 +80,7 @@ export function HomePage() {
         </div>
       </ClubBar>
 
-      <AnnouncementTicker text={content.data?.announcement} size={content.data?.announcementSize} />
+      <AnnouncementTicker text={content.data?.announcement} size={content.data?.announcementSize} variant={content.data?.announcementStyle} />
 
       {/* 요약 줄: 누르면 해당 탭으로(멤버 → 선수단, 일정 → 일정, 기사 → 기록 탭 [기사]) */}
       <nav className="stat-ribbon" aria-label="클럽 요약">
@@ -181,6 +195,7 @@ function NextFixture({ s, slug, members, isAdmin }: { s: SessionListItem | null;
           </span>
           {total ? <span className="meter" aria-hidden="true"><span style={{ width: `${pct}%` }} /></span> : null}
         </span>
+        <SessionNotice text={s.notice} clamp />
       </Link>
     </section>
   )
@@ -328,29 +343,38 @@ function topicOf(a: Article): string | undefined {
   return a.tags.find((t) => !['마감', '프리뷰', '이달의 MVP'].includes(t))
 }
 
-/** MVP 띠: 전체 영역에서 기록 > 기사 > 이달의 MVP로 이동 */
+/**
+ * MVP 띠: 전체 영역에서 기록 > 기사 > 이달의 MVP로 이동.
+ * 2026-11부터 포인트제(basis = points): 후보마다 최종 포인트(월간 승점 × 실력 점수 배율). 그 전 달은 상승률(%)
+ */
 function MvpStrip({ slug, race }: { slug: string; race?: MvpRace | null }) {
   if (!race) return null
   const month = Number(race.month.slice(5, 7))
   const last = race.lastMonth
-  const rule = `이번 달 일정 ${race.minSessions}회 이상 나온 선수 중 실력 점수 상승률 순, 다음 달 1일 확정`
+  const byPoints = race.basis === 'points'
+  const value = (c: MvpCandidate) => (byPoints ? fmtPoints(c.points) : fmtRise(c.risePercent))
+  const detail = (c: MvpCandidate) => (byPoints ? ` 승점 ${c.winPoints} (${c.wins}승 ${c.draws}무 ${c.losses}패)` : '')
+  const rule = byPoints
+    ? `이번 달 일정 ${race.minSessions}회 이상 나온 선수 중 월간 승점(승 3 · 무 1, 원정 제외) × 실력 점수 배율 순, 다음 달 1일 확정`
+    : `이번 달 일정 ${race.minSessions}회 이상 나온 선수 중 실력 점수 상승률 순, 다음 달 1일 확정`
   return (
     <Link to={`/c/${slug}/records?${new URLSearchParams({ tab: 'articles', tag: '이달의 MVP' })}`}
       className="mvp-strip" aria-label={`${month}월 MVP 후보 · 기록 · 기사 · 이달의 MVP 보기`} title={rule}>
       <div className="mvp-strip-row">
         <span className="lbl">MVP<small>{month}월</small></span>
         {race.candidates.length ? race.candidates.map((c) => (
-          <span key={c.memberId} className="mvp-candidate" aria-label={`${c.rank}위 ${c.name} ${fmtRise(c.risePercent)}`}>
-            <span className={`rk r${c.rank}`}>{c.rank}</span>{c.name}<span className="up">{fmtRise(c.risePercent)}</span>
+          <span key={c.memberId} className="mvp-candidate" aria-label={`${c.rank}위 ${c.name} ${value(c)}${detail(c)}`}
+            title={byPoints ? `승점 ${c.winPoints} × ${c.ratio?.toFixed(4)}` : undefined}>
+            <span className={`rk r${c.rank}`}>{c.rank}</span>{c.name}<span className="up">{value(c)}</span>
           </span>
         )) : last ? (
           <span className="mvp-candidate">
             후보 아직 없음 · {Number(last.month.slice(5, 7))}월 MVP {last.winners.map((w) => w.name).join(' · ')}
-            <span className="up">{fmtRise(last.winners[0]?.risePercent)}</span>
+            <span className="up">{fmtAwardValue(last.winners[0])}</span>
           </span>
         ) : <span className="muted">후보 아직 없음</span>}
       </div>
-      <small className="mvp-rule">MVP선정기준 : 매월 실력지표 상승폭 순위</small>
+      <small className="mvp-rule">{byPoints ? 'MVP선정기준 : 월간 승점(승 3 · 무 1) × 실력지표 변화 배율' : 'MVP선정기준 : 매월 실력지표 상승폭 순위'}</small>
     </Link>
   )
 }

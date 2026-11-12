@@ -49,6 +49,7 @@ class SessionCreate(CamelModel):
     session_date: date
     title: str | None = Field(default=None, max_length=100)
     location: str | None = Field(default=None, max_length=200)
+    notice: str | None = Field(default=None, max_length=500, description="일정별 공지(줄바꿈 허용). 비우면 없음")
 
 
 class SessionUpdate(CamelModel):
@@ -56,6 +57,8 @@ class SessionUpdate(CamelModel):
     title: str | None = Field(default=None, max_length=100)
     location: str | None = Field(default=None, max_length=200)
     opponent_id: int | None = Field(default=None, description="원정팀 바꾸기(원정 경기 일정만, 원정팀 목록에서)")
+    notice: str | None = Field(default=None, max_length=500,
+                               description="일정별 공지(줄바꿈 허용). 빈 문자열 또는 null을 보내면 지움, 생략하면 유지")
 
 
 class AttendeesAdd(CamelModel):
@@ -176,3 +179,5 @@ class ClubContentUpdate(CamelModel):
         default=None, description="와이어 상단 한 줄 공지. 빈 문자열 또는 null로 숨김, 생략하면 유지")
     announcement_size: Literal["small", "medium", "large"] | None = Field(
         default=None, description="상단 공지 글자 · 높이. null이면 기본(medium), 생략하면 유지")
+    announcement_style: Literal["default", "highlight", "accent", "alert"] | None = Field(
+        default=None, description="상단 공지 스타일(기본 · 강조 · 클럽 색 · 긴급). null이면 기본(default), 생략하면 유지")

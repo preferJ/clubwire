@@ -313,6 +313,9 @@ SELECT NAME, JOINED_AT, BIRTH_YEAR FROM MEMBER
 
 ## 3-9. 이달의 MVP = 그 달 실력 점수 상승률 1위 (2026-10-23)
 
+> **2026-11부터는 월간 포인트제(3-18)로 바뀌었다.** 아래 상승률 방식은 2026-10까지의 달에만 쓴다(아직 마감하지 않은 지난 달이 있을 때).
+> 월 마감 시점 · 한 번만 · 바로 게시 · 점수 비공개 원칙은 그대로다.
+
 운영진이 고르는 MVP는 없다(주간 수동 MVP는 3-7에서 제거). MVP는 **이달의 MVP** 하나이고 자동으로 뽑는다.
 
 | 항목 | 결정 | 이유 |
@@ -475,6 +478,54 @@ DELETE MT FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_T
 - alembic **0014**: 새 테이블 `OPPONENT_TEAM`, `SESSION.AWAY_YN`(기존 일정 = 0) · `OPPONENT_ID` · `OPPONENT_NAME`, `SESSION_TEAM.OPPONENT_YN`(기존 = 0), `TEAM_CODE` 설명. 업그레이드 · 다운그레이드 확인
 - API: `GET /opponents`(공개, `includeHidden=true` = 숨긴 팀 + 일정 수 🔑) · `POST /opponents` 🔑([직접추가], 같은 이름이면 기존 팀 200) · `PATCH /opponents/{id}` 🔑(`name` · `active`), `GET /stats/away/opponents/{id}`, `POST /sessions/{id}/teams/generate` `teamCount` 1~6 + `opponentId`, `POST /sessions/{id}/matches/next` `memberIds`, next-suggestion `away` · `roster` · `lineupMemberIds`, 팀 · 경기 응답에 `opponent` · `displayName`, `GET /stats/away`
 - 테스트 `tests/test_away_matches.py`
+
+## 3-18. 이달의 MVP 월간 포인트제 (2026-11-12, 11월 집계부터)
+
+실력 점수 상승률만 보던 방식(3-9)을 **월간 승점과 실력 점수 변화를 함께 보는 포인트제**로 바꿨다.
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 최종 포인트 | **월간 승점 × 실력 점수 배율**. 예: 10승(30점), 점수 1,000 → 1,010이면 30 × 1.01 = **30.3** | 요청(상승률 자체가 아니라 상승 배율을 곱함) |
+| 월간 승점 | 그 달 확정 경기 **승 3 · 무 1 · 패 0**. **원정 경기는 제외**(원정은 실력 점수 이력도 없다, 3-17) | 요청 |
+| 배율 | 그 달 마지막 경기 후 점수 ÷ 그 달 첫 경기 전 점수, **소수 넷째 자리** 반올림. 점수가 내려간 달은 1보다 작아 포인트가 깎인다 | 월초 · 월말 = 그 달 첫 경기 전 · 마지막 경기 후(3-9와 같은 이력 기준) |
+| 자릿수 | 포인트는 **소수 둘째 자리**(반올림, 0.5는 올림). 화면에 보이는 승점 × 배율로 다시 계산해도 같은 값이 나오게 반올림한 배율로 곱한다 | 답변(소수 둘째 자리). 승점이 같아도 점수 변화로 순위가 갈림 |
+| 후보 자격 | 그 달 출전 일정 **`MONTHLY_MVP_MIN_SESSIONS`회 이상**(기본 2, 설정 화면에서 변경) + **승점 1점 이상**. 삭제한 선수 제외 | 답변(기존 출전 조건 유지). 상승률 > 0 조건은 없앰(점수가 내려가도 승점이 많으면 후보) |
+| 동점 | 포인트가 같으면 ① **MVP 수상 횟수가 적은 선수**(그 달 이전, 선수 화면 MVP 수와 같은 기준) → ② **그 달 득점** → ③ **그 달 도움** → ④ **나이가 어린 선수**(출생연도) → ⑤ **공동 수상** | 요청 |
+| 나이 비교 | 동점자 중 **한 명이라도 출생연도가 비어 있거나 출생연도가 같으면** 나이로 가리지 않고 공동 수상 | 답변(비교 생략). 출생연도는 선수 정보(관리자 입력) |
+| 적용 시작 | **2026-11 집계부터**(`mvp_service.POINTS_FROM`). 이미 발표한 MVP는 다시 계산하지 않고, 아직 마감하지 않은 10월 이전 달은 이전 상승률 방식 그대로 | 답변(11월부터) |
+| 운영 주기 | 매월 1일~말일 집계, 다음 달 초(그 달 일정이 모두 마감/취소된 뒤) 선정. 한 달에 한 번, 1명 원칙(끝까지 같으면 공동) | 요청. 월 마감 방식은 3-9 그대로 |
+| 타이틀 | `MEMBER_TITLE.FACTS_JSON = {metric: mvpPoints, value(포인트), winPoints, ratio, wins, draws, losses, goals, assists, sessions, games, tied}`. 수상 내역 · 선수 화면에 '11월 · 30.3P'(이전 달은 '+4.4%' 그대로) | |
+| 기사 | `MONTHLY_MVP` 입력에 `basis: points` + 포인트 · 승점 · 배율 · 성적 · **승점을 가장 많이 쌓은 날** · 동점이면 무엇으로 갈렸는지(`tiebreak`) · 2·3위 · 선정 기준. 프롬프트 v10, 기본형 기사도 포인트제 문장 | |
+| 홈 | MVP 띠: 후보 1~3위 이름 + 포인트(`30.3P`), 기준 문구 '월간 승점(승 3 · 무 1) × 실력지표 변화 배율' | |
+| 공개 범위 | 화면 · API · 기사 · AI 입력 모두 **포인트 · 승점 · 배율만**. 점수 자체는 계속 DB에서만 | 3-6 유지 |
+| 시즌제 | 미정(이번 범위 아님) | 요청 |
+
+- API: `GET /stats/mvp-race` → `{month, minSessions, basis: points|rise, candidates[{rank, memberId, name, points, winPoints, ratio, wins, draws, losses, sessions, games}], lastMonth{month, articleId, winners[{memberId, name, metric, value}]}}`
+- 코드: `app/services/mvp_service.py`(`month_points` · `rank_points` · `tiebreak_info` · `monthly_points_facts`), `template_writer._monthly_mvp_points`, `writer.py` 프롬프트 v10
+- DB 변경 없음. 테스트 `tests/test_monthly_mvp_points.py`(포인트 계산 · 동점 순서 · 월 마감 · 기사 · 점수 비노출), 이전 방식은 `tests/test_monthly_mvp.py`
+
+```sql
+-- 이달의 MVP 이력(포인트제는 POINTS, 이전 달은 RISE_PCT)
+SELECT MT.PERIOD_START, M.NAME, JSON_EXTRACT(MT.FACTS_JSON, '$.metric') AS METRIC, JSON_EXTRACT(MT.FACTS_JSON, '$.value') AS VALUE,
+       JSON_EXTRACT(MT.FACTS_JSON, '$.winPoints') AS WIN_POINTS, JSON_EXTRACT(MT.FACTS_JSON, '$.ratio') AS RATIO
+  FROM MEMBER_TITLE MT JOIN TITLE_TYPE T ON T.TITLE_TYPE_ID = MT.TITLE_TYPE_ID JOIN MEMBER M ON M.MEMBER_ID = MT.MEMBER_ID
+ WHERE T.TITLE_CODE = 'MONTHLY_MVP' ORDER BY MT.PERIOD_START DESC;
+```
+
+## 3-19. 일정별 공지 · 상시 공지 스타일 · 메인 팀 편성 카드 · MVP 후보 자동 갱신 (2026-11-12)
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 일정별 공지 | 일정마다 공지 하나(`SESSION.NOTICE`, 최대 500자, 줄바꿈 가능). 상단에 흐르는 상시 공지와 별개. **일정 화면의 팀 밸런스 안내 위**와 **메인 화면**(팀 편성 카드 · 다음 일정 패널, 3줄까지)에 표시 | 요청 · 답변(메인 + 일정 화면) |
+| 공지 입력 | 관리자: 새 일정 · 참석자 수정 화면의 '일정 공지', 일정 화면의 [+ 일정 공지 쓰기] / [공지 수정] 시트(저장 · 지우기). 마감 · 취소 · 삭제한 일정은 수정 불가(지난 공지는 남는다) | 팀 확정 뒤 안내가 가장 많이 쓰여 일정 화면에서 바로 고치게 |
+| 상시 공지 스타일 | 관리자 메뉴 → 운영 수칙 · 공지 → **공지 스타일** 4가지: 기본 / 강조(연한 클럽 색 바탕 + 굵은 글씨) / 클럽 색(진한 바탕 + 흰 글씨) / 긴급(노란 바탕 + 깜박이는 점 + 빠른 흐름). 크기 3단계와 따로 고르고 미리보기로 확인. `CLUB.ANNOUNCEMENT_STYLE`(NULL = 기본) | 요청(색 · 배경 · 글자 강조 · 흐름 효과) · 답변(관리자가 스타일 선택) |
+| 메인 팀 편성 카드 | PR #15의 확정 편성 카드를 **B 시안**으로: 맨 위 초록 띠 '✓ 팀 편성 완료' + D-day(진행 중이면 표시), 팀마다 조끼 색 머리 + 세로 명단(전원), 일정 공지, 밸런스 문구, [팀 편성 자세히 보기] | 요청(편성 완료가 직관적으로 보이게) · 시안 4개 중 선택 |
+| MVP 후보 자동 갱신 | 열려 있는 메인 화면: ① 경기 **확정 · 확정 해제** 알림(`MATCH_UPDATED`, 끝난 경기)에서 후보를 다시 불러온다(전에는 일정 마감 때만) ② 연결이 끊겼다 다시 붙으면(`RECONNECTED`, 화면을 켜 둔 채 잠들었다 깬 경우) 일정 · 요약 · 후보 · 기사 · 공지를 한 번에 다시 불러온다 | 요청(경기 결과 확정 후 열려 있는 화면에도 반영) |
+| 그대로 두는 것 | 팀 로고 · 삭제한 일정 관리(관리자에게만 표시) · 선수 삭제/복원 | 요청(현행 유지) |
+
+- alembic **0015**: `SESSION.NOTICE`, `CLUB.ANNOUNCEMENT_STYLE` 추가(둘 다 NULL 허용, 기존 데이터 그대로). 업그레이드 · 다운그레이드 확인
+- API: `POST /sessions` · `PATCH /sessions/{id}`에 `notice`(빈 문자열/null = 지움, 생략 = 유지), 일정 목록 · 상세 응답에 `notice`, `GET /content` · `PATCH /admin/content`에 `announcementStyle`
+- 테스트 `tests/test_session_notice_announcement_style.py`
 
 ## 4. 남은 이슈 / 다음 단계
 

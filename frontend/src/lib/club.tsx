@@ -66,6 +66,7 @@ export function ClubProvider({ slug, children }: { slug: string; children: React
     let timer: number | undefined
     let ping: number | undefined
     let closed = false
+    let opened = false  // 한 번이라도 붙은 적이 있는가(그 뒤의 연결 = 재접속)
 
     const connect = () => {
       const proto = window.location.protocol === 'https:' ? 'wss' : 'ws'
@@ -73,6 +74,9 @@ export function ClubProvider({ slug, children }: { slug: string; children: React
       ws.onopen = () => {
         retry = 0
         setConnected(true)
+        // 재접속: 끊긴 동안의 변경(일정 · 경기 확정 · MVP 후보 등)을 화면이 다시 불러오게 알린다
+        if (opened) listeners.current.forEach((fn) => fn({ type: 'RECONNECTED' }))
+        opened = true
         ping = window.setInterval(() => ws?.readyState === WebSocket.OPEN && ws.send('ping'), 25000)
       }
       ws.onmessage = (ev) => {

@@ -323,6 +323,16 @@ table.data td { font-variant-numeric: tabular-nums; }
 .notice.green { background: var(--green-soft); color: var(--green-dark); }
 .notice.warn { background: var(--warn-soft); color: var(--warn-ink); }
 .notice.gray { background: var(--card); border: 1px solid var(--line); color: var(--ink-3); }
+/* 일정별 공지(일정 화면 · 메인 팀 편성 카드: 팀 밸런스 안내 위) */
+.session-notice { display: flex; align-items: baseline; gap: 8px; margin: 0; padding: 8px 10px; border-radius: 8px; border-left: 3px solid var(--accent); background: var(--soft); color: var(--ink); font-size: 13px; line-height: 1.55; }
+.session-notice b { flex: none; color: var(--accent-ink); font-size: 11px; font-weight: 800; letter-spacing: .04em; }
+.session-notice span { min-width: 0; white-space: pre-line; overflow-wrap: anywhere; }
+.session-notice.clamp span { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
+.session-notice-row { display: flex; align-items: stretch; gap: 6px; }
+.session-notice-row .session-notice { flex: 1; min-width: 0; font-size: 14px; padding: 10px 12px; }
+.session-notice-row .btn { flex: none; align-self: center; }
+.session-notice-input { display: block; width: 100%; min-height: 110px; padding: 12px; resize: vertical; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--night-2); color: var(--ink); font-size: 14px; line-height: 1.6; }
+.session-notice-input:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
 .toast-wrap { position: fixed; left: 50%; transform: translateX(-50%); top: calc(10px + env(safe-area-inset-top)); z-index: 80; width: calc(100% - 32px); max-width: 488px; display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
 .toast { padding: 12px 14px; border-radius: 12px; background: var(--toast-bg); border: 1px solid var(--line-strong); color: var(--toast-ink); font-size: 14px; box-shadow: var(--toast-shadow); }
 .toast.error { background: var(--toast-error-bg); color: var(--toast-error-ink); }

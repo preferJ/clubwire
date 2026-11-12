@@ -95,10 +95,17 @@ export function fmtAwardPeriod(a: { titleCode: string; periodStart: string; peri
   return `${fmtShortDate(a.periodStart)}–${fmtShortDate(a.periodEnd)}`
 }
 
-/** 타이틀 수상 값: 득점왕 '3골', 도움왕 '2도움', 이달의 MVP '+4.2%' (+ 공동). 연속 참가는 이름에 횟수가 있어 빈 값 */
-export function fmtAwardValue(facts: { metric?: string; value?: number; tied?: boolean } | null | undefined): string {
+/** MVP 포인트 표시: 30.3 → '30.3P', 22.27 → '22.27P' (소수 둘째 자리까지, 끝의 0은 뺌) */
+export function fmtPoints(v: number | null | undefined): string {
+  if (v === null || v === undefined) return ''
+  return `${Number(v.toFixed(2))}P`
+}
+
+/** 타이틀 수상 값: 득점왕 '3골', 도움왕 '2도움', 이달의 MVP '30.3P'(2026-10까지는 '+4.2%') (+ 공동). 연속 참가는 이름에 횟수가 있어 빈 값 */
+export function fmtAwardValue(facts: { metric?: string; value?: number | null; tied?: boolean } | null | undefined): string {
   if (!facts || facts.value === undefined || facts.value === null || facts.metric === 'attendStreak') return ''
   const v = facts.metric === 'risePercent' ? fmtRise(facts.value)
+    : facts.metric === 'mvpPoints' ? fmtPoints(facts.value)
     : `${facts.value}${facts.metric === 'assists' ? '도움' : facts.metric === 'wins' ? '승' : '골'}`
   return `${v}${facts.tied ? ' · 공동' : ''}`
 }

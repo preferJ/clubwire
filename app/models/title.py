@@ -12,7 +12,7 @@ class TitleType(TimestampMixin, Base):
 
     AWARD_METHOD=MANUAL : 관리자가 수여
     AWARD_METHOD=AUTO   : 주간 타이틀은 [일정마감] 시 AUTO_RULE로 자동 집계(주 단위 재계산),
-                          이달의 MVP(MONTHLY)는 월 마감 때 실력 점수 상승률 1위(app/services/mvp_service.py)
+                          이달의 MVP(MONTHLY)는 월 마감 때 월간 포인트(승점 × 실력 점수 배율) 1위(app/services/mvp_service.py)
     """
 
     __tablename__ = "TITLE_TYPE"

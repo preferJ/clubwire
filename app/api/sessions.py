@@ -39,10 +39,10 @@ def list_sessions(limit: int = Query(30, ge=1, le=100), before: date | None = No
             session_service.list_sessions(db, club.club_id, limit, before, category)]
 
 
-@router.post("", status_code=201, summary="일정 생성")
+@router.post("", status_code=201, summary="일정 생성(일정별 공지 notice 포함 가능)")
 def create_session(body: SessionCreate, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
                    db: Session = Depends(get_db)):
-    s = session_service.create_session(db, club.club_id, body.session_date, body.title, body.location)
+    s = session_service.create_session(db, club.club_id, body.session_date, body.title, body.location, body.notice)
     return session_service.serialize_session(db, s, detail=True, admin=True)
 
 
@@ -53,11 +53,14 @@ def get_session_detail(session_id: int, club: Club = Depends(club_dep),
     return session_service.serialize_session(db, s, detail=True, admin=admin is not None)
 
 
-@router.patch("/{session_id}", summary="일정 수정")
+@router.patch("/{session_id}", summary="일정 수정(날짜 · 이름 · 장소 · 일정별 공지 · 원정팀). 공지는 빈 문자열/null이면 지움, 생략하면 유지")
 def update_session(session_id: int, body: SessionUpdate, club: Club = Depends(club_dep),
                    admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
-    s = session_service.update_session(db, club.club_id, session_id, session_date=body.session_date,
-                                       title=body.title, location=body.location, opponent_id=body.opponent_id)
+    fields = {"session_date": body.session_date, "title": body.title, "location": body.location,
+              "opponent_id": body.opponent_id}
+    if "notice" in body.model_fields_set:  # 일정별 공지는 보낸 경우만(빈 문자열 · null = 지움)
+        fields["notice"] = body.notice
+    s = session_service.update_session(db, club.club_id, session_id, **fields)
     return session_service.serialize_session(db, s, detail=True, admin=True)
 
 

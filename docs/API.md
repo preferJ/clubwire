@@ -25,10 +25,10 @@
 | 🔑 | POST | `/opponents` | 원정팀 [직접추가](같은 이름이 있으면 그 팀을 200으로 돌려줌, 공백 · 대소문자 무시) |
 | 🔑 | PATCH | `/opponents/{opponent_id}` | [원정팀 관리] 이름 수정(지난 원정 일정 표시도 새 이름으로) · 숨기기(active=false, 지난 전적 유지) · 복원 |
 | 🔓 | GET | `/sessions` | 일정 목록(관리자: 예정/완료/삭제 구분) |
-| 🔑 | POST | `/sessions` | 일정 생성 |
+| 🔑 | POST | `/sessions` | 일정 생성(일정별 공지 notice 포함 가능) |
 | 🔑 | DELETE | `/sessions/{session_id}` | 일정 삭제(관리자 보관함으로 이동, 완료 기록 보존) |
 | 🔓 | GET | `/sessions/{session_id}` | 일정 상세(참석자/팀/경기) — 공개, 관리자는 팀 전력 Snapshot 포함 |
-| 🔑 | PATCH | `/sessions/{session_id}` | 일정 수정 |
+| 🔑 | PATCH | `/sessions/{session_id}` | 일정 수정(날짜 · 이름 · 장소 · 일정별 공지 · 원정팀). 공지는 빈 문자열/null이면 지움, 생략하면 유지 |
 | 🔑 | POST | `/sessions/{session_id}/cancel` | 일정 취소(경기 시작 전만) |
 | 🔑 | POST | `/sessions/{session_id}/close` | [일정마감] 수정 잠금 → 자동 타이틀/통계/마감 기사 |
 | 🔑 | POST | `/sessions/{session_id}/guests` | 게스트 추가(인원수에만 포함) |
@@ -62,7 +62,7 @@
 | 🔓 | GET | `/stats/away/opponents/{opponent_id}` | 원정 상대별 상세(공개): 그 팀과의 원정 일정 · 경기 점수 + 그 팀 상대 우리 선수 골 · 도움 기록(숨긴 팀도) |
 | 🔓 | GET | `/stats/members` | 개인 통계 목록(공개) |
 | 🔓 | GET | `/stats/members/{member_id}` | 개인 상세 통계: 최근 폼, 자주 같은 팀, 자주 만난 상대(공개) |
-| 🔓 | GET | `/stats/mvp-race` | 이달의 MVP 후보 1~3위(실력 점수 상승률 %만, 점수 자체는 비공개) + 지난달 MVP(공개) |
+| 🔓 | GET | `/stats/mvp-race` | 이달의 MVP 후보 1~3위(basis=points: 월간 포인트 · 승점 · 배율, 점수 자체는 비공개) + 지난달 MVP(공개) |
 | 🔓 | GET | `/stats/pairs` | 두 선수 관계(같이 뛴 기록 / 상대 전적, 공개) |
 | 🔓 | GET | `/titles/awards` | 타이틀 수여 이력(공개) |
 | 🔑 | POST | `/titles/awards` | 타이틀 수여(수동 타이틀. 기본 타이틀은 모두 자동 집계) |

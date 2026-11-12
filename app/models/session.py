@@ -40,6 +40,8 @@ class ClubSession(TimestampMixin, Base):
     away_yn: Mapped[bool] = mapped_column("AWAY_YN", Boolean, nullable=False, default=False)
     opponent_id: Mapped[int | None] = mapped_column("OPPONENT_ID", ForeignKey("OPPONENT_TEAM.OPPONENT_ID"))
     opponent_name: Mapped[str | None] = mapped_column("OPPONENT_NAME", String(50))  # 표시용(원정팀 목록 이름)
+    # 일정별 공지(상시 공지와 별개). 일정 화면 · 메인 팀 편성 카드에서 팀 밸런스 안내 위에 표시
+    notice: Mapped[str | None] = mapped_column("NOTICE", String(500))
 
 
 class SessionMember(TimestampMixin, Base):

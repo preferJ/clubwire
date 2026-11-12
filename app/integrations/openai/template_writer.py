@@ -523,9 +523,73 @@ class TemplateArticleWriter:
 
     RESULT = {"W": "승리", "D": "무승부", "L": "패배"}
 
-    def _monthly_mvp(self, payload: dict[str, Any]):
-        """이달의 MVP 발표: 상승률 · 한 달 성적 · 특히 많이 오른 경기 · 가장 크게 오른 날 · 2·3위 · 선정 기준."""
+    @staticmethod
+    def _pt(value: float) -> str:
+        """포인트 표기: 소수 둘째 자리까지, 끝의 0은 뺀다(30.30 → 30.3)."""
+        return f"{value:.2f}".rstrip("0").rstrip(".")
+
+    def _monthly_mvp_points(self, payload: dict[str, Any]):
+        """이달의 MVP 발표(포인트제): 최종 포인트 · 한 달 성적 · 승점 × 배율 · 승점을 가장 많이 쌓은 날 · 동점 기준 · 2·3위 · 선정 기준."""
         mvp = payload.get("monthlyMvp") or {}
+        month = payload.get("monthLabel") or ""
+        winners = mvp.get("winners") or []
+        w = winners[0]
+        names = names_ko([x["name"] for x in winners])
+        tied = len(winners) > 1
+        title = f"{month} 이달의 MVP, {names}" + (" 공동 수상" if tied else "")
+        summary = (f"{j(names, '이', '가')} 월간 포인트 {self._pt(w['points'])}점으로 "
+                   f"{month} MVP{'를 함께 차지했다' if tied else '에 올랐다'}.")
+        paras = []
+        for x in winners:
+            rec = f"{x['wins']}승 {x['draws']}무 {x['losses']}패"
+            gl = [f"{x['goals']}골"] if x["goals"] else []
+            gl += [f"{x['assists']}도움"] if x["assists"] else []
+            paras.append(f"{j(x['name'], '은', '는')} {month} {x['sessions']}번의 일정, {x['games']}경기에 나서 {rec}"
+                         + (f", {' '.join(gl)}" + josa_only(gl[-1], "을", "를") + " 기록했다." if gl else "를 기록했다.")
+                         + f" 승점은 {x['winPoints']}점이고, 여기에 실력 점수 배율(×{x['ratio']:.4f})을 곱한 "
+                           f"최종 포인트는 {self._pt(x['points'])}점이다.")
+            day = x.get("bestDay")
+            if day and day.get("winPoints"):
+                dd = date.fromisoformat(day["sessionDate"])
+                pts = [f"{day['goals']}골"] if day["goals"] else []
+                pts += [f"{day['assists']}도움"] if day["assists"] else []
+                paras.append(f"승점을 가장 많이 쌓은 날은 {dd.month}월 {dd.day}일이다. 이날 {day['games']}경기에서 "
+                             f"{day['wins']}승 {day['draws']}무 {day['losses']}패"
+                             + (f", {' '.join(pts)}" if pts else "") + josa_only(pts[-1] if pts else "패", "으로", "로")
+                             + f" 승점 {day['winPoints']}점을 더했다.")
+        tb = mvp.get("tiebreak")
+        if tb:
+            head = f"최종 포인트가 같은 선수가 {tb['tiedCount']}명이었고, "
+            if not tb.get("joint"):
+                paras.append(head + f"{tb['decidedByLabel']}를 우선하는 기준에 따라 {j(names, '이', '가')} 선정됐다.")
+            elif tb.get("decidedByLabel"):
+                paras.append(head + f"{tb['decidedByLabel']}를 우선하는 기준을 적용한 뒤에도 {j(names, '이', '가')} "
+                                    "끝까지 같아 공동 수상으로 정했다.")
+            else:
+                paras.append(head + "동점 기준(MVP 수상 횟수 · 득점 · 도움 · 나이)까지 모두 같아 공동 수상으로 정했다.")
+        runners = mvp.get("runnersUp") or []
+        if runners:
+            seq = [f"{r['rank']}위 {r['name']}({self._pt(r['points'])}점)" for r in runners]
+            paras.append("뒤를 이어 " + ", ".join(seq) + josa_only(runners[-1]["name"], "이", "가")
+                         + " 이름을 올렸다.")
+        titles = [x for x in mvp.get("monthlyTitles") or [] if x.get("names")]
+        if titles:
+            unit = {"goals": "골", "assists": "도움"}
+            parts = [f"{x['titleName'].replace('이달의 ', '')}{josa_only(x['titleName'], '은', '는')} "
+                     f"{names_ko(x['names'])}({x['value']}{unit.get(x.get('metric'), '')}{', 공동' if len(x['names']) > 1 else ''})"
+                     for x in titles]
+            paras.append(f"{month} " + ", ".join(parts) + "이다.")
+        if mvp.get("rule"):
+            paras.append(f"선정 기준은 {mvp['rule']}다.")
+        raw = {"title": title[:120], "summary": summary[:300], "body": "\n\n".join(paras), "usedInsightIds": []}
+        return validate_draft(raw, payload), raw
+
+    def _monthly_mvp(self, payload: dict[str, Any]):
+        """이달의 MVP 발표: 상승률 · 한 달 성적 · 특히 많이 오른 경기 · 가장 크게 오른 날 · 2·3위 · 선정 기준.
+        2026-11부터는 포인트제(basis = points) → _monthly_mvp_points."""
+        mvp = payload.get("monthlyMvp") or {}
+        if mvp.get("basis") == "points":
+            return self._monthly_mvp_points(payload)
         month = payload.get("monthLabel") or ""
         winners = mvp.get("winners") or []
         w = winners[0]

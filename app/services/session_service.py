@@ -24,10 +24,21 @@ from app.strategies.team_generation import balance_label, spread_percent
 
 
 # ------------------------------------------------------------------ 일정
-def create_session(db: Session, club_id: int, session_date: date, title: str | None, location: str | None) -> ClubSession:
+def clean_notice(text: str | None) -> str | None:
+    """일정별 공지: 앞뒤 공백 · 줄 끝 공백을 지우고 빈 줄은 하나로. 비어 있으면 None(공지 없음)."""
+    lines = [" ".join(line.split()) for line in (text or "").replace("\r", "").split("\n")]
+    out: list[str] = []
+    for line in lines:
+        if line or (out and out[-1]):
+            out.append(line)
+    return "\n".join(out).strip() or None
+
+
+def create_session(db: Session, club_id: int, session_date: date, title: str | None, location: str | None,
+                   notice: str | None = None) -> ClubSession:
     guard_after_closed(db, club_id, (session_date, 2**63))  # 새 일정 ID는 항상 기존보다 크다
     s = ClubSession(club_id=club_id, session_date=session_date,
-                    title=title or "정기 경기", location=location,
+                    title=title or "정기 경기", location=location, notice=clean_notice(notice),
                     status=SessionStatus.OPEN)
     db.add(s)
     db.flush()
@@ -47,6 +58,8 @@ def update_session(db: Session, club_id: int, session_id: int, **fields) -> Club
     for k in ("title", "location"):
         if fields.get(k) is not None:
             setattr(s, k, fields[k])
+    if "notice" in fields:  # 일정별 공지: 보낸 경우만 바꾼다(빈 값 = 지움)
+        s.notice = clean_notice(fields["notice"])
     if fields.get("opponent_id") is not None:  # 원정팀 바꾸기(원정 경기 일정만, 원정팀 목록에서)
         if not s.away_yn:
             raise BadRequest("원정 경기 일정에서만 원정팀을 바꿀 수 있습니다.", "NOT_AWAY_SESSION")
@@ -220,6 +233,7 @@ def serialize_session(db: Session, s: ClubSession, *, detail: bool = False, admi
         "status": s.status, "teamCount": s.team_count, "deletedAt": to_iso(s.deleted_at),
         "confirmedAt": to_iso(s.confirmed_at), "closedAt": to_iso(s.closed_at),
         "away": s.away_yn, "opponentId": s.opponent_id, "opponentName": s.opponent_name,  # 원정 경기 일정(우리 팀 vs 원정팀)
+        "notice": s.notice,  # 일정별 공지(없으면 null)
     }
     if not detail:
         data["attendeeCount"] = db.scalar(select(func.count()).select_from(SessionMember).where(

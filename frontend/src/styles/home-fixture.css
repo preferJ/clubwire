@@ -1,21 +1,24 @@
-/* 기존 와이어 패널/팀 배지를 쓰는 작은 확정 편성 카드. 이름을 줄바꿈해 전원을 표시한다. */
-.home-fixture { border-top: 2px solid var(--green); }
-.home-fixture-head { flex-wrap: wrap; padding: 7px 10px; }
-.home-fixture-head .tag { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; }
+/* 메인 화면 확정 팀 편성 카드(2026-11 B 시안): 초록 '팀 편성 완료' 띠 + 팀 색 머리 카드(세로 명단, 전원 표시). */
+.home-fixture { border-color: var(--green); }
+.home-fixture-done { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 12px; background: var(--green); color: var(--on-light); }
+.home-fixture-done-label { display: inline-flex; align-items: center; gap: 6px; font-size: 15px; font-weight: 800; }
+.home-fixture-done-side { display: inline-flex; align-items: center; gap: 6px; }
+.home-fixture-dday { flex: none; padding: 1px 7px; border-radius: 4px; background: var(--on-light); color: #fff; font-family: var(--display); font-size: 14px; font-weight: 800; }
+.home-fixture-live { flex: none; padding: 2px 7px; border-radius: 4px; background: var(--live); color: #fff; font-size: 11px; font-weight: 800; }
 .home-fixture-body { display: flex; flex-direction: column; gap: 8px; padding: 10px; color: var(--ink); }
 a.home-fixture-body:hover { color: var(--ink); background: var(--hover-bg); }
 a.home-fixture-body:focus-visible { outline-offset: -3px; }
 .home-fixture-meta { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .home-fixture-meta strong { color: var(--ink); font-size: 14px; }
-.home-fixture-location { margin-top: -4px; color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
 .home-fixture-teams { display: grid; gap: 6px; }
-.home-fixture-team { min-width: 0; padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
-.home-fixture-team header { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; font-size: 12px; }
-.home-fixture-team header b { overflow-wrap: anywhere; }
-.home-fixture-team header > span:last-child { margin-left: auto; color: var(--muted); font-size: 11px; }
-.home-fixture-team ul { display: flex; flex-wrap: wrap; gap: 2px 8px; margin: 6px 0 0; padding: 0; list-style: none; font-size: 13px; line-height: 1.7; }
-.home-fixture-team li { max-width: 100%; overflow-wrap: anywhere; }
-.home-fixture-opponent { margin-top: 6px; color: var(--muted); font-size: 12px; }
+.home-fixture-team { min-width: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.home-fixture-team header { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; padding: 4px 8px; color: #fff; }
+.home-fixture-team header b { min-width: 0; font-family: var(--display); font-size: 16px; font-weight: 800; letter-spacing: .06em; overflow-wrap: anywhere; }
+.home-fixture-team header span { flex: none; font-size: 11px; font-weight: 600; opacity: .92; }
+.home-fixture-team ul { display: flex; flex-direction: column; margin: 0; padding: 6px 8px 8px; list-style: none; font-size: 13.5px; line-height: 1.65; }
+.home-fixture-team li { overflow-wrap: anywhere; }
+.home-fixture-team li.guest { color: var(--muted); }
+.home-fixture-opponent { margin: 0; padding: 8px; color: var(--muted); font-size: 12px; }
 .home-fixture-balance { display: flex; align-items: center; gap: 5px; padding: 6px 8px; border-radius: 5px; background: var(--green-soft); color: var(--green-dark); font-size: 12px; }
 .home-fixture-balance svg { flex: none; }
 .home-fixture-more { display: flex; align-items: center; justify-content: flex-end; gap: 3px; color: var(--muted); font-size: 11px; }

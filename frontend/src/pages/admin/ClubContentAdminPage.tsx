@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { errorMessage } from '../../api/client'
-import type { AnnouncementSize } from '../../api/types'
+import type { AnnouncementSize, AnnouncementStyle } from '../../api/types'
 import { AnnouncementTicker } from '../../components/AnnouncementTicker'
 import { RulesText } from '../../components/MembersGuide'
 import { ErrorBox, Loading, TopBar } from '../../components/ui'
@@ -12,14 +12,21 @@ import '../../styles/club-content.css'
 const RULES_LIMIT = 20000
 const ANNOUNCEMENT_LIMIT = 500
 const SIZE_OPTIONS: [AnnouncementSize, string][] = [['small', '작게'], ['medium', '보통'], ['large', '크게']]
+const STYLE_OPTIONS: [AnnouncementStyle, string, string][] = [
+  ['default', '기본', '차분한 회색 띠'],
+  ['highlight', '강조', '연한 클럽 색 바탕 · 굵은 글씨'],
+  ['accent', '클럽 색', '진한 클럽 색 바탕 · 흰 글씨'],
+  ['alert', '긴급', '노란 바탕 · 깜박이는 점 · 빠른 흐름'],
+]
 
 export function ClubContentAdminPage() {
   const { api, slug } = useClub()
   const [attempt, setAttempt] = useState(0)
-  const [initial, setInitial] = useState<{ rules: string; announcement: string; size: AnnouncementSize } | null>(null)
+  const [initial, setInitial] = useState<{ rules: string; announcement: string; size: AnnouncementSize; style: AnnouncementStyle } | null>(null)
   const [rules, setRules] = useState('')
   const [announcement, setAnnouncement] = useState('')
   const [size, setSize] = useState<AnnouncementSize>('medium')
+  const [style, setStyle] = useState<AnnouncementStyle>('default')
   const [loadError, setLoadError] = useState<unknown>()
   const [saveError, setSaveError] = useState('')
   const [sourceNote, setSourceNote] = useState('')
@@ -51,7 +58,8 @@ export function ClubContentAdminPage() {
         setRules(text)
         setAnnouncement(saved.announcement)
         setSize(saved.announcementSize)
-        setInitial({ rules: text, announcement: saved.announcement, size: saved.announcementSize })
+        setStyle(saved.announcementStyle)
+        setInitial({ rules: text, announcement: saved.announcement, size: saved.announcementSize, style: saved.announcementStyle })
         setSourceNote(note)
       } catch (error) {
         if (alive) setLoadError(error)
@@ -64,7 +72,8 @@ export function ClubContentAdminPage() {
   const rulesChanged = initial !== null && rules !== initial.rules
   const announcementChanged = initial !== null && announcement !== initial.announcement
   const sizeChanged = initial !== null && size !== initial.size
-  const changed = rulesChanged || announcementChanged || sizeChanged
+  const styleChanged = initial !== null && style !== initial.style
+  const changed = rulesChanged || announcementChanged || sizeChanged || styleChanged
   const tooLong = rules.length > RULES_LIMIT || announcement.length > ANNOUNCEMENT_LIMIT
 
   const save = async () => {
@@ -74,6 +83,7 @@ export function ClubContentAdminPage() {
       ...(rulesChanged ? { operatingRules: rules } : {}),
       ...(announcementChanged ? { announcement } : {}),
       ...(sizeChanged ? { announcementSize: size } : {}),
+      ...(styleChanged ? { announcementStyle: style } : {}),
     }
     const saved = await run(async () => {
       try {
@@ -85,10 +95,11 @@ export function ClubContentAdminPage() {
     }, '운영 수칙과 공지를 저장했어요')
     if (!saved) return
     const savedRules = saved.operatingRules ?? rules
-    setInitial({ rules: savedRules, announcement: saved.announcement, size: saved.announcementSize })
+    setInitial({ rules: savedRules, announcement: saved.announcement, size: saved.announcementSize, style: saved.announcementStyle })
     setRules(savedRules)
     setAnnouncement(saved.announcement)
     setSize(saved.announcementSize)
+    setStyle(saved.announcementStyle)
     if (rulesChanged) setSourceNote('저장한 운영 수칙이 선수단에 표시됩니다.')
   }
 
@@ -114,7 +125,18 @@ export function ClubContentAdminPage() {
                 ))}
               </div>
             </div>
-            {announcement.trim() ? <AnnouncementTicker text={announcement} size={size} /> : <p className="small muted">공지를 입력하면 이 크기로 미리 보여요.</p>}
+            <div className="stack" style={{ gap: 6 }}>
+              <span className="small" id="announcement-style-label">공지 스타일 (색 · 배경 · 글자 강조 · 흐름 효과)</span>
+              <div className="announcement-style-options" role="group" aria-labelledby="announcement-style-label">
+                {STYLE_OPTIONS.map(([value, label, hint]) => (
+                  <button key={value} type="button" aria-pressed={style === value} disabled={busy} onClick={() => setStyle(value)}>
+                    {label}<small>{hint}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+            {announcement.trim() ? <AnnouncementTicker text={announcement} size={size} variant={style} />
+              : <p className="small muted">공지를 입력하면 이 크기 · 스타일로 미리 보여요.</p>}
           </section>
 
           <section className="card stack" style={{ gap: 10 }}>

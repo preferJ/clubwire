@@ -90,7 +90,7 @@ class TitleAutoRule(StrEnum):
     TOP_GOALS = "TOP_GOALS"
     TOP_ASSISTS = "TOP_ASSISTS"
     TOP_WINS = "TOP_WINS"
-    MONTHLY_RATING_RISE = "MONTHLY_RATING_RISE"   # 이달의 MVP 전용(그 달 실력 점수 상승률 1위)
+    MONTHLY_RATING_RISE = "MONTHLY_RATING_RISE"   # 이달의 MVP 전용(2026-11부터 월간 포인트 1위, 그 전은 실력 점수 상승률 1위)
     ATTENDANCE_STREAK = "ATTENDANCE_STREAK"       # 연속 참가 10 · 20 · 30 · 40 · 50회(일정마감 때, 참석 명단 기준)
 
 

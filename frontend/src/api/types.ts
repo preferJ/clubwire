@@ -7,6 +7,8 @@ export type ArticleStatus = 'PENDING' | 'GENERATED' | 'PUBLISHED' | 'REJECTED' |
 export type ThemeMode = 'dark' | 'light'
 /** 상단 공지 크기(글자 · 높이 3단계) */
 export type AnnouncementSize = 'small' | 'medium' | 'large'
+/** 상단 공지 스타일: 기본 / 강조(연한 클럽 색 바탕) / 클럽 색(진한 바탕 + 흰 글씨) / 긴급(노란 바탕 + 깜박이는 표시) */
+export type AnnouncementStyle = 'default' | 'highlight' | 'accent' | 'alert'
 
 export interface CrestConfig {
   mode: 'auto' | 'design' | 'image'
@@ -59,28 +61,42 @@ export interface ClubContent {
   announcement: string
   announcementUpdatedAt: string | null
   announcementSize: AnnouncementSize
+  announcementStyle: AnnouncementStyle
 }
 
 export type ArticleType = 'PRE_MATCH' | 'POST_MATCH' | 'SESSION_RECAP' | 'MONTHLY_MVP' | 'NOTICE'
 
-/** 이달의 MVP 레이스: 실력 점수 상승률(%)만 공개(점수 자체는 비공개) */
+/**
+ * 이달의 MVP 레이스(점수 자체는 비공개).
+ * basis = points(2026-11부터): 최종 포인트 = 월간 승점(승 3 · 무 1) × 실력 점수 배율 / rise(이전): 실력 점수 상승률(%)
+ */
 export interface MvpCandidate {
   rank: number
   memberId: number
   name: string | null
-  risePercent: number
   sessions: number
   games: number
+  /** basis = rise일 때만 */
+  risePercent?: number
+  /** basis = points일 때: 최종 포인트(소수 둘째 자리) · 월간 승점 · 실력 점수 배율(소수 넷째 자리) · 그 달 승 · 무 · 패 */
+  points?: number
+  winPoints?: number
+  ratio?: number
+  wins?: number
+  draws?: number
+  losses?: number
 }
 
 export interface MvpRace {
   month: string // 'YYYY-MM'
   minSessions: number
+  basis: 'points' | 'rise'
   candidates: MvpCandidate[]
   lastMonth: {
     month: string
     articleId: number | null
-    winners: { memberId: number; name: string | null; risePercent: number | null }[]
+    /** metric = mvpPoints(포인트) | risePercent(이전 방식 상승률) */
+    winners: { memberId: number; name: string | null; metric: string; value: number | null; risePercent: number | null }[]
   } | null
 }
 
@@ -123,6 +139,8 @@ export interface SessionListItem {
   away: boolean
   opponentId: number | null
   opponentName: string | null
+  /** 일정별 공지(상시 공지와 별개, 줄바꿈 가능). 없으면 null */
+  notice: string | null
   attendeeCount: number
   guestCount: number
 }
@@ -554,3 +572,5 @@ export type WsMessage =
   | { type: 'CLUB_CONTENT_UPDATED' }
   | { type: 'CLUB_APPEARANCE_UPDATED' }
   | { type: 'OPPONENTS_UPDATED'; opponentId: number }
+  /** 서버가 보내는 메시지가 아님: 끊겼던 연결이 다시 붙었을 때 화면이 놓친 변경을 다시 불러오도록 클라이언트가 만든다 */
+  | { type: 'RECONNECTED' }

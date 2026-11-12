@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.core.config import settings
 
-PROMPT_VERSION = "wire_prompt_v9"  # v9: 원정 경기 기사 지시(AWAY_PROMPT, 원정 기사에만 추가로 보냄)
+PROMPT_VERSION = "wire_prompt_v10"  # v10: 이달의 MVP 월간 포인트제(basis = points) 지시
 
 SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포츠 기자다. 한국어로 기사를 쓴다.
 
@@ -24,8 +24,8 @@ SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포
 - 기록만으로 선수의 성격·실력·팀 기여도를 단정하지 않는다.
 - Rating, Confidence, Importance, 기대승률 같은 내부 점수/수치는 기사에 절대 쓰지 않는다.
   insight의 importance는 소재 선택에만 쓴다.
-  단, monthlyMvp의 risePercent(상승률 %)는 "실력 점수 상승률"이라는 말로 쓸 수 있다.
-  점수 자체는 쓰지 않는다.
+  단, monthlyMvp의 points(월간 포인트) · winPoints(승점) · ratio("실력 점수 배율") ·
+  risePercent("실력 점수 상승률")는 쓸 수 있다. 점수 자체는 쓰지 않는다.
 - 입력의 숫자와 단위를 정확히 지킨다.
   '일정'과 '경기', '연속 참가'와 '연속 득점'을 구분한다.
   일정 횟수를 '주'나 '일'로 바꾸거나, 같은 팀 전적을 상대 전적으로 바꾸지 않는다.
@@ -186,11 +186,17 @@ SYSTEM_PROMPT = """당신은 아마추어 풋살팀 플랫폼 Clubwire의 스포
   다만 아래 필수 내용을 빠뜨리지 않도록 소재 수나 문단 수를 억지로 제한하지 않는다.
 - monthLabel(예: 9월)의 MVP를 발표한다.
   sessionDate · sessionTitle · location은 쓰지 않는다.
-- monthlyMvp.winners(공동이면 모두)의 실력 점수 상승률,
+- monthlyMvp.basis = "points"(월간 포인트제):
+  winners(공동이면 모두)의 최종 포인트(points), 출전 일정·경기 수, 승·무·패, 골·도움을 소개한다.
+  포인트 = 승점(winPoints, 승 3점·무 1점) × 실력 점수 배율(ratio)임을 수치와 함께 한 문장으로 밝힌다.
+  bestDay는 "승점을 가장 많이 쌓은 날"로 소개한다.
+  tiebreak가 있으면 포인트가 같은 선수 수(tiedCount)와 무엇으로 갈렸는지(decidedByLabel),
+  joint = true면 공동 수상임을 한 문장으로 전한다.
+- basis가 없으면(이전 상승률 방식): winners의 실력 점수 상승률,
   출전 일정·경기 수, 승·무·패, 골·도움을 소개한다.
-- bestMatches는 "특히 많이 오른 경기"로 날짜·경기 번호·결과·스코어·본인 골/도움을
+  bestMatches는 "특히 많이 오른 경기"로 날짜·경기 번호·결과·스코어·본인 골/도움을
   곁들여 1~3개 소개한다. 경기별 상승률(%)도 쓸 수 있다.
-- bestDay는 "가장 크게 오른 날"로 소개한다.
+  bestDay는 "가장 크게 오른 날"로 소개한다.
 - runnersUp(2·3위)은 마지막 문단에 짧게 언급한다.
   rule(선정 기준)을 한 문장으로 밝힌다.
 - monthlyTitles(이달의 득점왕·도움왕, 공동이면 names 여러 명)가 있으면

@@ -1038,7 +1038,7 @@
         "tags": [
           "sessions"
         ],
-        "summary": "일정 생성",
+        "summary": "일정 생성(일정별 공지 notice 포함 가능)",
         "operationId": "create_session_api_clubs__club_slug__sessions_post",
         "security": [
           {
@@ -1149,7 +1149,7 @@
         "tags": [
           "sessions"
         ],
-        "summary": "일정 수정",
+        "summary": "일정 수정(날짜 · 이름 · 장소 · 일정별 공지 · 원정팀). 공지는 빈 문자열/null이면 지움, 생략하면 유지",
         "operationId": "update_session_api_clubs__club_slug__sessions__session_id__patch",
         "security": [
           {
@@ -3341,7 +3341,7 @@
         "tags": [
           "stats"
         ],
-        "summary": "이달의 MVP 후보 1~3위(실력 점수 상승률 %만, 점수 자체는 비공개) + 지난달 MVP(공개)",
+        "summary": "이달의 MVP 후보 1~3위(basis=points: 월간 포인트 · 승점 · 배율, 점수 자체는 비공개) + 지난달 MVP(공개)",
         "operationId": "mvp_race_api_clubs__club_slug__stats_mvp_race_get",
         "parameters": [
           {
@@ -4996,6 +4996,24 @@
             ],
             "title": "Announcementsize",
             "description": "상단 공지 글자 · 높이. null이면 기본(medium), 생략하면 유지"
+          },
+          "announcementStyle": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "default",
+                  "highlight",
+                  "accent",
+                  "alert"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Announcementstyle",
+            "description": "상단 공지 스타일(기본 · 강조 · 클럽 색 · 긴급). null이면 기본(default), 생략하면 유지"
           }
         },
         "additionalProperties": false,
@@ -5642,6 +5660,19 @@
               }
             ],
             "title": "Location"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice",
+            "description": "일정별 공지(줄바꿈 허용). 비우면 없음"
           }
         },
         "additionalProperties": false,
@@ -5700,6 +5731,19 @@
             ],
             "title": "Opponentid",
             "description": "원정팀 바꾸기(원정 경기 일정만, 원정팀 목록에서)"
+          },
+          "notice": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notice",
+            "description": "일정별 공지(줄바꿈 허용). 빈 문자열 또는 null을 보내면 지움, 생략하면 유지"
           }
         },
         "additionalProperties": false,
