@@ -2,7 +2,7 @@
 // 1팀 = 원정 경기: 참석자 전원이 우리 팀, 상대는 원정팀 목록에서만 고른다(없으면 같은 화면 [직접추가]). 경기마다 출전 선수 선택
 
 import { useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Generation, Opponent, SessionDetail } from '../../api/types'
 import { Icon } from '../../components/Icon'
 import { OpponentPicker } from '../../components/OpponentPicker'
@@ -33,6 +33,10 @@ function Generate({ d }: { d: SessionDetail }) {
   const [gen, setGen] = useState<Generation | null>(null)
   const away = count === 1
   const canGenerate = away ? d.attendees.length >= 1 && opponent !== null : headcount >= count * 2
+  // [팀 만들기]가 잠겨 있을 때 버튼 아래에 보여 줄 이유
+  const blocked = canGenerate ? null
+    : away ? (d.attendees.length < 1 ? '참석자가 1명 이상 있어야 원정 팀을 만들 수 있어요.' : '위에서 원정팀을 고르면 팀을 만들 수 있어요.')
+      : `${count}팀을 만들려면 참석자가 ${count * 2}명 이상이어야 해요(지금 ${headcount}명).`
 
   const generate = async () => {
     const g = await run(() => api.generateTeams(d.sessionId, count, away ? opponent?.opponentId : undefined))
@@ -133,9 +137,18 @@ function Generate({ d }: { d: SessionDetail }) {
               : '다시 섞기는 전체 참석자를 대상으로 팀을 새로 나눠요. 확정하면 팀이 공개돼요.'}</span>
           </>
         ) : (
-          <button type="button" className="btn primary lg block" disabled={busy || !canGenerate} onClick={generate}>
-            <Icon name={away ? 'users' : 'shuffle'} size={18} />{away ? '원정 팀 만들기' : '팀 만들기'}
-          </button>
+          <>
+            <button type="button" className="btn primary lg block" disabled={busy || !canGenerate} onClick={generate}>
+              <Icon name={away ? 'users' : 'shuffle'} size={18} />{away ? '원정 팀 만들기' : '팀 만들기'}
+            </button>
+            {blocked ? (
+              <span className="small center" role="status" style={{ color: 'var(--warn-ink)' }}>
+                {blocked}{' '}
+                {d.attendees.length < 1 || (!away && headcount < count * 2)
+                  ? <Link to={`/c/${slug}/admin/sessions/${d.sessionId}/attendance`} style={{ fontWeight: 700 }}>참석자 수정</Link> : null}
+              </span>
+            ) : null}
+          </>
         )}
       </div>
     </>

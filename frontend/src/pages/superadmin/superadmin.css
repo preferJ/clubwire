@@ -4,3 +4,6 @@
 .superadmin-team-counts > div { padding: 10px 8px; border-radius: var(--radius-s); background: var(--night-2); }
 .superadmin-team-counts dt { font-size: 11px; color: var(--muted); }
 .superadmin-team-counts dd { margin: 2px 0 0; font-size: 16px; font-weight: 700; }
+/* 팀 생성 · 수정 폼: 잘못 입력한 칸과 그 이유(버튼을 잠그지 않고 이유를 보여 준다) */
+.superadmin-team-form .field-problem { color: var(--warn-ink); font-size: 12px; font-weight: 600; line-height: 1.5; }
+.superadmin-team-form .input[aria-invalid='true'] { border-color: var(--warn-ink); }

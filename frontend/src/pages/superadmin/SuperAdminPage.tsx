@@ -249,6 +249,30 @@ function ManagedTeamsPage() {
   )
 }
 
+const SLUG_RULE = /^[a-z0-9_-]{1,50}$/
+const PIN_MIN = 4
+
+/** 팀 이름 · 주소 · PIN이 왜 안 되는지(문제없으면 null). 서버 규칙(app/schemas/superadmin.py)과 같다 */
+function teamFormProblems(name: string, slug: string, pin: string, editing: boolean) {
+  const address = slug.trim()
+  return {
+    name: name.trim() ? null : '팀 이름을 입력해 주세요.',
+    slug: !address ? '팀 주소를 입력해 주세요.'
+      : SLUG_RULE.test(address) ? null
+        : /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(address) ? '팀 주소에는 한글을 쓸 수 없어요. 영문 소문자 · 숫자 · 밑줄(_) · 하이픈(-)으로 적어 주세요. 예: sanha-fc'
+          : /\s/.test(address) ? '팀 주소에는 띄어쓰기를 쓸 수 없어요. 띄어 쓸 자리에 하이픈(-)을 넣어 주세요. 예: sanha-fc'
+            : '팀 주소에는 영문 소문자 · 숫자 · 밑줄(_) · 하이픈(-)만 쓸 수 있어요(마침표 · 특수문자 불가).',
+    pin: editing && pin === '' ? null  // 수정할 때 비워 두면 PIN은 그대로
+      : pin.length >= PIN_MIN ? null
+        : pin === '' ? `팀 관리자 PIN을 입력해 주세요(${PIN_MIN}자 이상).`
+          : `PIN은 ${PIN_MIN}자 이상이어야 해요(지금 ${pin.length}자).`,
+  }
+}
+
+/**
+ * 팀 생성 · 수정 폼. [팀 생성]/[저장] 버튼은 저장 중일 때만 잠근다.
+ * 입력이 맞지 않으면 버튼을 잠그는 대신, 눌렀을 때(또는 그 칸을 벗어났을 때) 칸 아래에 이유를 보여 주고 그 칸으로 옮긴다.
+ */
 function ManagedTeamForm({ club, busy, error, onSave, onCancel }: {
   club: ManagedClub | null
   busy: boolean
@@ -259,36 +283,59 @@ function ManagedTeamForm({ club, busy, error, onSave, onCancel }: {
   const [name, setName] = useState(club?.clubName ?? '')
   const [slug, setSlug] = useState(club?.clubSlug ?? '')
   const [pin, setPin] = useState('')
-  const valid = name.trim().length > 0 && /^[a-z0-9_-]{1,50}$/.test(slug.trim())
-    && (club && pin === '' ? true : pin.length >= 4 && pin.length <= 64)
+  const [shown, setShown] = useState({ name: false, slug: false, pin: false })  // 이유를 보여 줄 칸(벗어났거나 저장을 눌렀을 때)
+  const nameRef = useRef<HTMLInputElement>(null)
+  const slugRef = useRef<HTMLInputElement>(null)
+  const pinRef = useRef<HTMLInputElement>(null)
+  const problems = teamFormProblems(name, slug, pin, club !== null)
+  // 주소는 쓰는 도중에도 바로 알려 준다(한글 · 띄어쓰기를 넣은 줄 모르고 버튼만 누르게 되는 경우가 많다)
+  const slugProblem = shown.slug || slug.trim() ? problems.slug : null
+  const nameProblem = shown.name ? problems.name : null
+  const pinProblem = shown.pin ? problems.pin : null
+  const show = (field: keyof typeof shown) => setShown((v) => (v[field] ? v : { ...v, [field]: true }))
   const submit = (event: FormEvent) => {
     event.preventDefault()
-    if (busy || !valid) return
+    if (busy) return
+    if (problems.name || problems.slug || problems.pin) {
+      setShown({ name: true, slug: true, pin: true })
+      ;(problems.name ? nameRef : problems.slug ? slugRef : pinRef).current?.focus()
+      return
+    }
     const body = { clubName: name.trim(), clubSlug: slug.trim() }  // 시간대는 Asia/Seoul 고정이라 보내지 않음
     void onSave(club ? { ...body, ...(pin ? { adminPin: pin } : {}) } : { ...body, adminPin: pin })
   }
   return (
-    <form className="stack" onSubmit={submit}>
+    <form className="stack superadmin-team-form" onSubmit={submit} noValidate>
       <h2 id="managed-team-form-title">{club ? '팀 수정' : '팀 생성'}</h2>
       <label className="field">팀 이름
-        <input className="input" name="club-name" required maxLength={100} value={name} disabled={busy}
-          onChange={(event) => setName(event.target.value)} />
+        <input ref={nameRef} className="input" name="club-name" required maxLength={100} value={name} disabled={busy}
+          aria-invalid={nameProblem !== null} aria-describedby={nameProblem ? 'managed-team-name-problem' : undefined}
+          onChange={(event) => setName(event.target.value)} onBlur={() => show('name')} />
+        {nameProblem ? <span id="managed-team-name-problem" role="alert" className="field-problem">{nameProblem}</span> : null}
       </label>
       <label className="field">팀 주소
-        <input className="input" name="club-slug" required maxLength={50} pattern="[a-z0-9_-]{1,50}" autoCapitalize="off" autoCorrect="off" spellCheck={false}
-          value={slug} disabled={busy} onChange={(event) => setSlug(event.target.value.toLowerCase())} aria-describedby="managed-team-slug-help" />
-        <span id="managed-team-slug-help" className="small muted">영문 소문자·숫자·밑줄·하이픈을 사용합니다. /c/{slug || 'team-address'}</span>
+        <input ref={slugRef} className="input" name="club-slug" required maxLength={50} autoCapitalize="off" autoCorrect="off" spellCheck={false}
+          value={slug} disabled={busy} placeholder="예: sanha-fc" aria-invalid={slugProblem !== null}
+          aria-describedby={slugProblem ? 'managed-team-slug-problem managed-team-slug-help' : 'managed-team-slug-help'}
+          onChange={(event) => setSlug(event.target.value.toLowerCase())} onBlur={() => show('slug')} />
+        {slugProblem ? <span id="managed-team-slug-problem" role="alert" className="field-problem">{slugProblem}</span> : null}
+        <span id="managed-team-slug-help" className="small muted">
+          영문 소문자 · 숫자 · 밑줄(_) · 하이픈(-)만 쓸 수 있어요(한글 · 띄어쓰기 불가). 접속 주소: /c/{problems.slug ? 'team-address' : slug.trim()}
+        </span>
         {club ? <span className="small muted">주소를 바꾸면 기존 팀 링크도 새 주소로 바꿔야 합니다.</span> : null}
       </label>
       <label className="field">{club ? '새 팀 관리자 PIN (변경할 때만 입력)' : '팀 관리자 PIN'}
-        <input className="input" type="password" name="club-admin-pin" inputMode="numeric" autoComplete="new-password"
-          required={!club} minLength={4} maxLength={64} value={pin} disabled={busy} onChange={(event) => setPin(event.target.value)} />
-        <span className="small muted">팀 운영진이 해당 팀의 관리자 모드에 들어갈 때 사용합니다.</span>
+        <input ref={pinRef} className="input" type="password" name="club-admin-pin" inputMode="numeric" autoComplete="new-password"
+          required={!club} maxLength={64} value={pin} disabled={busy} aria-invalid={pinProblem !== null}
+          aria-describedby={pinProblem ? 'managed-team-pin-problem managed-team-pin-help' : 'managed-team-pin-help'}
+          onChange={(event) => setPin(event.target.value)} onBlur={() => show('pin')} />
+        {pinProblem ? <span id="managed-team-pin-problem" role="alert" className="field-problem">{pinProblem}</span> : null}
+        <span id="managed-team-pin-help" className="small muted">{PIN_MIN}자 이상. 팀 운영진이 해당 팀의 관리자 모드에 들어갈 때 사용합니다.</span>
       </label>
       {error ? <p role="alert" className="small" style={{ color: 'var(--warn-ink)' }}>{error}</p> : null}
       <div className="grid2">
         <button type="button" className="btn" disabled={busy} onClick={onCancel}>취소</button>
-        <button type="submit" className="btn primary" disabled={busy || !valid}>{busy ? '저장 중…' : club ? '저장' : '팀 생성'}</button>
+        <button type="submit" className="btn primary" disabled={busy}>{busy ? '저장 중…' : club ? '저장' : '팀 생성'}</button>
       </div>
     </form>
   )

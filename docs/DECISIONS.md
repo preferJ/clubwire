@@ -527,6 +527,16 @@ SELECT MT.PERIOD_START, M.NAME, JSON_EXTRACT(MT.FACTS_JSON, '$.metric') AS METRI
 - API: `POST /sessions` · `PATCH /sessions/{id}`에 `notice`(빈 문자열/null = 지움, 생략 = 유지), 일정 목록 · 상세 응답에 `notice`, `GET /content` · `PATCH /admin/content`에 `announcementStyle`
 - 테스트 `tests/test_session_notice_announcement_style.py`
 
+## 3-20. 잠긴 버튼에는 이유를 보여 준다: 팀 생성 · 팀 만들기 (2026-11-13)
+
+| 항목 | 결정 | 이유 |
+|---|---|---|
+| 슈퍼관리자 [팀 생성] · [저장] | 입력이 규칙에 맞지 않아도 버튼을 잠그지 않는다(저장 중만 잠금). 누르면 맞지 않는 칸마다 아래에 이유를 보여 주고 첫 칸으로 옮긴다. 팀 주소는 쓰는 도중에도 바로 안내(한글 / 띄어쓰기 / 마침표 · 특수문자 각각 다른 문구), PIN은 '4자 이상(지금 n자)' | 신고: 새 팀을 만들 때 [팀 생성]이 잠겨 있음. 팀 주소에 한글 · 띄어쓰기를 넣거나 PIN이 4자 미만이면 아무 안내 없이 버튼만 잠겨 원인을 알 수 없었다 |
+| 입력 규칙 | 그대로(팀 주소 = 영문 소문자 · 숫자 · 밑줄 · 하이픈 1~50자, PIN 4자 이상). 주소는 `/c/{주소}` · 실시간 연결 · 관리자 토큰 저장 키에 쓰여 한글은 허용하지 않는다 | 서버 규칙(`app/schemas/superadmin.py`)과 같게 유지 |
+| 팀 편성 [팀 만들기] | 참석자가 모자라거나(예: 2팀인데 3명) 원정팀을 고르지 않아 잠겨 있으면 버튼 아래에 이유 + [참석자 수정] 링크 | 같은 종류의 '이유 없는 잠금' |
+
+- 화면만 변경(`SuperAdminPage.tsx` `teamFormProblems`, `TeamsPage.tsx`). 서버 · DB 변경 없음
+
 ## 4. 남은 이슈 / 다음 단계
 
 1. **카카오 로그인**: 현재는 클럽 PIN 1개. 경기 중 골 기록 · 수정(3-16)도 회원 ID가 생기면 '본인 기록만'으로 좁힌다. USER 테이블 + MEMBER↔USER 연결 + 역할(관리자/회원)로 확장 예정. PIN 실패 제한은 메모리 기반(단일 프로세스)
