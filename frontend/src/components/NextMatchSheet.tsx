@@ -1,8 +1,10 @@
-// 다음 경기 대진: 매 경기 관리자가 두 팀을 고른다(가장 오래 쉰 두 팀이 미리 선택됨)
+// 다음 경기 대진: 매 경기 만드는 사람이 두 팀을 고른다(가장 오래 쉰 두 팀이 미리 선택됨)
+// 관리자와 일반 회원 모두(일반 회원은 관리자가 첫 경기를 시작한 뒤부터, DECISIONS 3-21)
 // 원정 경기: 우리 팀 vs 원정팀은 고정, 대신 이번 경기 출전 선수를 고른다(직전 경기 명단이 미리 선택됨)
 
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+import { errorMessage } from '../api/client'
 import type { NextSuggestion } from '../api/types'
 import { useClub } from '../lib/club'
 import { teamColor, teamLabel, teamMark } from '../lib/format'
@@ -14,17 +16,19 @@ export function NextMatchSheet({ sessionId, open, onClose }: { sessionId: number
   const nav = useNavigate()
   const { busy, run } = useAction()
   const [sug, setSug] = useState<NextSuggestion | null>(null)
+  const [loadError, setLoadError] = useState<unknown>(null)
   const [pick, setPick] = useState<[number | null, number | null]>([null, null])
   const [lineup, setLineup] = useState<Set<number>>(new Set())
 
   useEffect(() => {
     if (!open) return
     setSug(null)
+    setLoadError(null)
     api.nextSuggestion(sessionId).then((s) => {
       setSug(s)
       setPick([s.suggestedTeamAId, s.suggestedTeamBId])
       setLineup(new Set(s.lineupMemberIds ?? []))
-    }).catch(() => setSug(null))
+    }).catch((e) => setLoadError(e))  // 예: 첫 경기 시작 전 일반 회원(403)
   }, [open, api, sessionId])
 
   const choose = (slot: 0 | 1, teamId: number) =>
@@ -52,7 +56,9 @@ export function NextMatchSheet({ sessionId, open, onClose }: { sessionId: number
   return (
     <Sheet open={open} onClose={onClose} labelledBy="next-title">
       <h2 id="next-title">{sug ? `${sug.nextGameNo}경기 ${away ? '출전 선수' : '대진'}` : '다음 경기'}</h2>
-      {!sug ? (
+      {loadError ? (
+        <div className="notice warn" role="alert">{errorMessage(loadError)}</div>
+      ) : !sug ? (
         <Loading rows={2} />
       ) : sug.blockedByMatchId ? (
         <div className="notice warn">

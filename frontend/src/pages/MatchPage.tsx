@@ -28,6 +28,8 @@ export function MatchPage() {
       detail.setData({ ...detail.data, ...m, teamA: { ...detail.data.teamA, ...m.teamA }, teamB: { ...detail.data.teamB, ...m.teamB } })
     }
     if (msg.type === 'MATCH_EVENT' && msg.matchId === id) detail.reload()
+    // 관리자가 첫 경기를 시작하면(일정 '진행 중') 일반 회원도 시작 · 다음 경기 버튼이 열린다
+    if (msg.type === 'SESSION_UPDATED' && detail.data && msg.sessionId === detail.data.sessionId) detail.reload()
   })
 
   const d = detail.data
@@ -44,6 +46,10 @@ export function MatchPage() {
 
   const live = d.status === 'RUNNING' || d.status === 'PAUSED'
   const editable = isAdmin && !d.finalized && d.status !== 'CANCELLED'
+  // 경기 진행(3-21): 일시정지 · 재개 · 종료는 누구나. 경기 시작 · 다음 경기 · 시작 전 취소는
+  // 관리자, 또는 관리자가 첫 경기를 시작한 뒤(일정 '진행 중')의 일반 회원. 기록 확정 · 해제는 관리자만
+  const sessionLive = d.sessionStatus === 'IN_PROGRESS' || (isAdmin && d.sessionStatus === 'CONFIRMED')
+  const canRun = isAdmin || d.sessionStatus === 'IN_PROGRESS'
   // 골 · 도움 기록 · 수정 · 취소: 경기가 시작된 뒤 확정 전까지 누구나(회원 아이디가 생기면 좁힐 예정)
   const goalOpen = (live || d.status === 'FINISHED') && !d.finalized
   // 수정으로 대체된 골(새 골의 refEventId가 가리키는 골)은 타임라인에서 숨기고, 고친 골에 '수정됨'을 붙인다
@@ -80,7 +86,7 @@ export function MatchPage() {
         </div>
 
         <div className="stack" style={{ alignItems: 'center', gap: 8 }}>
-          {isAdmin && live ? (
+          {live ? (
             <div className="row between" style={{ width: '100%' }}>
               <button type="button" className="night-btn" disabled={busy}
                 onClick={() => act(d.status === 'RUNNING' ? 'pause' : 'resume')}>
@@ -99,7 +105,7 @@ export function MatchPage() {
           <div className="small" style={{ color: 'var(--sports-muted)' }}>
             {d.status === 'READY' ? `${Math.round(d.durationSec / 60)}분 경기 · 시작 전`
               : d.status === 'FINISHED' ? <>{winner ? <b className="win-text">{teamLabel(winner)} 승</b> : '무승부'}{d.endReason === 'TIME_UP' ? ' · 시간 종료' : d.endReason === 'EARLY_GOAL' ? ' · 조기 종료' : ''}</>
-                : `남은 시간 · ${d.autoEnd ? '0이 되면 자동 종료' : '관리자가 종료'}`}
+                : `남은 시간 · ${d.autoEnd ? '0이 되면 자동 종료' : '[종료]를 눌러 끝내요'}`}
           </div>
         </div>
       </section>
@@ -107,17 +113,24 @@ export function MatchPage() {
       <div className="row small muted" style={{ padding: '10px 16px', background: 'var(--card)', borderBottom: '1px solid var(--line)' }}>
         <span style={{ width: 8, height: 8, borderRadius: 4, background: connected ? 'var(--green)' : 'var(--line-strong)' }} />
         {connected ? '실시간 연결됨' : '연결 중…'}
-        {isAdmin ? '' : goalOpen ? ' · 골 · 도움 기록과 수정은 누구나, 경기 진행 · 확정은 관리자' : ' · 경기 조작은 관리자만 할 수 있어요'}
+        {isAdmin ? ''
+          : d.status === 'READY' && !canRun ? ' · 첫 경기는 관리자가 시작해요'
+            : d.finalized || d.status === 'CANCELLED' ? ' · 확정 · 취소된 경기는 관리자만 고칠 수 있어요'
+              : ' · 골 기록 · 일시정지 · 종료 · 다음 경기는 누구나, 기록 확정은 관리자'}
       </div>
 
       <main className="page">
-        {isAdmin && d.status === 'READY' ? (
+        {d.status === 'READY' && canRun ? (
           <div className="stack">
             <button type="button" className="btn primary lg block" disabled={busy} onClick={() => act('start', '경기를 시작했어요')}>
               <Icon name="play" size={18} stroke={2} />경기 시작
             </button>
-            <button type="button" className="link-btn" style={{ color: 'var(--warn-ink)' }} onClick={() => act('cancel')}>경기 취소</button>
+            <button type="button" className="link-btn" style={{ color: 'var(--warn-ink)' }} onClick={() => act('cancel')}>
+              {isAdmin ? '경기 취소' : '대진을 잘못 만들었어요(경기 취소)'}
+            </button>
           </div>
+        ) : d.status === 'READY' ? (
+          <div className="notice gray">첫 경기는 관리자가 시작해요. 첫 경기가 시작되면 그 뒤로는 누구나 경기를 진행하고 다음 경기를 만들 수 있어요.</div>
         ) : null}
 
         {live ? (
@@ -138,8 +151,8 @@ export function MatchPage() {
               <span className="status-badge gold">확정 전</span>
             </div>
             <p className="small muted">
-              {isAdmin ? '골 기록이 맞는지 확인하고 확정하세요. 확정하면 승패 · 개인 기록 · 팀 밸런스 계산에 반영돼요.'
-                : '빠진 골은 추가하고, 틀린 골은 타임라인에서 고쳐 주세요. 확정은 관리자가 해요.'}
+              {isAdmin ? '골 기록이 맞는지 확인하고 확정하세요. 확정하면 승패 · 개인 기록 · 팀 밸런스 계산에 반영돼요. 확정하지 않은 경기는 [일정마감] 때 순서대로 자동 확정돼요.'
+                : '빠진 골은 추가하고, 틀린 골은 타임라인에서 고쳐 주세요. 확정은 관리자가 하거나 [일정마감] 때 자동으로 돼요.'}
             </p>
             <div className="grid2">
               {[d.teamA, d.teamB].map((t) => (
@@ -159,18 +172,22 @@ export function MatchPage() {
           </section>
         ) : null}
 
-        {isAdmin && d.finalized ? (
+        {d.status === 'FINISHED' && sessionLive && canRun ? (
           <section className="stack">
             <button type="button" className="btn primary lg block" onClick={() => setNextOpen(true)}>
               <Icon name="plus" size={18} stroke={2} />다음 경기 만들기
             </button>
-            <div className="grid2">
-              <Link className="btn sm" to={`/c/${slug}/admin/sessions/${d.sessionId}/close`}>오늘 끝내기(일정마감)</Link>
-              <button type="button" className="btn sm" disabled={busy}
-                onClick={() => window.confirm('확정을 해제하고 기록을 고칠까요?') && act('unfinalize', '확정을 해제했어요')}>
-                확정 해제
-              </button>
-            </div>
+            {isAdmin ? (
+              <div className={d.finalized ? 'grid2' : 'stack'}>
+                <Link className="btn sm" to={`/c/${slug}/admin/sessions/${d.sessionId}/close`}>오늘 끝내기(일정마감)</Link>
+                {d.finalized ? (
+                  <button type="button" className="btn sm" disabled={busy}
+                    onClick={() => window.confirm('확정을 해제하고 기록을 고칠까요?') && act('unfinalize', '확정을 해제했어요')}>
+                    확정 해제
+                  </button>
+                ) : null}
+              </div>
+            ) : <p className="small muted center">오늘 경기를 모두 마치면 관리자가 [일정마감]을 해요.</p>}
           </section>
         ) : null}
 

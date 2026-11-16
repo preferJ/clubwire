@@ -1,4 +1,10 @@
-"""경기 진행(LIVE). 쓰기는 관리자 모드만(예외: 경기 시작 후 확정 전까지 골 · 도움 등록 · 수정 · 취소는 일반 회원도), 조회는 공개."""
+"""경기 진행(LIVE). 조회는 공개.
+
+쓰기 권한(DECISIONS 3-16 · 3-21):
+- 누구나(일반 회원 포함): 골 · 도움 등록 · 수정 · 취소(시작 후 확정 전), 일시정지 · 재개 · 경기 종료,
+  다음 경기 만들기 · 시작(관리자가 첫 경기를 시작한 뒤), 시작 전 경기 취소
+- 관리자만: 첫 경기 시작, 시작한 경기 취소, 기록 확정 · 확정 해제, 출전 명단 추가 · 제외
+"""
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
@@ -15,18 +21,21 @@ from app.services.match_service import match_detail, match_state
 router = APIRouter(tags=["matches"])
 
 
-@router.get("/sessions/{session_id}/matches/next-suggestion", summary="다음 경기 대진 화면용: 팀별 경기 수 + 추천 대진")
-def next_suggestion(session_id: int, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
+@router.get("/sessions/{session_id}/matches/next-suggestion",
+            summary="다음 경기 대진 화면용: 팀별 경기 수 + 추천 대진. 일반 회원은 첫 경기 시작 뒤부터")
+def next_suggestion(session_id: int, club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depends(optional_admin),
                     db: Session = Depends(get_db)):
-    return match_service.next_suggestion(db, club.club_id, session_id)
+    return match_service.next_suggestion(db, club.club_id, session_id, by_member=admin is None)
 
 
-@router.post("/sessions/{session_id}/matches/next", status_code=201, summary="다음 경기 생성(READY). 두 팀은 관리자가 지정")
+@router.post("/sessions/{session_id}/matches/next", status_code=201,
+             summary="다음 경기 생성(READY). 두 팀은 만드는 사람이 지정. 일반 회원은 첫 경기 시작 뒤부터(403 FIRST_MATCH_ADMIN_ONLY)")
 def create_next(session_id: int, body: NextMatchRequest, club: Club = Depends(club_dep),
-                admin: AdminPrincipal = Depends(admin_dep), db: Session = Depends(get_db)):
-    m = match_service.create_next_match(db, club.club_id, session_id, admin.admin_id, team_a_id=body.team_a_id,
-                                        team_b_id=body.team_b_id, duration_sec=body.duration_sec,
-                                        member_ids=body.member_ids)
+                admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+    m = match_service.create_next_match(db, club.club_id, session_id, admin.admin_id if admin else None,
+                                        team_a_id=body.team_a_id, team_b_id=body.team_b_id,
+                                        duration_sec=body.duration_sec, member_ids=body.member_ids,
+                                        by_member=admin is None)
     return match_state(db, m)
 
 
@@ -45,6 +54,7 @@ def get_match_detail(match_id: int, club: Club = Depends(club_dep), db: Session 
 
 
 def _action(fn):
+    """관리자 전용 경기 조작."""
     def handler(match_id: int, club: Club = Depends(club_dep), admin: AdminPrincipal = Depends(admin_dep),
                 db: Session = Depends(get_db)):
         m = fn(db, club.club_id, match_id, admin.admin_id)
@@ -52,12 +62,28 @@ def _action(fn):
     return handler
 
 
-router.add_api_route("/matches/{match_id}/start", _action(match_service.start_match), methods=["POST"],
-                     summary="경기 시작(출전 명단/전력 Snapshot 생성)")
-router.add_api_route("/matches/{match_id}/pause", _action(match_service.pause_match), methods=["POST"], summary="일시정지")
-router.add_api_route("/matches/{match_id}/resume", _action(match_service.resume_match), methods=["POST"], summary="재개")
-router.add_api_route("/matches/{match_id}/end", _action(match_service.end_match), methods=["POST"], summary="경기 종료(관리자)")
-router.add_api_route("/matches/{match_id}/cancel", _action(match_service.cancel_match), methods=["POST"], summary="경기 취소")
+def _open_action(fn, *, member_rule: bool = False):
+    """누구나 할 수 있는 경기 조작. member_rule = 일반 회원에게 추가 조건이 있음(서비스의 by_member 검사)."""
+    def handler(match_id: int, club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depends(optional_admin),
+                db: Session = Depends(get_db)):
+        admin_id = admin.admin_id if admin else None
+        m = (fn(db, club.club_id, match_id, admin_id, by_member=admin is None) if member_rule
+             else fn(db, club.club_id, match_id, admin_id))
+        return match_state(db, m)
+    return handler
+
+
+router.add_api_route("/matches/{match_id}/start", _open_action(match_service.start_match, member_rule=True),
+                     methods=["POST"],
+                     summary="경기 시작(출전 명단/전력 Snapshot 생성). 첫 경기는 관리자, 그 뒤 경기는 누구나")
+router.add_api_route("/matches/{match_id}/pause", _open_action(match_service.pause_match), methods=["POST"],
+                     summary="일시정지(누구나)")
+router.add_api_route("/matches/{match_id}/resume", _open_action(match_service.resume_match), methods=["POST"],
+                     summary="재개(누구나)")
+router.add_api_route("/matches/{match_id}/end", _open_action(match_service.end_match), methods=["POST"],
+                     summary="경기 종료(누구나). 기록 확정은 관리자 또는 [일정마감] 때 자동")
+router.add_api_route("/matches/{match_id}/cancel", _open_action(match_service.cancel_match, member_rule=True),
+                     methods=["POST"], summary="경기 취소. 시작 전 경기는 누구나, 시작한 경기는 관리자")
 router.add_api_route("/matches/{match_id}/finalize", _action(match_service.finalize_match), methods=["POST"],
                      summary="기록 확정 → Rating/Stats/Pair 반영(중복 호출 409)")
 router.add_api_route("/matches/{match_id}/unfinalize", _action(match_service.unfinalize_match), methods=["POST"],

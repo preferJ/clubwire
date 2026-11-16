@@ -43,20 +43,20 @@
 | 🔑 | POST | `/sessions/{session_id}/teams/generate` | 자동 팀 편성 미리보기(여러 번 가능) |
 | 🔓 | GET | `/live` | 진행/대기 중인 경기(공개, 홈 LIVE 배너용) |
 | 🔓 | GET | `/matches/{match_id}` | 경기 상태 + 이벤트 타임라인(공개). 새 클라이언트는 이걸로 타이머 복원 |
-| 🔑 | POST | `/matches/{match_id}/cancel` | 경기 취소 |
-| 🔑 | POST | `/matches/{match_id}/end` | 경기 종료(관리자) |
+| 🔓 | POST | `/matches/{match_id}/cancel` | 경기 취소. 시작 전 경기는 누구나, 시작한 경기는 관리자 |
+| 🔓 | POST | `/matches/{match_id}/end` | 경기 종료(누구나). 기록 확정은 관리자 또는 [일정마감] 때 자동 |
 | 🔓 | PATCH | `/matches/{match_id}/events/{event_id}` | 골 수정(기존 골은 취소 표시, 고친 골을 새로 기록 + 점수 동시 반영). 확정 전까지 누구나 |
 | 🔓 | POST | `/matches/{match_id}/events/{event_id}/cancel` | 골 취소(삭제하지 않고 취소 이벤트 기록). 확정 전까지 누구나 |
 | 🔑 | POST | `/matches/{match_id}/finalize` | 기록 확정 → Rating/Stats/Pair 반영(중복 호출 409) |
 | 🔓 | POST | `/matches/{match_id}/goals` | 골 등록(+점수 동시 반영, 멱등키 지원). 경기 시작 후 확정 전까지 누구나 |
 | 🔑 | POST | `/matches/{match_id}/members` | 출전 명단 추가/팀 변경(교체 투입 등) |
 | 🔑 | DELETE | `/matches/{match_id}/members/{member_id}` | 출전 명단 제외(결장) |
-| 🔑 | POST | `/matches/{match_id}/pause` | 일시정지 |
-| 🔑 | POST | `/matches/{match_id}/resume` | 재개 |
-| 🔑 | POST | `/matches/{match_id}/start` | 경기 시작(출전 명단/전력 Snapshot 생성) |
+| 🔓 | POST | `/matches/{match_id}/pause` | 일시정지(누구나) |
+| 🔓 | POST | `/matches/{match_id}/resume` | 재개(누구나) |
+| 🔓 | POST | `/matches/{match_id}/start` | 경기 시작(출전 명단/전력 Snapshot 생성). 첫 경기는 관리자, 그 뒤 경기는 누구나 |
 | 🔑 | POST | `/matches/{match_id}/unfinalize` | 확정 해제(일정마감 전까지) |
-| 🔑 | POST | `/sessions/{session_id}/matches/next` | 다음 경기 생성(READY). 두 팀은 관리자가 지정 |
-| 🔑 | GET | `/sessions/{session_id}/matches/next-suggestion` | 다음 경기 대진 화면용: 팀별 경기 수 + 추천 대진 |
+| 🔓 | POST | `/sessions/{session_id}/matches/next` | 다음 경기 생성(READY). 두 팀은 만드는 사람이 지정. 일반 회원은 첫 경기 시작 뒤부터(403 FIRST_MATCH_ADMIN_ONLY) |
+| 🔓 | GET | `/sessions/{session_id}/matches/next-suggestion` | 다음 경기 대진 화면용: 팀별 경기 수 + 추천 대진. 일반 회원은 첫 경기 시작 뒤부터 |
 | 🔑 | POST | `/admin/rebuild` | [관리자] Rating/통계/Pair 전체 재계산 |
 | 🔓 | GET | `/stats/away` | 원정 경기 기록(공개): 전체 · 상대별 전적, 최근 원정, 선수별 원정 기록. 내부 기록과 분리 |
 | 🔓 | GET | `/stats/away/opponents/{opponent_id}` | 원정 상대별 상세(공개): 그 팀과의 원정 일정 · 경기 점수 + 그 팀 상대 우리 선수 골 · 도움 기록(숨긴 팀도) |

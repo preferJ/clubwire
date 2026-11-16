@@ -87,7 +87,7 @@ export function SessionPage() {
               </section>
             ) : null}
           </main>
-          {isAdmin ? <AdminActions d={d} /> : null}
+          {isAdmin ? <AdminActions d={d} /> : <MemberActions d={d} />}
         </>
       )}
     </>
@@ -208,6 +208,37 @@ function MatchRow({ m, slug }: { m: SessionMatch; slug: string }) {
       </span>
       {right}
     </Link>
+  )
+}
+
+/**
+ * 일반 회원 하단 버튼(3-21): 경기 진행 화면으로 / 다음 경기 만들기.
+ * 첫 경기 시작 전(일정확정)에는 안내만 — 첫 경기는 관리자가 시작한다
+ */
+function MemberActions({ d }: { d: SessionDetail }) {
+  const { slug } = useClub()
+  const nav = useNavigate()
+  const [nextOpen, setNextOpen] = useState(false)
+  if (d.deletedAt || !['CONFIRMED', 'IN_PROGRESS'].includes(d.status)) return null
+  const active = d.matches.find((m) => ['READY', 'RUNNING', 'PAUSED'].includes(m.status))
+  const started = d.status === 'IN_PROGRESS'
+  return (
+    <div className="bar-actions">
+      {active ? (
+        <button type="button" className="btn dark lg block" onClick={() => nav(`/c/${slug}/matches/${active.matchId}`)}>
+          {active.gameNo}경기 {active.status !== 'READY' ? '진행 화면으로' : started ? '시작하러 가기' : '화면 보기'}
+        </button>
+      ) : started ? (
+        <button type="button" className="btn primary lg block" onClick={() => setNextOpen(true)}>
+          <Icon name="plus" size={18} stroke={2} />다음 경기 만들기
+        </button>
+      ) : null}
+      <p className="small muted center">
+        {started ? '골 기록 · 일시정지 · 종료 · 다음 경기는 누구나 할 수 있어요. 기록 확정과 일정마감은 관리자가 해요.'
+          : '첫 경기는 관리자가 시작해요. 그 뒤로는 누구나 경기를 진행하고 다음 경기를 만들 수 있어요.'}
+      </p>
+      {started ? <NextMatchSheet sessionId={d.sessionId} open={nextOpen} onClose={() => setNextOpen(false)} /> : null}
+    </div>
   )
 }
 

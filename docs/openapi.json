@@ -2180,7 +2180,7 @@
         "tags": [
           "matches"
         ],
-        "summary": "다음 경기 대진 화면용: 팀별 경기 수 + 추천 대진",
+        "summary": "다음 경기 대진 화면용: 팀별 경기 수 + 추천 대진. 일반 회원은 첫 경기 시작 뒤부터",
         "operationId": "next_suggestion_api_clubs__club_slug__sessions__session_id__matches_next_suggestion_get",
         "security": [
           {
@@ -2236,7 +2236,7 @@
         "tags": [
           "matches"
         ],
-        "summary": "다음 경기 생성(READY). 두 팀은 관리자가 지정",
+        "summary": "다음 경기 생성(READY). 두 팀은 만드는 사람이 지정. 일반 회원은 첫 경기 시작 뒤부터(403 FIRST_MATCH_ADMIN_ONLY)",
         "operationId": "create_next_api_clubs__club_slug__sessions__session_id__matches_next_post",
         "security": [
           {
@@ -2395,7 +2395,7 @@
         "tags": [
           "matches"
         ],
-        "summary": "경기 시작(출전 명단/전력 Snapshot 생성)",
+        "summary": "경기 시작(출전 명단/전력 Snapshot 생성). 첫 경기는 관리자, 그 뒤 경기는 누구나",
         "operationId": "handler_api_clubs__club_slug__matches__match_id__start_post",
         "security": [
           {
@@ -2451,7 +2451,7 @@
         "tags": [
           "matches"
         ],
-        "summary": "일시정지",
+        "summary": "일시정지(누구나)",
         "operationId": "handler_api_clubs__club_slug__matches__match_id__pause_post",
         "security": [
           {
@@ -2507,7 +2507,7 @@
         "tags": [
           "matches"
         ],
-        "summary": "재개",
+        "summary": "재개(누구나)",
         "operationId": "handler_api_clubs__club_slug__matches__match_id__resume_post",
         "security": [
           {
@@ -2563,7 +2563,7 @@
         "tags": [
           "matches"
         ],
-        "summary": "경기 종료(관리자)",
+        "summary": "경기 종료(누구나). 기록 확정은 관리자 또는 [일정마감] 때 자동",
         "operationId": "handler_api_clubs__club_slug__matches__match_id__end_post",
         "security": [
           {
@@ -2619,7 +2619,7 @@
         "tags": [
           "matches"
         ],
-        "summary": "경기 취소",
+        "summary": "경기 취소. 시작 전 경기는 누구나, 시작한 경기는 관리자",
         "operationId": "handler_api_clubs__club_slug__matches__match_id__cancel_post",
         "security": [
           {

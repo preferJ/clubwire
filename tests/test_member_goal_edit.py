@@ -93,9 +93,11 @@ def test_member_can_edit_and_cancel_goal_but_not_control_match(make_club):
     api.ok(api.post(f"/matches/{mid}/events/{res['eventId']}/cancel", admin=False))
     assert _detail(api, mid)["teamB"]["score"] == 0
 
-    # 경기 진행 · 확정 · 출전 명단은 관리자만
-    for action in ("finalize", "cancel", "unfinalize"):
+    # 기록 확정 · 해제 · 출전 명단 · 시작한 경기 취소는 관리자만(경기 진행은 3-21부터 누구나)
+    for action in ("finalize", "unfinalize"):
         assert api.post(f"/matches/{mid}/{action}", admin=False).status_code == 401
+    r = api.post(f"/matches/{mid}/cancel", admin=False)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "CANCEL_ADMIN_ONLY"
     assert api.delete(f"/matches/{mid}/members/{a['members'][0]['memberId']}", admin=False).status_code == 401
     eid2 = api.ok(_goal(api, mid, a, a["members"][1]["memberId"], admin=False, elapsedSec=0))["eventId"]
     api.ok(api.post(f"/matches/{mid}/finalize"))

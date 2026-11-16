@@ -290,6 +290,8 @@ export interface MatchDetail extends Omit<MatchState, 'teamA' | 'teamB'> {
   teamA: MatchDetailTeam
   teamB: MatchDetailTeam
   events: MatchEventView[]
+  /** 일정 상태. 일반 회원은 IN_PROGRESS(관리자가 첫 경기를 시작한 뒤)부터 다음 경기를 만들고 시작할 수 있다 */
+  sessionStatus: SessionStatus
 }
 
 export interface LiveMatch extends MatchState {

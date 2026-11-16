@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import SessionLocal, emit
-from app.core.errors import BadRequest, Conflict, NotFound
+from app.core.errors import BadRequest, Conflict, Forbidden, NotFound
 from app.core.timeutil import to_iso, utcnow
 from app.models import (
     ClubSession,
@@ -116,6 +116,8 @@ def serialize_event(e: MatchEvent, names: dict[int, str]) -> dict:
 def match_detail(db: Session, m: MatchGame) -> dict:
     teams = _team_map(db, m.session_id)
     data = match_state(db, m, teams)
+    # 일정 상태: 일반 회원 조작 가능 여부(첫 경기 시작 뒤 = IN_PROGRESS)를 화면이 판단한다
+    data["sessionStatus"] = db.scalar(select(ClubSession.status).where(ClubSession.session_id == m.session_id))
     events = list(db.scalars(select(MatchEvent).where(MatchEvent.match_id == m.match_id).order_by(MatchEvent.event_id)))
     mms = list(db.scalars(select(MatchMember).where(MatchMember.match_id == m.match_id)))
     names = member_names(db, [x.member_id for x in mms] + [e.scorer_member_id for e in events]
@@ -147,9 +149,12 @@ def _history(db: Session, session_id: int) -> list[MatchGame]:
                            .order_by(MatchGame.game_no)))
 
 
-def next_suggestion(db: Session, club_id: int, session_id: int) -> dict:
-    """다음 경기 대진 화면용: 팀별 오늘 경기 수/연속 경기 수 + 추천 대진(가장 오래 쉰 두 팀)."""
+def next_suggestion(db: Session, club_id: int, session_id: int, *, by_member: bool = False) -> dict:
+    """다음 경기 대진 화면용: 팀별 오늘 경기 수/연속 경기 수 + 추천 대진(가장 오래 쉰 두 팀).
+    by_member = 일반 회원(첫 경기 시작 뒤에만)."""
     s = get_session(db, club_id, session_id)
+    if by_member:
+        guard_member_after_first_start(s)
     teams = session_teams(db, session_id)
     if not teams:
         raise Conflict("팀이 확정되지 않았습니다.", "SESSION_NOT_CONFIRMED")
@@ -193,10 +198,13 @@ def next_suggestion(db: Session, club_id: int, session_id: int) -> dict:
 
 def create_next_match(db: Session, club_id: int, session_id: int, admin_id: int | None, *,
                       team_a_id: int | None, team_b_id: int | None, duration_sec: int | None = None,
-                      member_ids: list[int] | None = None) -> MatchGame:
-    """다음 경기 생성. 대진(두 팀)은 관리자가 매번 지정한다. 원정 경기는 출전 선수(member_ids)를 함께 고른다."""
+                      member_ids: list[int] | None = None, by_member: bool = False) -> MatchGame:
+    """다음 경기 생성. 대진(두 팀)은 만드는 사람이 매번 지정한다. 원정 경기는 출전 선수(member_ids)를 함께 고른다.
+    by_member = 일반 회원: 관리자가 첫 경기를 시작한 뒤(일정 '진행 중')에만."""
     s = get_session(db, club_id, session_id, lock=True)
     guard_not_closed(s)
+    if by_member:
+        guard_member_after_first_start(s)
     if s.status not in (SessionStatus.CONFIRMED, SessionStatus.IN_PROGRESS):
         raise Conflict("팀이 확정된 일정에서만 경기를 만들 수 있습니다.", "SESSION_NOT_CONFIRMED")
     team_ids = [t.session_team_id for t in session_teams(db, session_id)]
@@ -256,6 +264,17 @@ def live_matches(db: Session, club_id: int) -> list[dict]:
     return [{**match_state(db, m), "sessionDate": s.session_date, "sessionTitle": s.title} for m, s in rows]
 
 
+# ------------------------------------------------------------------ 일반 회원 경기 조작(2026-11-16, DECISIONS 3-21)
+# 관리자: 일정 생성 · 팀 배정 · 첫 경기 시작 · 기록 확정/해제 · 출전 명단 수정 · 일정마감 + 아래 전부
+# 일반 회원(관리자 토큰 없음): 경기 중 골 기록 · 일시정지/재개 · 경기 종료, 다음 경기 만들기 · 시작(첫 경기 시작 뒤),
+#   시작 전 경기 취소. (회원 아이디가 생기면 좁힐 예정)
+def guard_member_after_first_start(s: ClubSession) -> None:
+    """일반 회원은 관리자가 첫 경기를 시작한 뒤(일정 '진행 중')부터 다음 경기를 만들고 시작할 수 있다."""
+    if s.status != SessionStatus.IN_PROGRESS:
+        raise Forbidden("첫 경기는 관리자가 시작해요. 첫 경기가 시작된 뒤부터 다음 경기를 만들고 시작할 수 있어요.",
+                        "FIRST_MATCH_ADMIN_ONLY")
+
+
 # ------------------------------------------------------------------ 진행
 def _lock(db: Session, club_id: int, match_id: int) -> tuple[MatchGame, ClubSession]:
     m, s = get_match(db, club_id, match_id, lock=True)
@@ -268,9 +287,12 @@ def _require(m: MatchGame, *statuses: str) -> None:
         raise Conflict(f"현재 경기 상태({m.game_status})에서는 할 수 없는 작업입니다.", "INVALID_MATCH_STATUS")
 
 
-def start_match(db: Session, club_id: int, match_id: int, admin_id: int | None) -> MatchGame:
+def start_match(db: Session, club_id: int, match_id: int, admin_id: int | None, *, by_member: bool = False) -> MatchGame:
+    """경기 시작. by_member = 일반 회원: 첫 경기 시작(일정 '일정확정' → '진행 중')은 관리자만."""
     m, s = _lock(db, club_id, match_id)
     _require(m, GameStatus.READY)
+    if by_member:
+        guard_member_after_first_start(s)
     running = db.scalar(select(func.count()).select_from(MatchGame).where(
         MatchGame.session_id == m.session_id, MatchGame.match_id != m.match_id,
         MatchGame.game_status.in_([GameStatus.RUNNING, GameStatus.PAUSED])))
@@ -376,8 +398,13 @@ def end_match(db: Session, club_id: int, match_id: int, admin_id: int | None) ->
     return m
 
 
-def cancel_match(db: Session, club_id: int, match_id: int, admin_id: int | None) -> MatchGame:
-    m, _ = _lock(db, club_id, match_id)
+def cancel_match(db: Session, club_id: int, match_id: int, admin_id: int | None, *, by_member: bool = False) -> MatchGame:
+    """경기 취소. by_member = 일반 회원: 첫 경기 시작 뒤, 잘못 만든 대진(시작 전 경기)만."""
+    m, s = _lock(db, club_id, match_id)
+    if by_member:
+        if m.game_status != GameStatus.READY:
+            raise Forbidden("시작한 경기 취소는 관리자만 할 수 있어요.", "CANCEL_ADMIN_ONLY")
+        guard_member_after_first_start(s)  # 첫 경기(관리자가 만든 경기)는 관리자 몫
     if m.finalized_at:
         raise Conflict("확정된 경기는 취소할 수 없습니다. 먼저 확정을 해제하세요.", "MATCH_FINALIZED")
     _require(m, GameStatus.READY, GameStatus.RUNNING, GameStatus.PAUSED, GameStatus.FINISHED)
