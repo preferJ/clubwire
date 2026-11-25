@@ -584,10 +584,38 @@ class TemplateArticleWriter:
         raw = {"title": title[:120], "summary": summary[:300], "body": "\n\n".join(paras), "usedInsightIds": []}
         return validate_draft(raw, payload), raw
 
+    def _monthly_mvp_manual(self, payload: dict[str, Any]):
+        """관리자 선정 사실과 확인된 월간 기록만 전한다. 순위가 선정 사유라고 추측하지 않는다."""
+        mvp = payload["monthlyMvp"]
+        month = payload.get("monthLabel") or ""
+        w = mvp["winners"][0]
+        name = w["name"]
+        title = f"{month} 이달의 MVP, {name}"
+        summary = f"관리자가 {j(name, '을', '를')} {month} 이달의 MVP로 선정했다."
+        paras = [summary]
+        if w["games"]:
+            paras.append(f"선정 시점에 확정된 내부 경기 기록은 {w['sessions']}개 일정 {w['games']}경기, "
+                         f"{w['wins']}승 {w['draws']}무 {w['losses']}패다. {w['goals']}골과 {w['assists']}도움을 기록했다.")
+            paras.append(f"월간 승점은 {w['winPoints']}점이며 실력 점수 배율 {w['ratio']:.4f}를 곱한 "
+                         f"월간 포인트는 {self._pt(w['points'])}점이다. 월간 순위는 참고 자료이며 MVP는 관리자가 직접 선정한다.")
+        else:
+            paras.append("선정 시점에 해당 월의 확정된 내부 경기 기록은 없다.")
+            paras.append("월간 순위는 참고 자료이며, 이달의 MVP는 관리자가 직접 선정한다.")
+        titles = [x for x in mvp.get("monthlyTitles", []) if x.get("names")]
+        if titles:
+            unit = {"goals": "골", "assists": "도움"}
+            parts = [f"{x['titleName'].replace('이달의 ', '')}{josa_only(x['titleName'], '은', '는')} "
+                     f"{names_ko(x['names'])}({x['value']}{unit.get(x.get('metric'), '')})" for x in titles]
+            paras.append(f"{month} " + ", ".join(parts) + "이다.")
+        raw = {"title": title, "summary": summary, "body": "\n\n".join(paras), "usedInsightIds": []}
+        return validate_draft(raw, payload), raw
+
     def _monthly_mvp(self, payload: dict[str, Any]):
         """이달의 MVP 발표: 상승률 · 한 달 성적 · 특히 많이 오른 경기 · 가장 크게 오른 날 · 2·3위 · 선정 기준.
         2026-11부터는 포인트제(basis = points) → _monthly_mvp_points."""
         mvp = payload.get("monthlyMvp") or {}
+        if mvp.get("selection") == "manual":
+            return self._monthly_mvp_manual(payload)
         if mvp.get("basis") == "points":
             return self._monthly_mvp_points(payload)
         month = payload.get("monthLabel") or ""

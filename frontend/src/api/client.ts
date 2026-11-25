@@ -1,6 +1,7 @@
 // fetch 래퍼: /api/clubs/{slug} 접두사, 관리자 토큰, 에러 형식({error:{code,message}}) 통일
 
 import { clearAdminToken, getAdminToken } from '../lib/authStore'
+import { getUserCsrfToken } from '../lib/userSessionStore'
 
 export class ApiError extends Error {
   status: number
@@ -34,6 +35,8 @@ export async function request<T>(
   const headers: Record<string, string> = { Accept: 'application/json' }
   const token = getAdminToken(slug)
   if (token) headers.Authorization = `Bearer ${token}`
+  const csrf = getUserCsrfToken()
+  if (method !== 'GET' && csrf) headers['X-CSRF-Token'] = csrf
   if (options.body !== undefined) headers['Content-Type'] = 'application/json'
 
   const res = await fetch(`/api/clubs/${encodeURIComponent(slug)}${path}${qs(options.query)}`, {

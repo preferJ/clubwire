@@ -48,7 +48,7 @@ def test_monthly_top_scorer_and_assist(make_club):
     s1 = _session(api, month.replace(day=5), ids, matches=3)
     s2 = _session(api, month.replace(day=12), ids, matches=3)
     api.ok(api.post(f"/sessions/{s1}/close"))
-    api.ok(api.post(f"/sessions/{s2}/close"))  # 지난달 마지막 일정 → 월 마감(MVP + 득점왕 · 도움왕)
+    api.ok(api.post(f"/sessions/{s2}/close"))  # 지난달 마지막 일정 → 득점왕 · 도움왕 자동 마감
 
     with SessionLocal() as s:
         club = get_club_by_slug(s, "mstat")
@@ -60,6 +60,7 @@ def test_monthly_top_scorer_and_assist(make_club):
         assert sorted(t[1] for t in got) == expect and all(t[2] == s2 for t in got)
         assert all(t[3] == {"metric": metric, "value": best, "tied": len(expect) > 1} for t in got)
 
+    api.ok(api.post(f"/members/{ids[0]}/monthly-mvp", {"month": month.strftime("%Y-%m")}))
     awards = api.ok(api.get("/titles/awards", admin=False))
     assert {"이달의 득점왕", "이달의 도움왕", "이달의 MVP"} <= {a["titleName"] for a in awards}
     art = next(a for a in api.ok(api.get("/articles", admin=False)) if a["articleType"] == "MONTHLY_MVP")

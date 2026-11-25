@@ -139,6 +139,8 @@ def test_lineup_per_match_and_opponent_goal_rules(make_club):
     r = _goal(api, mid, ours, ids[3])  # 이번 경기 출전 선수가 아님
     assert r.status_code == 400 and r.json()["error"]["code"] == "INVALID_SCORER"
     # 원정팀 골: 점수만(일반 회원도)
+    from tests.user_helpers import authenticate_member
+    authenticate_member(api, ids[0])
     api.ok(_goal(api, mid, opp, admin=False))
     r = _goal(api, mid, opp, ids[0])
     assert r.status_code == 400 and r.json()["error"]["code"] == "INVALID_SCORER"

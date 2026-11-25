@@ -136,7 +136,8 @@ def _emit_state(db: Session, club_id: int, m: MatchGame) -> None:
 
 
 def _event(db: Session, m: MatchGame, event_type: EventType, admin_id: int | None, **kw) -> MatchEvent:
-    e = MatchEvent(match_id=m.match_id, event_type=event_type, admin_id=admin_id, **kw)
+    e = MatchEvent(match_id=m.match_id, event_type=event_type, admin_id=admin_id,
+                   user_id=db.info.get("actor_user_id") if admin_id is None else None, **kw)
     db.add(e)
     db.flush()
     return e
@@ -526,8 +527,8 @@ def add_goal(db: Session, club_id: int, match_id: int, admin_id: int | None, *, 
              memo: str | None = None) -> tuple[MatchEvent, MatchGame, bool]:
     """반환: (이벤트, 경기, 새로 생성 여부). 같은 멱등키 재요청이면 기존 이벤트를 그대로 돌려준다.
 
-    골 등록 · 수정 · 취소는 경기가 시작된 뒤 확정 전까지 일반 회원도 할 수 있다(admin_id=None, DECISIONS 3-16).
-    경기 진행(시작 · 정지 · 종료) · 확정 · 출전 명단은 관리자만.
+    골 등록 · 수정 · 취소는 경기가 시작된 뒤 확정 전까지 승인된 일정 참석자도 할 수 있다(admin_id=None, USER_ID에 사용자 기록).
+    기록 확정 · 출전 명단 수정은 관리자만.
     """
     m, s = _lock(db, club_id, match_id)
     if idempotency_key:
@@ -549,7 +550,7 @@ def add_goal(db: Session, club_id: int, match_id: int, admin_id: int | None, *, 
                    scorer_member_id=scorer_member_id, assist_member_id=assist_member_id,
                    own_goal_yn=own_goal, guest_goal_yn=guest_goal, elapsed_sec=el,
                    remaining_sec=m.game_duration_sec - el, idempotency_key=idempotency_key, memo=memo,
-                   admin_id=admin_id)
+                   admin_id=admin_id, user_id=db.info.get("actor_user_id") if admin_id is None else None)
     db.add(e)
     try:
         db.flush()

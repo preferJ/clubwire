@@ -3,6 +3,7 @@ from sqlalchemy import select
 
 from app.core.database import SessionLocal
 from app.models import MatchEvent
+from tests.user_helpers import authenticate_member
 
 
 def _setup(api, n=6, date="2026-12-05"):
@@ -11,6 +12,7 @@ def _setup(api, n=6, date="2026-12-05"):
     api.ok(api.post(f"/sessions/{sid}/members", {"memberIds": ids}))
     gen = api.ok(api.post(f"/sessions/{sid}/teams/generate", {"teamCount": 2, "seed": 3}))
     api.ok(api.post(f"/sessions/{sid}/teams/confirm", {"generationId": gen["generationId"]}))
+    authenticate_member(api, ids[0])
     m = api.next_match(sid)
     return sid, m["matchId"]
 
@@ -46,10 +48,11 @@ def test_member_can_record_goal_and_assist_after_match_starts(make_club):
     again = api.ok(_goal(api, mid, a, scorer, helper, admin=False, idempotencyKey="member-1"))
     assert again["duplicate"] is True and again["eventId"] == res["eventId"]
 
-    # 일반 회원 기록은 처리 관리자 없음(NULL)
+    # 일반 회원 기록은 실제 로그인 계정으로 추적하고 처리 관리자 없음(NULL)
     with SessionLocal() as s:
         ev = s.scalar(select(MatchEvent).where(MatchEvent.event_id == res["eventId"]))
         assert ev.admin_id is None and ev.assist_member_id == helper
+        assert ev.user_id == api.user_session.user_id
 
     # 일시정지 중에도 가능
     api.ok(api.post(f"/matches/{mid}/pause"))
@@ -72,7 +75,7 @@ def test_member_can_record_goal_and_assist_after_match_starts(make_club):
     assert r.status_code == 409 and r.json()["error"]["code"] == "MATCH_FINALIZED"
 
 
-def test_member_can_edit_and_cancel_goal_but_not_control_match(make_club):
+def test_member_can_edit_and_cancel_goal_but_not_finalize_match(make_club):
     api = make_club("mgoal2")
     _, mid = _setup(api, date="2026-12-06")
     api.ok(api.post(f"/matches/{mid}/start"))
@@ -86,14 +89,15 @@ def test_member_can_edit_and_cancel_goal_but_not_control_match(make_club):
     assert res["changed"] is True
     assert (res["match"]["teamA"]["score"], res["match"]["teamB"]["score"]) == (0, 1)
     with SessionLocal() as s:
-        assert s.scalar(select(MatchEvent).where(MatchEvent.event_id == res["eventId"])).admin_id is None
+        event = s.scalar(select(MatchEvent).where(MatchEvent.event_id == res["eventId"]))
+        assert event.admin_id is None and event.user_id == api.user_session.user_id
 
     # 일반 회원 취소(경기 종료 후 확정 전에도)
     api.ok(api.post(f"/matches/{mid}/end"))
     api.ok(api.post(f"/matches/{mid}/events/{res['eventId']}/cancel", admin=False))
     assert _detail(api, mid)["teamB"]["score"] == 0
 
-    # 기록 확정 · 해제 · 출전 명단 · 시작한 경기 취소는 관리자만(경기 진행은 3-21부터 누구나)
+    # 기록 확정 · 해제 · 출전 명단 · 시작한 경기 취소는 관리자만
     for action in ("finalize", "unfinalize"):
         assert api.post(f"/matches/{mid}/{action}", admin=False).status_code == 401
     r = api.post(f"/matches/{mid}/cancel", admin=False)

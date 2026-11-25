@@ -15,12 +15,14 @@ from app.api import (
     clubs,
     matches,
     members,
+    monthly_mvp,
     opponents,
     sessions,
     stats,
     superadmin_auth,
     superadmin_teams,
     titles,
+    user_auth,
     wire,
     ws,
 )
@@ -75,11 +77,12 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 CLUB_PREFIX = "/api/clubs/{club_slug}"  # 클럽(tenant)은 URL로 구분
 for r in (clubs.router, appearance.router, members.router, sessions.router, opponents.router, matches.router, stats.router,
-          titles.router, wire.router):
+          titles.router, wire.router, monthly_mvp.router, user_auth.club_router):
     app.include_router(r, prefix=CLUB_PREFIX)
 app.include_router(ws.router)
 app.include_router(superadmin_auth.router)
 app.include_router(superadmin_teams.router)
+app.include_router(user_auth.router)
 
 
 @app.get("/health", tags=["system"])

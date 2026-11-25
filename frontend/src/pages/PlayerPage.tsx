@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useParams } from 'react-router-dom'
 import type { AwayMemberRecord, Award, MemberProfile } from '../api/types'
 import { Chemistry } from '../components/Chemistry'
+import { MonthlyMvpPicker } from '../components/MonthlyMvpPicker'
 import { ErrorBox, Loading, TopBar } from '../components/ui'
 import { useClub } from '../lib/club'
 import { fmtAwardPeriod, fmtAwardValue, fmtFullDate, initials, pct, RESULT_LABEL } from '../lib/format'
@@ -57,6 +58,7 @@ export function PlayerPage() {
 
       <main className="page">
         {isAdmin && s.deleted ? <p className="small muted">삭제한 선수예요. 지난 기록만 보여요. 수정하려면 관리자 메뉴 → 멤버 관리 → 삭제한 선수에서 복원하세요.</p> : null}
+        {isAdmin && !s.deleted ? <MonthlyMvpPicker key={id} memberId={id} name={s.name} onSaved={() => { detail.reload(); awards.reload() }} /> : null}
         {isAdmin && !s.deleted ? <ProfileEditor key={`${id}-${profile.joinedAt}-${profile.birthYear}-${profile.jerseyNumber}`} memberId={id} profile={profile} onSaved={detail.reload} /> : null}
 
         <div className="grid3">

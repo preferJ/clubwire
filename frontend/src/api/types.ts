@@ -573,6 +573,7 @@ export type WsMessage =
   | { type: 'TITLE_UPDATED'; memberTitleId: number }
   | { type: 'CLUB_CONTENT_UPDATED' }
   | { type: 'CLUB_APPEARANCE_UPDATED' }
+  | { type: 'ACCOUNT_UPDATED'; clubId?: number }
   | { type: 'OPPONENTS_UPDATED'; opponentId: number }
   /** 서버가 보내는 메시지가 아님: 끊겼던 연결이 다시 붙었을 때 화면이 놓친 변경을 다시 불러오도록 클라이언트가 만든다 */
   | { type: 'RECONNECTED' }

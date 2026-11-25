@@ -54,7 +54,10 @@ export function ClubBar({ title, sub, children }: { title: ReactNode; sub?: Reac
           <h1>{title}</h1>
           <span>{sub ?? club?.clubName ?? ''}</span>
         </div>
-        <div className="row" style={{ gap: 4 }}><ThemeToggle /><AdminButton onDark /></div>
+        <div className="row" style={{ gap: 4 }}>
+          <Link to={`/c/${slug}/account`} className="icon-btn" aria-label="내 계정 · 카카오 로그인" style={{ color: 'inherit' }}><Icon name="users" /></Link>
+          <ThemeToggle /><AdminButton onDark />
+        </div>
       </div>
       {children}
     </header>

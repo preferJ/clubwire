@@ -1,13 +1,14 @@
 """일반 회원 경기 조작 — DECISIONS 3-21.
 
 관리자: 일정 생성 · 팀 배정 · 첫 경기 시작 · 경기 중 조작 · 다음 경기 · 기록 확정 · 일정마감
-일반 회원(관리자 토큰 없음): 경기 중 골 기록 · 일시정지/재개 · 경기 종료, 다음 경기 만들기 · 시작(첫 경기 시작 뒤),
+승인된 참가 회원: 경기 중 골 기록 · 일시정지/재개 · 경기 종료, 다음 경기 만들기 · 시작(첫 경기 시작 뒤),
   시작 전 경기 취소(첫 경기 시작 뒤). 기록 확정 · 해제 · 출전 명단 수정 · 시작한 경기 취소 · 일정마감은 관리자만
 """
 from sqlalchemy import select
 
 from app.core.database import SessionLocal
 from app.models import MatchEvent
+from tests.user_helpers import authenticate_member
 
 
 def _confirmed(api, n=6, date="2027-03-06", teams=2):
@@ -16,6 +17,7 @@ def _confirmed(api, n=6, date="2027-03-06", teams=2):
     api.ok(api.post(f"/sessions/{sid}/members", {"memberIds": ids}))
     gen = api.ok(api.post(f"/sessions/{sid}/teams/generate", {"teamCount": teams, "seed": 5}))
     api.ok(api.post(f"/sessions/{sid}/teams/confirm", {"generationId": gen["generationId"]}))
+    authenticate_member(api, ids[0])
     return sid, ids
 
 
@@ -77,10 +79,11 @@ def test_first_match_is_admin_then_members_run_the_day(make_club):
     assert api.ok(api.post(f"/matches/{m3['matchId']}/start", admin=False))["status"] == "RUNNING"
     api.ok(api.post(f"/matches/{m3['matchId']}/end", admin=False))
 
-    # 일반 회원이 한 조작은 관리자 없이 기록된다(이벤트 ADMIN_ID 비움)
+    # 일반 회원이 한 조작은 로그인 계정으로 기록된다(이벤트 ADMIN_ID 비움)
     with SessionLocal() as s:
         events = s.scalars(select(MatchEvent).where(MatchEvent.match_id == m3["matchId"])).all()
         assert {e.event_type for e in events} >= {"START", "END"} and all(e.admin_id is None for e in events)
+        assert all(e.user_id == api.user_session.user_id for e in events)
 
     # 출전 명단 수정 · 일정마감은 관리자만. 일정마감 때 확정 안 된 경기는 순서대로 자동 확정
     mem = api.ok(api.get(f"/matches/{m3['matchId']}", admin=False))["teamA"]["members"][0]["memberId"]
@@ -116,6 +119,7 @@ def test_member_runs_away_match_with_lineup(make_club):
     oid = api.ok(api.post("/opponents", {"name": "한강FC"}), 201)["opponentId"]
     gen = api.ok(api.post(f"/sessions/{sid}/teams/generate", {"teamCount": 1, "opponentId": oid}))
     conf = api.ok(api.post(f"/sessions/{sid}/teams/confirm", {"generationId": gen["generationId"]}))
+    authenticate_member(api, ids[0])
     ours = next(t for t in conf["teams"] if not t["opponent"])["sessionTeamId"]
     opp = next(t for t in conf["teams"] if t["opponent"])["sessionTeamId"]
     m1 = api.ok(api.post(f"/sessions/{sid}/matches/next", {"teamAId": ours, "teamBId": opp, "memberIds": ids[:4]}), 201)

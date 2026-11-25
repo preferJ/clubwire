@@ -24,12 +24,14 @@ from app.models import (
     InsightMember,
     InsightTypeConfig,
     Member,
+    MemberTitle,
+    TitleType,
 )
 from app.models.enums import ArticleStatus, ArticleType
 from app.integrations.openai.writer import PROMPT_VERSION, failure_reason, get_writer, template_writer
 from app.services.config_service import load_config
 from app.services.session_service import team_rosters
-from app.services.common import get_session
+from app.services.common import get_session, lock_club
 
 log = logging.getLogger("clubwire.wire")
 
@@ -48,7 +50,7 @@ def _model_for(article_type: str) -> str:
     return settings.AI_RECAP_MODEL if article_type in recap else settings.AI_ARTICLE_MODEL
 
 
-def build_payload(db: Session, club: Club, session: ClubSession, article_type: str, insights: list[Insight],
+def build_payload(db: Session, club: Club, session: ClubSession | None, article_type: str, insights: list[Insight],
                   extra_context: dict[str, Any] | None = None) -> dict[str, Any]:
     """기사의 본문 소재와 이정표 표 스냅샷. DB Row를 그대로 넘기지 않는다."""
     cfg = load_config(db, club.club_id)
@@ -66,17 +68,17 @@ def build_payload(db: Session, club: Club, session: ClubSession, article_type: s
     payload: dict[str, Any] = {
         "articleType": article_type,
         "clubName": club.club_name,
-        "sessionDate": session.session_date.isoformat(),
-        "sessionTitle": session.title,
-        "location": session.location,
+        "sessionDate": session.session_date.isoformat() if session else None,
+        "sessionTitle": session.title if session else None,
+        "location": session.location if session else None,
         "insights": [insight_payload(i) for i in chosen],
         # 표는 AI 본문 소재 개수 제한과 무관하다. 전체 이정표를 당시 수치로 보관한다.
         # 이 필드는 화면용 스냅샷이며 OpenAI 요청에서는 제외한다.
         "milestoneInsights": [insight_payload(i) for i in ordered if i.insight_type == "MILESTONE_EXPECTED"],
     }
-    if session.away_yn:  # 원정 경기: 우리 클럽 vs 원정팀. insights의 기록은 모두 원정 경기만 따로 집계한 값
+    if session and session.away_yn:  # 원정 경기: 우리 클럽 vs 원정팀. insights의 기록은 모두 원정 경기만 따로 집계한 값
         payload["away"] = {"opponentName": session.opponent_name, "ourTeamName": club.club_name}
-    if article_type == ArticleType.PRE_MATCH:
+    if article_type == ArticleType.PRE_MATCH and session:
         payload["teams"] = [
             {"teamCode": info["team"].team_code,
              **({"teamName": info["team"].display_name} if session.away_yn else {}),
@@ -89,14 +91,14 @@ def build_payload(db: Session, club: Club, session: ClubSession, article_type: s
     return payload
 
 
-def create_article(db: Session, club: Club, session: ClubSession, article_type: str, insights: list[Insight],
+def create_article(db: Session, club: Club, session: ClubSession | None, article_type: str, insights: list[Insight],
                    extra_context: dict[str, Any] | None = None) -> AiArticle:
     """PENDING 기사 행 생성(호출 측 트랜잭션). 실제 생성은 run_generation()."""
     payload = build_payload(db, club, session, article_type, insights, extra_context)
     rule_versions = sorted({f"{i.insight_type}:{i.rule_version}" for i in insights})
     provider = settings.ai_provider_resolved
     a = AiArticle(
-        club_id=club.club_id, session_id=session.session_id, article_type=article_type,
+        club_id=club.club_id, session_id=session.session_id if session else None, article_type=article_type,
         model_name=_model_for(article_type) if provider == "openai" else TEMPLATE_MODEL,
         prompt_version=PROMPT_VERSION, insight_rule_version=",".join(rule_versions)[:1000] or None,
         status=ArticleStatus.PENDING, published_yn=False, generation_no=1, request_json=payload,
@@ -107,8 +109,51 @@ def create_article(db: Session, club: Club, session: ClubSession, article_type: 
     return a
 
 
+def _check_mvp_selection(db: Session, a: AiArticle) -> None:
+    """재선정/취소 뒤 오래된 기사 생성·재게시가 현재 수상자를 덮어쓰지 못하게 한다."""
+    payload = a.request_json or {}
+    if a.article_type != ArticleType.MONTHLY_MVP:
+        return
+    facts = payload.get("monthlyMvp") or {}
+    award_id = facts.get("selectionAwardId")
+    if award_id:
+        award = db.scalar(select(MemberTitle).where(MemberTitle.member_title_id == award_id,
+                                                    MemberTitle.club_id == a.club_id).with_for_update())
+        if not award or award.cancelled_yn:
+            raise Conflict("MVP 선정이 변경되거나 취소된 기사입니다.", "MVP_SELECTION_CHANGED")
+    elif payload.get("month"):
+        # 이전 자동선정 기사도 관리자가 다른 사람으로 재선정한 뒤 다시 게시할 수 없다.
+        from datetime import date
+        start = date.fromisoformat(payload["month"] + "-01")
+        active = set(db.scalars(select(MemberTitle.member_id).join(
+            TitleType, TitleType.title_type_id == MemberTitle.title_type_id).where(
+                MemberTitle.club_id == a.club_id, TitleType.title_code == "MONTHLY_MVP",
+                MemberTitle.period_start == start, MemberTitle.cancelled_yn.is_(False))))
+        used = {w.get("memberId") for w in facts.get("winners", [])}
+        if active != used:
+            raise Conflict("MVP 선정이 변경되거나 취소된 기사입니다.", "MVP_SELECTION_CHANGED")
+
+
+def _generation_target(db: Session, article_id: int, club_id: int) -> AiArticle | None:
+    lock_club(db, club_id)
+    a = db.scalar(select(AiArticle).where(AiArticle.article_id == article_id)
+                  .execution_options(populate_existing=True).with_for_update())
+    if not a or a.status != ArticleStatus.PENDING:
+        db.rollback()
+        return None
+    try:
+        _check_mvp_selection(db, a)
+    except Conflict:
+        a.status = ArticleStatus.SUPERSEDED
+        a.published_yn = False
+        emit(db, a.club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
+        db.commit()
+        return None
+    return a
+
+
 def run_generation(article_id: int) -> None:
-    """백그라운드 실행(자체 DB 세션). 실패해도 예외를 밖으로 던지지 않고 FAILED로 남긴다."""
+    """AI 호출 동안 DB 잠금을 잡지 않고, 저장 직전 현재 상태·MVP 선정을 다시 검증한다."""
     with SessionLocal() as db:
         a = db.get(AiArticle, article_id)
         if not a or a.status != ArticleStatus.PENDING:
@@ -116,28 +161,37 @@ def run_generation(article_id: int) -> None:
         session = db.get(ClubSession, a.session_id) if a.session_id else None
         if session and session.deleted_at is not None:
             return
-        cfg = load_config(db, a.club_id)
+        club_id, model_name, payload = a.club_id, a.model_name, deepcopy(a.request_json or {})
+        cfg = load_config(db, club_id)
         options = {"temperature": cfg["AI_TEMPERATURE"], "maxOutputTokens": cfg["AI_MAX_OUTPUT_TOKENS"]}
+        db.rollback()
         reason = None
         try:
             writer = get_writer()
-            draft, raw = writer.write(a.request_json or {}, a.model_name, options)
-            if writer.provider != "openai":  # 처음부터 AI를 안 쓰는 설정
+            draft, raw = writer.write(payload, model_name, options)
+            if writer.provider != "openai":
                 reason = "AI 키 없음(OPENAI_API_KEY)" if not settings.OPENAI_API_KEY else "AI 사용 안 함(AI_PROVIDER)"
-                a.model_name = TEMPLATE_MODEL
-        except Exception as e:  # noqa: BLE001  AI 실패 → 기본형 기사로 대신
+                model_name = TEMPLATE_MODEL
+        except Exception as e:  # noqa: BLE001
             log.warning("AI article failed, fallback to template: %s (%s)", article_id, e)
             reason = failure_reason(e)
             try:
-                draft, raw = template_writer().write(a.request_json or {}, TEMPLATE_MODEL)
-            except Exception as e2:  # noqa: BLE001  기본형까지 실패하면 실패로 남김
+                draft, raw = template_writer().write(payload, TEMPLATE_MODEL)
+            except Exception as e2:  # noqa: BLE001
                 log.exception("template article failed: %s", article_id)
+                a = _generation_target(db, article_id, club_id)
+                if a is None:
+                    return
                 a.status = ArticleStatus.FAILED
                 a.error_message = f"{reason} / 기본형 작성 실패: {e2}"[:4000]
                 emit(db, a.club_id, "ARTICLE_UPDATED", {"articleId": a.article_id, "status": a.status})
                 db.commit()
                 return
-            a.model_name = TEMPLATE_MODEL
+            model_name = TEMPLATE_MODEL
+        a = _generation_target(db, article_id, club_id)
+        if a is None:
+            return
+        a.model_name = model_name
         a.title, a.summary, a.content = draft.title, draft.summary, draft.body
         a.response_json = raw
         a.status = ArticleStatus.GENERATED
@@ -169,9 +223,12 @@ def _apply_tags(db: Session, a: AiArticle) -> None:
 
 
 def _publish(db: Session, a: AiArticle) -> None:
-    # 같은 일정/같은 종류의 기존 게시본은 내리되 삭제하지 않는다(SUPERSEDED)
+    _check_mvp_selection(db, a)
+    # 월간 기사는 월별로 묶는다. 일정이 없는 다른 달의 MVP 기사까지 내리지 않는다.
+    month = (a.request_json or {}).get("month") if a.article_type == ArticleType.MONTHLY_MVP else None
+    scope = AiArticle.request_json["month"].as_string() == month if month else AiArticle.session_id == a.session_id
     for old in db.scalars(select(AiArticle).where(
-            AiArticle.club_id == a.club_id, AiArticle.session_id == a.session_id,
+            AiArticle.club_id == a.club_id, scope,
             AiArticle.article_type == a.article_type, AiArticle.published_yn.is_(True),
             AiArticle.article_id != a.article_id)):
         old.published_yn = False
@@ -219,6 +276,7 @@ def update_article(db: Session, club_id: int, article_id: int, *, title: str, su
 
 
 def publish_article(db: Session, club_id: int, article_id: int) -> AiArticle:
+    lock_club(db, club_id)
     a = _get(db, club_id, article_id, lock=True)
     if a.session_id:
         get_session(db, club_id, a.session_id)
@@ -246,7 +304,9 @@ def reject_article(db: Session, club_id: int, article_id: int) -> AiArticle:
 def regenerate_article(db: Session, club_id: int, article_id: int,
                        required_insight_ids: list[int] | None = None) -> AiArticle:
     """기존 사실을 보존하고 관리자가 고른 필수 사실로 새 버전을 만든다."""
+    lock_club(db, club_id)
     src = _get(db, club_id, article_id)
+    _check_mvp_selection(db, src)
     if src.article_type == ArticleType.NOTICE:
         raise BadRequest("운영진 안내 기사는 다시 쓰기를 지원하지 않습니다.", "NOTICE_REGENERATE_NOT_SUPPORTED")
     if src.session_id:

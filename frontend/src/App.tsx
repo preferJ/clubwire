@@ -24,6 +24,8 @@ import { SessionFormPage } from './pages/admin/SessionFormPage'
 import { SettingsPage } from './pages/admin/SettingsPage'
 import { TeamsPage } from './pages/admin/TeamsPage'
 import { SuperAdminPage } from './pages/superadmin/SuperAdminPage'
+import { AccountPage } from './pages/AccountPage'
+import { AccountsAdminPage } from './pages/admin/AccountsAdminPage'
 
 function ClubLayout() {
   const { slug = '' } = useParams()
@@ -107,6 +109,8 @@ export default function App() {
               <Route path="records" element={<RecordsPage />} />
               <Route path="records/away/:opponentId" element={<AwayOpponentPage />} />
               <Route path="members" element={<MembersPage />} />
+              <Route path="account" element={<AccountPage />} />
+              <Route path="admin/accounts" element={admin(<AccountsAdminPage />)} />
               <Route path="articles/:articleId" element={<ArticlePage />} />
               <Route path="sessions/:sessionId" element={<SessionPage />} />
               <Route path="matches/:matchId" element={<MatchPage />} />

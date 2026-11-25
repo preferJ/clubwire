@@ -150,18 +150,23 @@ def test_monthly_points_race_close_award_and_article(make_club):
     assert ids[5] not in [p.member_id for _, p in ranked]
     assert "rating" not in json.dumps(race).lower()
 
-    # 월 마감: 타이틀(포인트 1위) + 기사(바로 게시)
+    # 월 마감은 득점왕/도움왕만 자동 수여한다. MVP는 관리자가 순위와 무관하게 선택한다.
     api.ok(api.post(f"/sessions/{s1}/close"))
-    assert _mvp_titles("mvppt") == []
     api.ok(api.post(f"/sessions/{s2}/close"))
+    assert _mvp_titles("mvppt") == []
+    chosen = min(expected, key=lambda m: expected[m][0])
+    best = expected[chosen][0]
+    assert best < max(v[0] for v in expected.values())
+    api.ok(api.post(f"/members/{chosen}/monthly-mvp", {"month": month.strftime("%Y-%m")}))
     titles = _mvp_titles("mvppt")
-    best = max(v[0] for v in expected.values())
-    winners = sorted(m for m, v in expected.items() if v[0] == best)
-    assert sorted(t.member_id for t in titles) == winners
+    winners = [chosen]
+    assert [t.member_id for t in titles] == winners
     f = titles[0].facts_json
     assert (titles[0].period_start, titles[0].period_end, titles[0].session_id) == (start, end, s2)
-    assert f["metric"] == "mvpPoints" and f["value"] == best and f["tied"] == (len(winners) > 1)
-    assert (f["winPoints"], f["ratio"]) == expected[titles[0].member_id][1:] and f["sessions"] == 2
+    assert titles[0].award_method == "MANUAL"
+    assert f["metric"] == "mvpPoints" and f["value"] == best and f["tied"] is False
+    assert f["selection"] == "manual"
+    assert (f["winPoints"], f["ratio"]) == expected[chosen][1:] and f["sessions"] == 2
 
     art = next(a for a in api.ok(api.get("/articles", admin=False)) if a["articleType"] == "MONTHLY_MVP")
     detail = api.ok(api.get(f"/articles/{art['articleId']}", admin=False))
@@ -169,8 +174,8 @@ def test_monthly_points_race_close_award_and_article(make_club):
     names = {m["memberId"]: m["name"] for m in api.ok(api.get("/members"))}
     assert all(names[m] in detail["title"] for m in winners) and "이달의 MVP" in art["tags"]
     pt = f"{best:.2f}".rstrip("0").rstrip(".")
-    assert f"월간 포인트 {pt}점" in text and f"승점은 {f['winPoints']}점" in text and "실력 점수 배율" in text
-    assert "승점을 가장 많이 쌓은 날" in text and "선정 기준은 월간 승점" in text
+    assert f"월간 포인트는 {pt}점" in text and f"승점은 {f['winPoints']}점" in text and "실력 점수 배율" in text
+    assert "관리자가 직접 선정" in text and "선정 기준은 월간 승점" not in text
     assert "레이팅" not in text and "rating" not in text.lower() and "상승률" not in text
     with SessionLocal() as s:
         req = s.get(AiArticle, art["articleId"]).request_json
@@ -239,11 +244,14 @@ def test_points_tie_goes_to_fewer_mvps_then_goals_then_younger(make_club):
     cands = race()
     assert [(c["rank"], c["memberId"]) for c in cands[:2]] == [(1, y), (2, x)]
 
-    api.ok(api.post(f"/sessions/{last_sid}/close"))  # 월 마감
+    api.ok(api.post(f"/sessions/{last_sid}/close"))
+    assert _mvp_titles("mvptie") == []
+    # 기존 동점 순위는 그대로지만, 2위 선수를 선정해도 순위 규칙으로 수상자를 바꾸지 않는다.
+    api.ok(api.post(f"/members/{x}/monthly-mvp", {"month": month.strftime("%Y-%m")}))
     titles = _mvp_titles("mvptie")
-    assert [t.member_id for t in titles] == [y] and titles[0].facts_json["tied"] is False
+    assert [t.member_id for t in titles] == [x] and titles[0].facts_json["tied"] is False
     art = next(a for a in api.ok(api.get("/articles", admin=False)) if a["articleType"] == "MONTHLY_MVP")
     detail = api.ok(api.get(f"/articles/{art['articleId']}", admin=False))
-    assert "최종 포인트가 같은 선수가 6명이었고, 나이가 어린 선수를 우선하는 기준에 따라 김철수가 선정됐다." in detail["content"]
-    assert api.ok(api.get(f"/articles/{art['articleId']}"))["requestJson"]["monthlyMvp"]["tiebreak"] == {
-        "tiedCount": 6, "decidedBy": "age", "decidedByLabel": "나이가 어린 선수", "joint": False}
+    assert "홍길동" in detail["title"] and "관리자" in detail["content"]
+    assert "나이가 어린" not in detail["content"]
+    assert api.ok(api.get(f"/articles/{art['articleId']}"))["requestJson"]["monthlyMvp"]["tiebreak"] is None

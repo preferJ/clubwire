@@ -1,4 +1,4 @@
-"""이달의 MVP(2026-10까지의 이전 방식): 그 달 실력 점수 상승률 1위 → 월 마감 때 타이틀 + 기사(바로 게시).
+"""이전 상승률 순위는 유지하되 월 마감으로 MVP를 자동 수여하지 않는다.
 점수 자체는 어디에도 노출하지 않는다. 2026-11부터의 월간 포인트제는 test_monthly_mvp_points.py."""
 import json
 from datetime import date
@@ -48,70 +48,32 @@ def _expected(api, member_ids, min_sessions_of):
     return out
 
 
-def test_monthly_mvp_close_award_and_article(make_club):
+def test_month_close_keeps_rise_rankings_without_automatic_mvp(make_club):
     api = make_club("mvp")
     ids = [api.ok(api.post("/members", {"name": n}), 201)["memberId"]
            for n in ("홍길동", "김철수", "이영희", "박민수", "최지훈", "정우성")]
-    month = prev_month_start(local_today("Asia/Seoul"))  # 지난달 = 월 마감 대상
-    start, end = month_range(month)
+    month = prev_month_start(local_today("Asia/Seoul"))
     s1 = api.ok(api.post("/sessions", {"sessionDate": month.replace(day=3).isoformat()}), 201)["sessionId"]
     s2 = api.ok(api.post("/sessions", {"sessionDate": month.replace(day=10).isoformat()}), 201)["sessionId"]
-    s3 = api.ok(api.post("/sessions", {"sessionDate": month.replace(day=17).isoformat()}), 201)["sessionId"]
-
-    _play_session(api, s1, ids)            # 6명
-    _play_session(api, s2, ids[:5])        # 정우성은 1회만 → 후보 자격 없음
+    _play_session(api, s1, ids)
+    _play_session(api, s2, ids[:5])
     api.ok(api.post(f"/sessions/{s1}/close"))
-
-    def mvp_titles():
-        with SessionLocal() as s:
-            club = get_club_by_slug(s, "mvp")
-            t = s.scalar(select(TitleType).where(TitleType.club_id == club.club_id, TitleType.title_code == "MONTHLY_MVP"))
-            return list(s.scalars(select(MemberTitle).where(MemberTitle.title_type_id == t.title_type_id))), club
-
-    # [일정마감]의 주간 자동 타이틀 계산은 이달의 MVP를 건드리지 않음 / 그 달 열린 일정이 있으면 기다림
-    assert mvp_titles()[0] == []
-
-    # 남은 일정 취소 → 마지막 일정 [일정마감] 때 지난달이 끝났으므로 바로 월 마감(동기 생성 설정)
-    api.ok(api.post(f"/sessions/{s3}/cancel"))
     api.ok(api.post(f"/sessions/{s2}/close"))
-    titles, club = mvp_titles()
-    expected = _expected(api, ids, {m: (2 if m in ids[:5] else 1) for m in ids})
-    best = max(expected.values())
-    assert sorted(t.member_id for t in titles) == sorted(m for m, v in expected.items() if v == best)
-    assert ids[5] not in [t.member_id for t in titles]
-    t0 = titles[0]
-    assert (t0.period_start, t0.period_end, t0.session_id) == (start, end, s2)  # 기사·타이틀은 그 달 마지막 일정에
-    assert t0.facts_json["metric"] == "risePercent" and t0.facts_json["value"] == best and t0.facts_json["sessions"] == 2
-
-    # 기사: 게시 설정(기본 MANUAL)과 상관없이 바로 게시 · '이달의 MVP' 태그 · 점수 자체는 없음
-    arts = api.ok(api.get("/articles", admin=False))
-    mvp_art = next(a for a in arts if a["articleType"] == "MONTHLY_MVP")
-    assert "이달의 MVP" in mvp_art["tags"] and mvp_art["sessionId"] == s2
-    detail = api.ok(api.get(f"/articles/{mvp_art['articleId']}", admin=False))
-    text = f"{detail['title']}\n{detail['summary']}\n{detail['content']}"
-    names = {m["memberId"]: m["name"] for m in api.ok(api.get("/members"))}
-    assert all(names[t.member_id] in detail["title"] for t in titles)
-    assert f"{best:.1f}%" in text and "특히 많이 오른 경기" in text and "가장 크게 오른 날" in text
-    assert "레이팅" not in text and "rating" not in text.lower()
-    with SessionLocal() as s:
-        payload = json.dumps(s.get(AiArticle, mvp_art["articleId"]).request_json, ensure_ascii=False)
-    for mid in ids:
-        for h in api.rating_history_db(mid):  # 점수(예: 1010.3)는 AI 입력에도 넣지 않음
-            assert f"{h['after']:.1f}" not in payload and f"{h['before']:.2f}" not in payload
-    assert "bestMatches" in payload and "runnersUp" in payload
-
-    # 수상 내역(공개)에 표시
-    awards = api.ok(api.get("/titles/awards", admin=False))
-    assert {a["titleName"] for a in awards if a["titleCode"] == "MONTHLY_MVP"} == {"이달의 MVP"}
-
-    # 한 달은 한 번만: 다시 돌려도, 관리자가 수여를 취소해도 다시 만들지 않음
-    with SessionLocal() as s:
-        club = get_club_by_slug(s, "mvp")
-        assert mvp_service.close_due_month(s, club) == []
-    api.ok(api.post(f"/titles/awards/{t0.member_title_id}/cancel"))
-    with SessionLocal() as s:
-        club = get_club_by_slug(s, "mvp")
-        assert mvp_service.close_due_month(s, club) == []
+    assert not [a for a in api.ok(api.get("/titles/awards")) if a["titleCode"] == "MONTHLY_MVP"]
+    assert not [a for a in api.ok(api.get("/articles")) if a["articleType"] == "MONTHLY_MVP"]
+    # 순위 자격(일정 2회)을 충족하지 않은 선수도 관리자가 선정할 수 있다.
+    result = api.ok(api.post(f"/members/{ids[5]}/monthly-mvp", {"month": month.strftime("%Y-%m")}))
+    assert result["winners"] == [{"memberId": ids[5], "name": "정우성"}]
+    article = api.ok(api.get(f"/articles/{result['articleId']}", admin=False))
+    assert article["sessionId"] is None and article["status"] == "PUBLISHED"
+    assert "정우성" in article["title"] and "관리자" in article["content"]
+    assert "상승률 1위" not in article["content"]
+    awards = [a for a in api.ok(api.get("/titles/awards")) if a["titleCode"] == "MONTHLY_MVP"]
+    assert len(awards) == 1 and awards[0]["memberId"] == ids[5]
+    with SessionLocal() as db:
+        club = get_club_by_slug(db, "mvp")
+        assert mvp_service.close_due_month(db, club) == []
+    assert len([a for a in api.ok(api.get("/titles/awards")) if a["titleCode"] == "MONTHLY_MVP"]) == 1
 
 
 def test_mvp_race_candidates_only_percent(make_club):
