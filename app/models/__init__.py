@@ -26,6 +26,8 @@ from app.models.wire import (
 
 from app.models.user import AppUser, MemberAccountLink, MemberLinkRequest
 
+from app.models.video import MatchVideo
+
 from app.models.comments import apply_comments
 
 apply_comments(Base.metadata)

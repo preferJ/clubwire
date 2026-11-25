@@ -12,6 +12,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    VIDEO_STORAGE_DIR: str = "./uploads/match-videos"
+    VIDEO_MAX_MB: int = Field(default=1024, ge=1, le=10240)
+
     APP_NAME: str = "Clubwire"
     DATABASE_URL: str = "mysql+pymysql://clubwire:clubwire@localhost:3306/clubwire?charset=utf8mb4"
     SQL_ECHO: bool = False

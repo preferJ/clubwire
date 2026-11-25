@@ -1,3 +1,4 @@
+import { MatchVideos } from '../components/MatchVideos'
 import { GameAccessNotice, useSessionAccess } from '../lib/gameAccess'
 // S04 LIVE 관전 + A05 골 기록 · 수정 · 취소(경기 시작 후 확정 전까지 승인된 참석자) + (관리자) A04 경기 진행 · A06 기록 확정/다음 경기
 
@@ -225,6 +226,7 @@ export function MatchPage() {
             {d.status === 'READY' ? '출전 선수 바꾸기' : '출전 명단 수정(결장 · 교체 투입)'}
           </button>
         ) : null}
+        {isAdmin && <MatchVideos key={id} matchId={id} />}
       </main>
 
       {access.canControl && goalTeam ? (

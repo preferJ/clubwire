@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.api import (
     appearance,
+    videos,
     clubs,
     matches,
     members,
@@ -39,6 +40,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 async def lifespan(app: FastAPI):
     if settings.SECRET_KEY == "change-me-in-production" or len(settings.SECRET_KEY) < 32:
         logging.getLogger("clubwire").warning("SECRET_KEY를 32자 이상의 임의 값으로 설정하세요(.env).")
+    from app.services.video_service import recover_interrupted
+    await asyncio.to_thread(recover_interrupted)
     hub.bind_loop(asyncio.get_running_loop())
     tasks = [asyncio.create_task(timer_loop()), asyncio.create_task(monthly_loop())] if settings.ENABLE_BACKGROUND_JOBS else []
     yield
@@ -77,7 +80,7 @@ async def validation_error_handler(request: Request, exc: RequestValidationError
 
 CLUB_PREFIX = "/api/clubs/{club_slug}"  # 클럽(tenant)은 URL로 구분
 for r in (clubs.router, appearance.router, members.router, sessions.router, opponents.router, matches.router, stats.router,
-          titles.router, wire.router, monthly_mvp.router, user_auth.club_router):
+          videos.router, titles.router, wire.router, monthly_mvp.router, user_auth.club_router):
     app.include_router(r, prefix=CLUB_PREFIX)
 app.include_router(ws.router)
 app.include_router(superadmin_auth.router)
