@@ -1,6 +1,6 @@
 """타이틀(이주의 득점왕 / 도움왕, 이달의 MVP …) 정의와 수여 이력. 비활성 타이틀(예: 제거된 주간 MVP)의 지난 이력은 조회에서 제외.
 
-이달의 MVP · 득점왕 · 도움왕(MONTHLY)은 [일정마감]이 아니라 월 마감 때 mvp_service가 집계한다.
+이달의 MVP는 mvp_service에서 관리자가 직접 선정한다. 이달의 득점왕 · 도움왕은 월 마감 때 자동 집계한다.
 연속 참가 10 · 20 · 30 · 40 · 50회는 [일정마감] 때 compute_attendance_titles가 수여한다.
 """
 from datetime import date
@@ -71,6 +71,8 @@ def _period(t: TitleType, d: date) -> tuple[date, date]:
 
 def award_title(db: Session, club_id: int, admin_id: int | None, *, title_code: str, member_id: int,
                 award_date: date | None = None, session_id: int | None = None, note: str | None = None) -> MemberTitle:
+    if title_code == "MONTHLY_MVP":
+        raise BadRequest("선수 상세의 이달의 MVP선정 버튼을 사용하세요.", "USE_MONTHLY_MVP_SELECTION")
     t = db.scalar(select(TitleType).where(TitleType.club_id == club_id, TitleType.title_code == title_code,
                                           TitleType.active_yn.is_(True)))
     if not t:
@@ -102,6 +104,9 @@ def award_title(db: Session, club_id: int, admin_id: int | None, *, title_code: 
 
 
 def cancel_award(db: Session, club_id: int, member_title_id: int) -> MemberTitle:
+    from app.services.mvp_service import withdraw_monthly_articles
+    from app.services.common import lock_club
+    lock_club(db, club_id)
     mt = db.scalar(select(MemberTitle).where(MemberTitle.member_title_id == member_title_id,
                                              MemberTitle.club_id == club_id))
     if not mt:
@@ -110,6 +115,9 @@ def cancel_award(db: Session, club_id: int, member_title_id: int) -> MemberTitle
         raise Conflict("이미 취소된 수여입니다.")
     mt.cancelled_yn = True
     mt.cancelled_at = utcnow()
+    title = db.get(TitleType, mt.title_type_id)
+    if title and title.title_code == "MONTHLY_MVP":
+        withdraw_monthly_articles(db, club_id, mt.period_start.strftime("%Y-%m"))
     db.flush()
     rebuild_member_stats(db, club_id)
     emit(db, club_id, "TITLE_UPDATED", {"memberTitleId": mt.member_title_id})

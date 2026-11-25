@@ -1,3 +1,4 @@
+import { GameAccessNotice, useSessionAccess } from '../lib/gameAccess'
 // S03 일정 상세 (+ 관리자 운영 버튼)
 
 import { useState } from 'react'
@@ -219,6 +220,7 @@ function MemberActions({ d }: { d: SessionDetail }) {
   const { slug } = useClub()
   const nav = useNavigate()
   const [nextOpen, setNextOpen] = useState(false)
+  const access = useSessionAccess(d.sessionId)
   if (d.deletedAt || !['CONFIRMED', 'IN_PROGRESS'].includes(d.status)) return null
   const active = d.matches.find((m) => ['READY', 'RUNNING', 'PAUSED'].includes(m.status))
   const started = d.status === 'IN_PROGRESS'
@@ -226,18 +228,19 @@ function MemberActions({ d }: { d: SessionDetail }) {
     <div className="bar-actions">
       {active ? (
         <button type="button" className="btn dark lg block" onClick={() => nav(`/c/${slug}/matches/${active.matchId}`)}>
-          {active.gameNo}경기 {active.status !== 'READY' ? '진행 화면으로' : started ? '시작하러 가기' : '화면 보기'}
+          {active.gameNo}경기 {active.status !== 'READY' ? '진행 화면으로' : started && access.canControl ? '시작하러 가기' : '화면 보기'}
         </button>
-      ) : started ? (
+      ) : started && access.canControl ? (
         <button type="button" className="btn primary lg block" onClick={() => setNextOpen(true)}>
           <Icon name="plus" size={18} stroke={2} />다음 경기 만들기
         </button>
       ) : null}
+      <GameAccessNotice access={access} />
       <p className="small muted center">
-        {started ? '골 기록 · 일시정지 · 종료 · 다음 경기는 누구나 할 수 있어요. 기록 확정과 일정마감은 관리자가 해요.'
-          : '첫 경기는 관리자가 시작해요. 그 뒤로는 누구나 경기를 진행하고 다음 경기를 만들 수 있어요.'}
+        {started ? '계정 연결이 승인된 참석자는 골 기록 · 일시정지 · 종료 · 다음 경기를 진행할 수 있어요. 기록 확정과 일정마감은 관리자가 해요.'
+          : '첫 경기는 관리자가 시작해요. 그 뒤로는 계정 연결이 승인된 참석자가 다음 경기를 진행할 수 있어요.'}
       </p>
-      {started ? <NextMatchSheet sessionId={d.sessionId} open={nextOpen} onClose={() => setNextOpen(false)} /> : null}
+      {started && access.canControl ? <NextMatchSheet sessionId={d.sessionId} open={nextOpen} onClose={() => setNextOpen(false)} /> : null}
     </div>
   )
 }

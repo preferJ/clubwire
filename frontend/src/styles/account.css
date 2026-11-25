@@ -1,0 +1,11 @@
+.account-page h2 { font-size: 18px; font-weight: 700; overflow-wrap: anywhere; }
+.account-intro { gap: 14px; }
+.account-intro > p { line-height: 1.65; }
+.account-user { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.account-user > div { min-width: 0; }
+.account-tag { align-self: flex-start; }
+.account-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.account-identity { display: flex; flex-direction: column; gap: 3px; min-width: 0; overflow-wrap: anywhere; }
+.account-admin-card { gap: 12px; }
+.kakao-login { min-height: 48px; background: #fee500; border-color: #fee500; color: #191919; gap: 8px; }
+.kakao-login:hover { color: #191919; background: #f5dc00; }

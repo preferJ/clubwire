@@ -136,20 +136,22 @@ function pickCurrentSession(list: SessionListItem[]): SessionListItem | null {
   return open[0] ?? null
 }
 
-/** 일정 기사와 운영진 공지(최신 게시 순). 일정이 없어도 테스트 안내 등은 표시한다. */
+/** 일정 기사 · 운영진 공지 · 월간 MVP 발표(최신 게시 순). 월간 발표는 일정 없이도 표시한다. */
 async function loadWireArticles(api: Api, sessionIds: number[]): Promise<Article[]> {
-  const [notices, ...lists] = await Promise.all([
+  const [notices, mvps, ...lists] = await Promise.all([
     api.articles({ tag: '공지', limit: 10 }),
+    api.articles({ tag: '이달의 MVP', limit: 10 }),
     ...sessionIds.map((sessionId) => api.articles({ sessionId, limit: 10 })),
   ])
-  const articles = [...notices.filter((a) => a.articleType === 'NOTICE'), ...lists.flat()]
+  const articles = [...notices.filter((a) => a.articleType === 'NOTICE'),
+    ...mvps.filter((a) => a.articleType === 'MONTHLY_MVP'), ...lists.flat()]
   return [...new Map(articles.map((a) => [a.articleId, a])).values()]
     .sort((a, b) => (b.publishedAt ?? '').localeCompare(a.publishedAt ?? '') || b.articleId - a.articleId)
 }
 
 function wireArticleDate(a: Article): string | null {
   if (a.sessionDate) return a.sessionDate
-  if (a.articleType !== 'NOTICE') return null
+  if (a.articleType !== 'NOTICE' && a.articleType !== 'MONTHLY_MVP') return null
   const d = new Date(a.publishedAt ?? a.createdAt)
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
@@ -355,8 +357,8 @@ function MvpStrip({ slug, race }: { slug: string; race?: MvpRace | null }) {
   const value = (c: MvpCandidate) => (byPoints ? fmtPoints(c.points) : fmtRise(c.risePercent))
   const detail = (c: MvpCandidate) => (byPoints ? ` 승점 ${c.winPoints} (${c.wins}승 ${c.draws}무 ${c.losses}패)` : '')
   const rule = byPoints
-    ? `이번 달 일정 ${race.minSessions}회 이상 나온 선수 중 월간 승점(승 3 · 무 1, 원정 제외) × 실력 점수 배율 순, 다음 달 1일 확정`
-    : `이번 달 일정 ${race.minSessions}회 이상 나온 선수 중 실력 점수 상승률 순, 다음 달 1일 확정`
+    ? `이번 달 일정 ${race.minSessions}회 이상 나온 선수 중 월간 승점(승 3 · 무 1, 원정 제외) × 실력 점수 배율 순. 이달의 MVP는 관리자가 직접 선정합니다.`
+    : `이번 달 일정 ${race.minSessions}회 이상 나온 선수 중 실력 점수 상승률 순. 이달의 MVP는 관리자가 직접 선정합니다.`
   return (
     <Link to={`/c/${slug}/records?${new URLSearchParams({ tab: 'articles', tag: '이달의 MVP' })}`}
       className="mvp-strip" aria-label={`${month}월 MVP 후보 · 기록 · 기사 · 이달의 MVP 보기`} title={rule}>
@@ -374,7 +376,7 @@ function MvpStrip({ slug, race }: { slug: string; race?: MvpRace | null }) {
           </span>
         ) : <span className="muted">후보 아직 없음</span>}
       </div>
-      <small className="mvp-rule">{byPoints ? 'MVP선정기준 : 월간 승점(승 3 · 무 1) × 실력지표 변화 배율' : 'MVP선정기준 : 매월 실력지표 상승폭 순위'}</small>
+      <small className="mvp-rule">{byPoints ? '순위 기준 : 월간 승점(승 3 · 무 1) × 실력지표 변화 배율' : '순위 기준 : 매월 실력지표 상승폭'} · MVP는 관리자 선정</small>
     </Link>
   )
 }

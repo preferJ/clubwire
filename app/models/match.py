@@ -100,3 +100,4 @@ class MatchEvent(CreatedAtMixin, Base):
     idempotency_key: Mapped[str | None] = mapped_column("IDEMPOTENCY_KEY", String(64))
     memo: Mapped[str | None] = mapped_column("MEMO", String(200))
     admin_id: Mapped[int | None] = mapped_column("ADMIN_ID", ForeignKey("CLUB_ADMIN.ADMIN_ID"))
+    user_id: Mapped[int | None] = mapped_column("USER_ID", ForeignKey("APP_USER.USER_ID"))

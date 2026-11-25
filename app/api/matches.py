@@ -1,11 +1,11 @@
 """경기 진행(LIVE). 조회는 공개.
 
 쓰기 권한(DECISIONS 3-16 · 3-21):
-- 누구나(일반 회원 포함): 골 · 도움 등록 · 수정 · 취소(시작 후 확정 전), 일시정지 · 재개 · 경기 종료,
+- 관리자 또는 계정 연결이 승인된 일정 참석자: 골 · 도움 등록 · 수정 · 취소(시작 후 확정 전), 일시정지 · 재개 · 경기 종료,
   다음 경기 만들기 · 시작(관리자가 첫 경기를 시작한 뒤), 시작 전 경기 취소
 - 관리자만: 첫 경기 시작, 시작한 경기 취소, 기록 확정 · 확정 해제, 출전 명단 추가 · 제외
 """
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.api.deps import admin_dep, club_dep, optional_admin
@@ -15,6 +15,7 @@ from app.models import Club
 from app.models.enums import GameStatus
 from app.schemas.requests import EventCancelRequest, GoalEditRequest, GoalRequest, MatchMemberRequest, NextMatchRequest
 from app.services import match_service
+from app.services.game_access import authorize_game_control, session_access
 from app.services.common import get_match
 from app.services.match_service import match_detail, match_state
 
@@ -23,15 +24,17 @@ router = APIRouter(tags=["matches"])
 
 @router.get("/sessions/{session_id}/matches/next-suggestion",
             summary="다음 경기 대진 화면용: 팀별 경기 수 + 추천 대진. 일반 회원은 첫 경기 시작 뒤부터")
-def next_suggestion(session_id: int, club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depends(optional_admin),
+def next_suggestion(session_id: int, request: Request, club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depends(optional_admin),
                     db: Session = Depends(get_db)):
+    authorize_game_control(db, club, request, admin, session_id=session_id)
     return match_service.next_suggestion(db, club.club_id, session_id, by_member=admin is None)
 
 
 @router.post("/sessions/{session_id}/matches/next", status_code=201,
              summary="다음 경기 생성(READY). 두 팀은 만드는 사람이 지정. 일반 회원은 첫 경기 시작 뒤부터(403 FIRST_MATCH_ADMIN_ONLY)")
-def create_next(session_id: int, body: NextMatchRequest, club: Club = Depends(club_dep),
+def create_next(session_id: int, body: NextMatchRequest, request: Request, club: Club = Depends(club_dep),
                 admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+    authorize_game_control(db, club, request, admin, session_id=session_id)
     m = match_service.create_next_match(db, club.club_id, session_id, admin.admin_id if admin else None,
                                         team_a_id=body.team_a_id, team_b_id=body.team_b_id,
                                         duration_sec=body.duration_sec, member_ids=body.member_ids,
@@ -63,9 +66,10 @@ def _action(fn):
 
 
 def _open_action(fn, *, member_rule: bool = False):
-    """누구나 할 수 있는 경기 조작. member_rule = 일반 회원에게 추가 조건이 있음(서비스의 by_member 검사)."""
-    def handler(match_id: int, club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depends(optional_admin),
+    """승인된 참석자 할 수 있는 경기 조작. member_rule = 일반 회원에게 추가 조건이 있음(서비스의 by_member 검사)."""
+    def handler(match_id: int, request: Request, club: Club = Depends(club_dep), admin: AdminPrincipal | None = Depends(optional_admin),
                 db: Session = Depends(get_db)):
+        authorize_game_control(db, club, request, admin, match_id=match_id)
         admin_id = admin.admin_id if admin else None
         m = (fn(db, club.club_id, match_id, admin_id, by_member=admin is None) if member_rule
              else fn(db, club.club_id, match_id, admin_id))
@@ -75,15 +79,15 @@ def _open_action(fn, *, member_rule: bool = False):
 
 router.add_api_route("/matches/{match_id}/start", _open_action(match_service.start_match, member_rule=True),
                      methods=["POST"],
-                     summary="경기 시작(출전 명단/전력 Snapshot 생성). 첫 경기는 관리자, 그 뒤 경기는 누구나")
+                     summary="경기 시작(출전 명단/전력 Snapshot 생성). 첫 경기는 관리자, 그 뒤 경기는 승인된 참석자")
 router.add_api_route("/matches/{match_id}/pause", _open_action(match_service.pause_match), methods=["POST"],
-                     summary="일시정지(누구나)")
+                     summary="일시정지(승인된 참석자)")
 router.add_api_route("/matches/{match_id}/resume", _open_action(match_service.resume_match), methods=["POST"],
-                     summary="재개(누구나)")
+                     summary="재개(승인된 참석자)")
 router.add_api_route("/matches/{match_id}/end", _open_action(match_service.end_match), methods=["POST"],
-                     summary="경기 종료(누구나). 기록 확정은 관리자 또는 [일정마감] 때 자동")
+                     summary="경기 종료(승인된 참석자). 기록 확정은 관리자 또는 [일정마감] 때 자동")
 router.add_api_route("/matches/{match_id}/cancel", _open_action(match_service.cancel_match, member_rule=True),
-                     methods=["POST"], summary="경기 취소. 시작 전 경기는 누구나, 시작한 경기는 관리자")
+                     methods=["POST"], summary="경기 취소. 시작 전 경기는 승인된 참석자, 시작한 경기는 관리자")
 router.add_api_route("/matches/{match_id}/finalize", _action(match_service.finalize_match), methods=["POST"],
                      summary="기록 확정 → Rating/Stats/Pair 반영(중복 호출 409)")
 router.add_api_route("/matches/{match_id}/unfinalize", _action(match_service.unfinalize_match), methods=["POST"],
@@ -91,9 +95,10 @@ router.add_api_route("/matches/{match_id}/unfinalize", _action(match_service.unf
 
 
 @router.post("/matches/{match_id}/goals",
-             summary="골 등록(+점수 동시 반영, 멱등키 지원). 경기 시작 후 확정 전까지 누구나")
-def add_goal(match_id: int, body: GoalRequest, club: Club = Depends(club_dep),
+             summary="골 등록(+점수 동시 반영, 멱등키 지원). 경기 시작 후 확정 전까지 승인된 참석자")
+def add_goal(match_id: int, body: GoalRequest, request: Request, club: Club = Depends(club_dep),
              admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+    authorize_game_control(db, club, request, admin, match_id=match_id)
     e, m, created = match_service.add_goal(
         db, club.club_id, match_id, admin.admin_id if admin else None, team_id=body.team_id,
         scorer_member_id=body.scorer_member_id, assist_member_id=body.assist_member_id, own_goal=body.own_goal,
@@ -104,9 +109,10 @@ def add_goal(match_id: int, body: GoalRequest, club: Club = Depends(club_dep),
 
 
 @router.patch("/matches/{match_id}/events/{event_id}",
-              summary="골 수정(기존 골은 취소 표시, 고친 골을 새로 기록 + 점수 동시 반영). 확정 전까지 누구나")
-def edit_goal(match_id: int, event_id: int, body: GoalEditRequest, club: Club = Depends(club_dep),
+              summary="골 수정(기존 골은 취소 표시, 고친 골을 새로 기록 + 점수 동시 반영). 확정 전까지 승인된 참석자")
+def edit_goal(match_id: int, event_id: int, body: GoalEditRequest, request: Request, club: Club = Depends(club_dep),
               admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+    authorize_game_control(db, club, request, admin, match_id=match_id)
     e, m, changed = match_service.edit_goal(
         db, club.club_id, match_id, event_id, admin.admin_id if admin else None, team_id=body.team_id,
         scorer_member_id=body.scorer_member_id, assist_member_id=body.assist_member_id, own_goal=body.own_goal,
@@ -116,9 +122,10 @@ def edit_goal(match_id: int, event_id: int, body: GoalEditRequest, club: Club = 
 
 
 @router.post("/matches/{match_id}/events/{event_id}/cancel",
-             summary="골 취소(삭제하지 않고 취소 이벤트 기록). 확정 전까지 누구나")
-def cancel_goal(match_id: int, event_id: int, body: EventCancelRequest | None = None, club: Club = Depends(club_dep),
+             summary="골 취소(삭제하지 않고 취소 이벤트 기록). 확정 전까지 승인된 참석자")
+def cancel_goal(match_id: int, event_id: int, request: Request, body: EventCancelRequest | None = None, club: Club = Depends(club_dep),
                 admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+    authorize_game_control(db, club, request, admin, match_id=match_id)
     rev, m = match_service.cancel_goal(db, club.club_id, match_id, event_id, admin.admin_id if admin else None,
                                        body.memo if body else None)
     return {"eventId": rev.event_id, "match": match_state(db, m)}
@@ -138,3 +145,9 @@ def remove_match_member(match_id: int, member_id: int, club: Club = Depends(club
     match_service.remove_match_member(db, club.club_id, match_id, member_id, admin.admin_id)
     m, _ = get_match(db, club.club_id, match_id)
     return match_detail(db, m)
+
+
+@router.get("/sessions/{session_id}/access", summary="현재 사용자의 일정 경기 조작 권한")
+def get_session_access(session_id: int, request: Request, club: Club = Depends(club_dep),
+                       admin: AdminPrincipal | None = Depends(optional_admin), db: Session = Depends(get_db)):
+    return session_access(db, club, session_id, request, admin)

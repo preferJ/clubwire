@@ -253,3 +253,9 @@ python -m scripts.init_local_env
 ```
 
 생성한 `.env`의 `OPENAI_API_KEY=`에 발급받은 키를 넣고 `AI_PROVIDER=auto`를 유지한다. `DATABASE_URL`의 DB명·계정이 로컬 MySQL과 일치하는지 확인한 뒤 백엔드를 완전히 다시 시작한다. `.env`는 프로젝트 루트(`.env.example`과 같은 위치)에 두며 `frontend` 폴더에는 넣지 않는다.
+
+### MVP 수동 선정 및 카카오 로그인
+
+월간 MVP 순위는 유지하며, 선수 상세의 **이달의 MVP선정** 버튼으로 관리자가 수상자와 발표 기사를 확정합니다. [MVP 사용 안내](docs/MANUAL_MVP.md)를 참고하세요.
+
+카카오 로그인 후 사용자가 기존 선수를 선택하고 관리자가 연결을 승인합니다. 승인된 해당 일정 참석자만 경기 조작이 가능합니다. 적용 시 `alembic upgrade head`와 프론트 빌드가 필요하며, 앱 키 및 Redirect URI 설정은 [카카오 로그인 설정](docs/KAKAO_LOGIN.md)을 참고하세요.

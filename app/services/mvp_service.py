@@ -1,4 +1,4 @@
-"""이달의 MVP: 월 마감 때 자동 선정.
+"""이달의 MVP: 순위는 참고용으로 표시하고 관리자가 직접 선정한다.
 
 [2026-11부터: 월간 포인트제]
 - 최종 포인트 = 월간 승점 × 실력 점수 배율
@@ -7,18 +7,18 @@
   · 포인트는 소수 둘째 자리까지(반올림). 예: 10승(30점) × 1.01 = 30.3
 - 후보 자격: 그 달 출전 일정 수 >= MONTHLY_MVP_MIN_SESSIONS(기본 2) 이고 승점 1점 이상
 - 포인트가 같으면: ① 그 달 이전 MVP 수상 횟수가 적은 선수 → ② 그 달 득점 → ③ 그 달 도움
-  → ④ 나이가 어린 선수(출생연도. 동점자 중 한 명이라도 비어 있거나 같으면 건너뜀) → ⑤ 공동 수상
+  → ④ 나이가 어린 선수(출생연도. 동점자 중 한 명이라도 비어 있거나 같으면 건너뜀) → ⑤ 공동 순위
 - 화면·API·기사에는 포인트 · 승점 · 배율만 내보내고 점수 자체는 내보내지 않는다(Rating은 DB에서만).
 
-[2026-10까지: 실력 점수 상승률] — 아직 마감하지 않은 지난 달에만 쓰는 이전 방식(이미 발표한 MVP는 다시 계산하지 않는다)
+[2026-10까지: 실력 점수 상승률] — 과거 순위 조회 방식(이미 발표한 MVP는 보존한다)
 - 상승률 = (그 달 마지막 경기 후 점수 - 그 달 첫 경기 전 점수) ÷ 첫 경기 전 점수 × 100
   점수는 PLAYER_RATING_HISTORY(무효 처리 안 된 경기 이력)에서 읽는다.
 - 후보 자격: 그 달 출전 일정 수 >= MONTHLY_MVP_MIN_SESSIONS(기본 2) 이고 상승률 > 0
 
 [공통]
-- 월 마감: 클럽 현지 날짜로 다음 달이 되고, 그 달 일정이 모두 마감/취소되면
-  → MEMBER_TITLE(이달의 MVP) 수여 + MONTHLY_MVP 기사 작성(게시 설정과 상관없이 바로 게시)
-- 한 달은 한 번만 마감한다(수여 이력이 있으면 관리자가 취소한 것이라도 다시 만들지 않음).
+- MVP 수상자는 관리자가 직접 선정한다. 현재/이전 월의 선수 1명을 선택하면 타이틀과 발표 기사를 만든다.
+- 순위 자격은 관리자 선정의 제한이 아니다. 기존 수상 변경은 명시적 확인 후 이력을 보존하고 대체한다.
+- 월 마감은 득점왕 · 도움왕만 자동 수여하며 MVP나 발표 기사를 생성하지 않는다.
 - 이달의 득점왕 · 도움왕(2026-10-23): 같은 월 마감 때 그 달 확정 경기 골 · 도움 1위(동점 공동, 0개면 없음).
   타이틀 종류마다 따로 '이미 수여했는지' 보므로, 배포 전에 MVP만 발표된 달도 득점왕 · 도움왕은 채워진다.
 """
@@ -31,7 +31,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import emit
-from app.core.timeutil import local_today, month_range, prev_month_start
+from app.core.errors import BadRequest, Conflict
+from app.core.timeutil import local_today, month_range, prev_month_start, utcnow
 from app.models import (
     AiArticle,
     Club,
@@ -44,6 +45,7 @@ from app.models import (
     TitleType,
 )
 from app.models.enums import (
+    ArticleStatus,
     ArticleType,
     AwardMethod,
     ReferenceType,
@@ -51,7 +53,7 @@ from app.models.enums import (
     TitleAutoRule,
     TitlePeriodType,
 )
-from app.services.common import deleted_member_ids, lock_club, member_names
+from app.services.common import deleted_member_ids, get_member, lock_club, member_names
 from app.services.config_service import load_config
 from app.services.history import load_history, member_totals
 from app.services.stats_service import rebuild_member_stats
@@ -350,8 +352,10 @@ def _last_month(db: Session, club_id: int, month_start: date) -> dict | None:
         return None
     names = member_names(db, [x.member_id for x in titles])
     article_id = db.scalar(select(AiArticle.article_id).where(
-        AiArticle.club_id == club_id, AiArticle.session_id == titles[0].session_id,
-        AiArticle.article_type == ArticleType.MONTHLY_MVP, AiArticle.published_yn.is_(True)))
+        AiArticle.club_id == club_id,
+        AiArticle.request_json["month"].as_string() == month_start.strftime("%Y-%m"),
+        AiArticle.article_type == ArticleType.MONTHLY_MVP, AiArticle.published_yn.is_(True))
+        .order_by(AiArticle.article_id.desc()).limit(1))
     return {"month": month_start.strftime("%Y-%m"), "articleId": article_id,
             "winners": [{"memberId": x.member_id, "name": names.get(x.member_id), **_award_value(x.facts_json)}
                         for x in titles]}
@@ -367,7 +371,7 @@ def _award_value(facts: dict | None) -> dict:
 
 # ------------------------------------------------------------------ 월 마감
 def close_due_month(db: Session, club: Club, today: date | None = None) -> list[int]:
-    """지난달 마감이 가능하면 마감한다. 반환: 새로 만든 기사 ID(호출 측이 생성 실행)."""
+    """지난달 득점왕 · 도움왕을 마감한다. 기사 생성 없이 빈 배열을 반환한다."""
     today = today or local_today(club.timezone)
     return close_month(db, club, prev_month_start(today))
 
@@ -375,7 +379,6 @@ def close_due_month(db: Session, club: Club, today: date | None = None) -> list[
 def close_month(db: Session, club: Club, month_start: date) -> list[int]:
     start, end = month_range(month_start)
     lock_club(db, club.club_id)
-    mvp_t = _mvp_type(db, club.club_id, create=True)
     stat_ts = [(_monthly_type(db, club.club_id, code, name, rule, order, create=True), metric)
                for code, name, rule, metric, order in MONTHLY_STAT_TITLES]
 
@@ -384,16 +387,15 @@ def close_month(db: Session, club: Club, month_start: date) -> list[int]:
             MemberTitle.title_type_id == t.title_type_id, MemberTitle.period_start == start).limit(1)) is None
 
     stat_ts = [(t, m) for t, m in stat_ts if todo(t)]
-    mvp_t = mvp_t if todo(mvp_t) else None
     sessions = list(db.scalars(select(ClubSession).where(
         ClubSession.club_id == club.club_id, ClubSession.session_date.between(start, end),
         ClubSession.away_yn.is_(False),  # 원정 경기는 이달의 MVP · 득점왕 · 도움왕과 무관
         ClubSession.status != SessionStatus.CANCELLED).order_by(ClubSession.session_date, ClubSession.session_id)))
     # 할 일 없음 / 일정 없음 / 아직 안 끝난 일정이 있음 → 다음에 다시 확인
-    if not (mvp_t or stat_ts) or not sessions or any(s.status != SessionStatus.CLOSED for s in sessions):
+    if not stat_ts or not sessions or any(s.status != SessionStatus.CLOSED for s in sessions):
         db.commit()  # 타이틀 정의를 새로 만들었으면 저장
         return []
-    anchor = sessions[-1]  # 타이틀 · 기사는 그 달 마지막 일정에 붙인다(와이어 · 기록 탭 일정별 묶음에 그대로 들어감)
+    anchor = sessions[-1]  # 월간 득점왕 · 도움왕 타이틀은 해당 월의 마지막 일정에 연결한다.
 
     # 이달의 득점왕 · 도움왕: 그 달 확정 경기 골 · 도움 1위(동점 공동)
     totals = member_totals(load_history(db, club.club_id, session_ids=[x.session_id for x in sessions]))
@@ -409,38 +411,13 @@ def close_month(db: Session, club: Club, month_start: date) -> list[int]:
                                facts_json={"metric": metric, "value": best, "tied": len(top) > 1}))
         awarded += len(top)
 
-    # 이달의 MVP: 2026-11부터 월간 포인트 1위(동점 규칙 적용), 그 전 달은 실력 점수 상승률 1위
-    min_sessions = int(load_config(db, club.club_id)["MONTHLY_MVP_MIN_SESSIONS"])
-    by_points = uses_points(start)
-    ranked_points = points_ranking(db, club.club_id, start, end, min_sessions) if mvp_t and by_points else []
-    ranked = ranking(db, club.club_id, start, end, min_sessions) if mvp_t and not by_points else []
-    if by_points:
-        winners = [p for rank, p in ranked_points if rank == 1]
-        award_facts = {p.member_id: {"metric": "mvpPoints", "value": p.points, "tied": len(winners) > 1, **p.facts(),
-                                     "goals": p.goals, "assists": p.assists} for p in winners}
-    else:
-        winners = [r for r in ranked if r.percent == ranked[0].percent] if ranked else []
-        award_facts = {r.member_id: {"metric": "risePercent", "value": r.percent, "tied": len(winners) > 1,
-                                     "sessions": r.sessions, "games": r.games} for r in winners}
-    for mid, facts_json in award_facts.items():
-        db.add(MemberTitle(club_id=club.club_id, title_type_id=mvp_t.title_type_id, member_id=mid,
-                           period_start=start, period_end=end, session_id=anchor.session_id,
-                           award_method=AwardMethod.AUTO, facts_json=facts_json))
-    if not awarded and not winners:
-        db.commit()
-        return []
-    db.flush()
-    rebuild_member_stats(db, club.club_id)
-    article_ids: list[int] = []
-    if winners:  # 발표 기사는 MVP가 나온 달만(득점왕 · 도움왕은 기사 마지막 문단에)
-        facts = (monthly_points_facts(db, club.club_id, ranked_points, min_sessions) if by_points
-                 else monthly_facts(db, club.club_id, start, end, ranked, min_sessions))
-        facts["monthlyTitles"] = monthly_titles(db, club.club_id, start)
-        context = {"month": start.strftime("%Y-%m"), "monthLabel": f"{start.month}월", "monthlyMvp": facts}
-        article_ids.append(create_article(db, club, anchor, ArticleType.MONTHLY_MVP, [], context).article_id)
-    emit(db, club.club_id, "TITLE_UPDATED", {"month": start.strftime("%Y-%m")})
+    # MVP는 관리자가 선수 상세에서 직접 선정한다. 순위/월 마감은 수상자를 만들지 않는다.
+    if awarded:
+        db.flush()
+        rebuild_member_stats(db, club.club_id)
+        emit(db, club.club_id, "TITLE_UPDATED", {"month": start.strftime("%Y-%m")})
     db.commit()
-    return article_ids
+    return []
 
 
 def monthly_titles(db: Session, club_id: int, month_start: date) -> list[dict]:
@@ -565,3 +542,99 @@ def _match_fact(rec, member_id: int, step: _Step, team_codes: dict[int, str]) ->
                  "score": f"{mine} : {theirs}", "goals": rec.member_goals(member_id),
                  "assists": rec.member_assists(member_id)})
     return fact
+
+
+# ------------------------------------------------------------------ 관리자 직접 선정
+
+def selection_month(club: Club, month: str) -> date:
+    try:
+        start = date.fromisoformat(month + "-01")
+    except (TypeError, ValueError):
+        raise BadRequest("선정 월은 YYYY-MM 형식이어야 합니다.", "INVALID_MVP_MONTH") from None
+    if len(month) != 7 or start.strftime("%Y-%m") != month:
+        raise BadRequest("선정 월은 YYYY-MM 형식이어야 합니다.", "INVALID_MVP_MONTH")
+    if start > local_today(club.timezone).replace(day=1):
+        raise BadRequest("미래 월의 MVP는 선정할 수 없습니다.", "FUTURE_MVP_MONTH")
+    return start
+
+
+def monthly_selection(db: Session, club: Club, month: str) -> dict:
+    start = selection_month(club, month)
+    t = _mvp_type(db, club.club_id)
+    awards = list(db.scalars(select(MemberTitle).where(
+        MemberTitle.club_id == club.club_id, MemberTitle.title_type_id == t.title_type_id,
+        MemberTitle.period_start == start, MemberTitle.cancelled_yn.is_(False))
+        .order_by(MemberTitle.member_title_id))) if t else []
+    names = member_names(db, [a.member_id for a in awards])
+    article = db.scalar(select(AiArticle).where(
+        AiArticle.club_id == club.club_id, AiArticle.article_type == ArticleType.MONTHLY_MVP,
+        AiArticle.request_json["month"].as_string() == month,
+        AiArticle.status != ArticleStatus.SUPERSEDED).order_by(AiArticle.article_id.desc()).limit(1)) if awards else None
+    return {"month": month, "winners": [{"memberId": a.member_id, "name": names.get(a.member_id)} for a in awards],
+            "articleId": article.article_id if article else None, "articleStatus": article.status if article else None}
+
+
+def withdraw_monthly_articles(db: Session, club_id: int, month: str) -> None:
+    """발표 기록은 보존하고 같은 월의 기존 기사/생성 대기본을 내린다. 호출 측이 클럽 잠금."""
+    for article in db.scalars(select(AiArticle).where(
+            AiArticle.club_id == club_id, AiArticle.article_type == ArticleType.MONTHLY_MVP,
+            AiArticle.request_json["month"].as_string() == month)):
+        article.published_yn = False
+        article.status = ArticleStatus.SUPERSEDED
+        emit(db, club_id, "ARTICLE_UPDATED", {"articleId": article.article_id, "status": article.status})
+
+
+def select_monthly_mvp(db: Session, club: Club, member_id: int, month: str, admin_id: int, *, replace: bool = False) -> dict:
+    """월 순위와 무관하게 1명을 선정하고 발표 기사 생성을 예약한다. 같은 선수 재요청은 멱등."""
+    start = selection_month(club, month)
+    _, end = month_range(start)
+    lock_club(db, club.club_id)
+    member = get_member(db, club.club_id, member_id, include_deleted=False)
+    t = _mvp_type(db, club.club_id, create=True)
+    if t is None:
+        raise Conflict("이달의 MVP 타이틀이 비활성화되어 있습니다.", "MVP_TITLE_DISABLED")
+    existing = list(db.scalars(select(MemberTitle).where(
+        MemberTitle.title_type_id == t.title_type_id, MemberTitle.period_start == start,
+        MemberTitle.cancelled_yn.is_(False))))
+    if len(existing) == 1 and existing[0].member_id == member_id:
+        result = monthly_selection(db, club, month)
+        db.commit()
+        return {**result, "changed": False}
+    if existing and not replace:
+        raise Conflict("이미 선정된 MVP가 있습니다. 변경을 확인한 뒤 다시 선정해 주세요.", "MVP_REPLACE_REQUIRED")
+
+    for old in existing:
+        old.cancelled_yn = True
+        old.cancelled_at = utcnow()
+    withdraw_monthly_articles(db, club.club_id, month)
+    t.award_method = AwardMethod.MANUAL
+    t.auto_rule = None
+    # 해당 선수의 확정된 내부 경기만 사실로 제공한다. 순위 자격 미달/기록 없음도 선정 가능.
+    p = month_points(db, club.club_id, start, end).get(member_id)
+    winner = {"memberId": member_id, "name": member.name,
+              **(p.facts() if p else {"points": 0.0, "winPoints": 0, "ratio": 1.0, "wins": 0, "draws": 0,
+                                    "losses": 0, "sessions": 0, "games": 0}),
+              "goals": p.goals if p else 0, "assists": p.assists if p else 0}
+    anchor = db.scalar(select(ClubSession).where(
+        ClubSession.club_id == club.club_id, ClubSession.session_date.between(start, end),
+        ClubSession.deleted_at.is_(None), ClubSession.away_yn.is_(False),
+        ClubSession.status != SessionStatus.CANCELLED)
+        .order_by(ClubSession.session_date.desc(), ClubSession.session_id.desc()).limit(1))
+    award = MemberTitle(club_id=club.club_id, title_type_id=t.title_type_id, member_id=member_id,
+                        period_start=start, period_end=end, session_id=anchor.session_id if anchor else None,
+                        award_method=AwardMethod.MANUAL, admin_id=admin_id,
+                        facts_json={"metric": "mvpPoints", "value": winner["points"], "tied": False,
+                                    "selection": "manual", **winner})
+    db.add(award)
+    db.flush()
+    facts = {"basis": "points", "selection": "manual", "selectionAwardId": award.member_title_id,
+             "winners": [winner], "runnersUp": [], "tiebreak": None,
+             "rule": "월간 순위는 참고 자료이며, 이달의 MVP는 관리자가 직접 선정한다.",
+             "monthlyTitles": monthly_titles(db, club.club_id, start)}
+    article = create_article(db, club, None, ArticleType.MONTHLY_MVP, [],
+                             {"month": month, "monthLabel": f"{start.month}월", "monthlyMvp": facts})
+    rebuild_member_stats(db, club.club_id)
+    emit(db, club.club_id, "TITLE_UPDATED", {"month": month, "memberTitleId": award.member_title_id})
+    db.commit()
+    return {"month": month, "winners": [{"memberId": member_id, "name": member.name}],
+            "articleId": article.article_id, "articleStatus": article.status, "changed": True}

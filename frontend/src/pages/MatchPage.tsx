@@ -1,4 +1,5 @@
-// S04 LIVE 관전 + A05 골 기록 · 수정 · 취소(경기 시작 후 확정 전까지 누구나) + (관리자) A04 경기 진행 · A06 기록 확정/다음 경기
+import { GameAccessNotice, useSessionAccess } from '../lib/gameAccess'
+// S04 LIVE 관전 + A05 골 기록 · 수정 · 취소(경기 시작 후 확정 전까지 승인된 참석자) + (관리자) A04 경기 진행 · A06 기록 확정/다음 경기
 
 import { useEffect, useMemo, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
@@ -34,6 +35,7 @@ export function MatchPage() {
 
   const d = detail.data
   const clock = useMatchClock(d)
+  const access = useSessionAccess(d?.sessionId)
 
   const act = async (action: 'start' | 'pause' | 'resume' | 'end' | 'cancel' | 'finalize' | 'unfinalize', ok?: string) => {
     if (action === 'cancel' && !window.confirm('이 경기를 취소할까요?')) return
@@ -46,12 +48,12 @@ export function MatchPage() {
 
   const live = d.status === 'RUNNING' || d.status === 'PAUSED'
   const editable = isAdmin && !d.finalized && d.status !== 'CANCELLED'
-  // 경기 진행(3-21): 일시정지 · 재개 · 종료는 누구나. 경기 시작 · 다음 경기 · 시작 전 취소는
+  // 경기 진행(3-21): 일시정지 · 재개 · 종료는 관리자 또는 승인된 참석자. 경기 시작 · 다음 경기 · 시작 전 취소는
   // 관리자, 또는 관리자가 첫 경기를 시작한 뒤(일정 '진행 중')의 일반 회원. 기록 확정 · 해제는 관리자만
   const sessionLive = d.sessionStatus === 'IN_PROGRESS' || (isAdmin && d.sessionStatus === 'CONFIRMED')
-  const canRun = isAdmin || d.sessionStatus === 'IN_PROGRESS'
-  // 골 · 도움 기록 · 수정 · 취소: 경기가 시작된 뒤 확정 전까지 누구나(회원 아이디가 생기면 좁힐 예정)
-  const goalOpen = (live || d.status === 'FINISHED') && !d.finalized
+  const canRun = access.canControl && (isAdmin || d.sessionStatus === 'IN_PROGRESS')
+  // 골 · 도움 기록 · 수정 · 취소: 경기가 시작된 뒤 확정 전까지 관리자 또는 승인된 참석자
+  const goalOpen = access.canControl && (live || d.status === 'FINISHED') && !d.finalized
   // 수정으로 대체된 골(새 골의 refEventId가 가리키는 골)은 타임라인에서 숨기고, 고친 골에 '수정됨'을 붙인다
   const replaced = new Set(d.events.filter((e) => e.eventType === 'GOAL' && e.refEventId != null).map((e) => e.refEventId))
   const goals = d.events.filter((e) => e.eventType === 'GOAL' && !replaced.has(e.eventId))
@@ -86,7 +88,7 @@ export function MatchPage() {
         </div>
 
         <div className="stack" style={{ alignItems: 'center', gap: 8 }}>
-          {live ? (
+          {live && access.canControl ? (
             <div className="row between" style={{ width: '100%' }}>
               <button type="button" className="night-btn" disabled={busy}
                 onClick={() => act(d.status === 'RUNNING' ? 'pause' : 'resume')}>
@@ -116,10 +118,11 @@ export function MatchPage() {
         {isAdmin ? ''
           : d.status === 'READY' && !canRun ? ' · 첫 경기는 관리자가 시작해요'
             : d.finalized || d.status === 'CANCELLED' ? ' · 확정 · 취소된 경기는 관리자만 고칠 수 있어요'
-              : ' · 골 기록 · 일시정지 · 종료 · 다음 경기는 누구나, 기록 확정은 관리자'}
+              : access.canControl ? ' · 참석자 경기 진행 가능 · 기록 확정은 관리자' : ' · 경기 관람 중'}
       </div>
 
       <main className="page">
+        <GameAccessNotice access={access} />
         {d.status === 'READY' && canRun ? (
           <div className="stack">
             <button type="button" className="btn primary lg block" disabled={busy} onClick={() => act('start', '경기를 시작했어요')}>
@@ -130,10 +133,10 @@ export function MatchPage() {
             </button>
           </div>
         ) : d.status === 'READY' ? (
-          <div className="notice gray">첫 경기는 관리자가 시작해요. 첫 경기가 시작되면 그 뒤로는 누구나 경기를 진행하고 다음 경기를 만들 수 있어요.</div>
+          <div className="notice gray">첫 경기는 관리자가 시작해요. 첫 경기가 시작되면 그 뒤로는 계정 연결이 승인된 일정 참석자가 경기를 진행하고 다음 경기를 만들 수 있어요.</div>
         ) : null}
 
-        {live ? (
+        {live && access.canControl ? (
           <div className="grid2" style={{ gap: 10 }}>
             {[d.teamA, d.teamB].map((t) => (
               <button key={t.sessionTeamId} type="button" className="goal-btn" style={{ background: color(t) }}
@@ -144,7 +147,7 @@ export function MatchPage() {
           </div>
         ) : null}
 
-        {d.status === 'FINISHED' && !d.finalized ? (
+        {d.status === 'FINISHED' && !d.finalized && access.canControl ? (
           <section className="card stack" style={{ gap: 10 }}>
             <div className="row between">
               <b>기록 검토</b>
@@ -224,14 +227,14 @@ export function MatchPage() {
         ) : null}
       </main>
 
-      {goalTeam ? (
+      {access.canControl && goalTeam ? (
         <GoalSheet d={d} teamId={goalTeam} onClose={() => setGoalTeam(null)} onDone={() => { setGoalTeam(null); detail.reload() }} />
       ) : null}
-      {editing ? (
+      {access.canControl && editing ? (
         <GoalSheet d={d} teamId={editing.teamId ?? d.teamA.sessionTeamId} editing={editing} onClose={() => setEditing(null)}
           onDone={() => { setEditing(null); detail.reload() }} />
       ) : null}
-      <NextMatchSheet sessionId={d.sessionId} open={nextOpen} onClose={() => setNextOpen(false)} />
+      <NextMatchSheet sessionId={d.sessionId} open={nextOpen && access.canControl} onClose={() => setNextOpen(false)} />
       {rosterOpen ? <RosterSheet d={d} onClose={() => setRosterOpen(false)} onChanged={detail.reload} /> : null}
     </>
   )

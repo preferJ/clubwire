@@ -26,6 +26,12 @@ class Settings(BaseSettings):
     SUPER_ADMIN_PIN: str = Field(default="7418", min_length=4, max_length=64, repr=False)
     SUPER_ADMIN_TOKEN_TTL_MIN: int = Field(default=120, ge=1)
 
+    # 카카오 REST OAuth. 인증 코드는 서버에서 교환하며 카카오 토큰은 저장하지 않는다.
+    KAKAO_CLIENT_ID: str | None = None
+    KAKAO_CLIENT_SECRET: str | None = Field(default=None, repr=False)
+    KAKAO_REDIRECT_URI: str | None = None
+    USER_TOKEN_TTL_MIN: int = Field(default=10080, ge=5, le=43200)
+
     # OpenAI (키는 서버 환경변수로만 주입한다. 브라우저/레포 금지)
     OPENAI_API_KEY: str | None = None
     AI_PROVIDER: str = "auto"  # auto | openai | template(=stub)  (auto: 키가 있으면 openai, 없으면 기본형 기사)
